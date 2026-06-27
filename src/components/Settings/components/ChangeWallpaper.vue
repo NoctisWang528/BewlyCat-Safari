@@ -1,13 +1,18 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { useToast } from 'vue-toastification'
+
 import { WALLPAPERS } from '~/constants/imgs'
 import { localSettings, settings } from '~/logic'
-import { hasLocalWallpaper, isLocalWallpaperUrl, removeLocalWallpaper, resolveWallpaperUrl, storeLocalWallpaper } from '~/utils/localWallpaper'
+import { hasLocalWallpaper, isLocalWallpaperUrl, removeLocalWallpaper, replaceLocalWallpaper, resolveWallpaperUrl } from '~/utils/localWallpaper'
 import { compressAndResizeImage } from '~/utils/main'
 
 import SettingsItem from './SettingsItem.vue'
 import SettingsItemGroup from './SettingsItemGroup.vue'
 
 const props = defineProps<Props>()
+const { t } = useI18n()
+const toast = useToast()
 
 interface Props {
   type: 'global' | 'searchPage'
@@ -84,37 +89,50 @@ async function handleUploadWallpaper(e: Event) {
 
   compressAndResizeImage(file, 2560, 1440, 0.9, async (compressedFile: File) => {
     try {
-      // 转换为base64
       const base64 = await fileToBase64(compressedFile) as string
+      const oldId = localSettings.value.locallyUploadedWallpaper?.isLocal
+        ? localSettings.value.locallyUploadedWallpaper.id
+        : undefined
 
-      // 清理旧的本地壁纸
-      if (localSettings.value.locallyUploadedWallpaper?.isLocal && localSettings.value.locallyUploadedWallpaper?.id) {
-        removeLocalWallpaper(localSettings.value.locallyUploadedWallpaper.id)
-      }
-
-      // 存储到本地storage
-      const localWallpaperRef = await storeLocalWallpaper(compressedFile, base64)
-
-      // 使用特殊标识符作为壁纸URL，而不是base64
+      // Atomic replace: old wallpaper removed + new wallpaper saved in one persistence
+      const localWallpaperRef = await replaceLocalWallpaper(oldId, compressedFile, base64)
       const localWallpaperUrl = `local-wallpaper:${localWallpaperRef.id}`
-      changeWallpaper(localWallpaperUrl)
 
-      // 保存本地壁纸引用（不包含base64数据）
+      // Only update UI references after storage succeeded
+      changeWallpaper(localWallpaperUrl)
       localSettings.value.locallyUploadedWallpaper = {
         ...localWallpaperRef,
-        url: localWallpaperUrl, // 使用标识符而不是base64
+        url: localWallpaperUrl,
       }
     }
-    catch (error) {
-      console.error('上传壁纸失败:', error)
+    catch (error: any) {
+      if (error?.code === 'ERR_WALLPAPER_TOO_LARGE') {
+        toast.error(t('settings.wallpaper_too_large'))
+      }
+      else if (error?.code === 'ERR_WALLPAPER_QUOTA_RISK') {
+        toast.error(t('settings.wallpaper_quota_risk'))
+      }
+      else if (error?.code === 'ERR_STORAGE_QUOTA') {
+        toast.error(t('settings.wallpaper_storage_quota'))
+      }
+      else {
+        toast.error(t('settings.wallpaper_upload_failed'))
+        console.error('上传壁纸失败:', error)
+      }
     }
   })
 }
 
-function handleRemoveCustomWallpaper() {
-  // 清理本地存储的壁纸数据
+async function handleRemoveCustomWallpaper() {
   if (localSettings.value.locallyUploadedWallpaper?.isLocal && localSettings.value.locallyUploadedWallpaper?.id) {
-    removeLocalWallpaper(localSettings.value.locallyUploadedWallpaper.id)
+    try {
+      await removeLocalWallpaper(localSettings.value.locallyUploadedWallpaper.id)
+    }
+    catch (error) {
+      toast.error(t('settings.wallpaper_remove_failed'))
+      console.error('删除壁纸失败:', error)
+      return
+    }
   }
 
   changeWallpaper('')

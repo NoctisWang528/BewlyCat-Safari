@@ -49,6 +49,7 @@ const API_VIDEO = {
       access_key: '',
     },
     afterHandle: AHS.J_D,
+    auth: 'inject' as const,
   },
   // https://github.com/indefined/UserScripts/blob/master/bilibiliHome/bilibiliHome.API.md#%E6%8F%90%E4%BA%A4%E4%B8%8D%E5%96%9C%E6%AC%A2
   dislikeVideo: {
@@ -69,6 +70,7 @@ const API_VIDEO = {
       sign: '',
     },
     afterHandle: AHS.J_D,
+    auth: 'inject+sign' as const,
   },
   webDislikeVideo: {
     url: 'https://api.bilibili.com/x/web-interface/feedback/dislike',
@@ -112,6 +114,7 @@ const API_VIDEO = {
       sign: '',
     },
     afterHandle: AHS.J_D,
+    auth: 'inject+sign' as const,
   },
   // https://socialsisteryi.github.io/bilibili-API-collect/docs/video/info.html#%E8%8E%B7%E5%8F%96%E8%A7%86%E9%A2%91%E8%AF%A6%E7%BB%86%E4%BF%A1%E6%81%AF-web%E7%AB%AF
   getVideoInfo: {

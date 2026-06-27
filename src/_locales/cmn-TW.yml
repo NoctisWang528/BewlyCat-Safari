@@ -306,6 +306,11 @@ settings:
   no_cache: 不快取
   wallpaper_mask_opacity: 背景遮蔽透明度調節
   wallpaper_blur_intensity: 背景模糊強度調節
+  wallpaper_too_large: 圖片過大，請使用更小的圖片。
+  wallpaper_quota_risk: 本機桌布數量過多，請先刪除一些。
+  wallpaper_storage_quota: 儲存空間不足，無法儲存桌布。
+  wallpaper_upload_failed: 桌布上傳失敗，請重試。
+  wallpaper_remove_failed: 桌布刪除失敗，請重試。
   customize_css: 自訂 CSS
   customize_css_desc: |-
     如果你不熟悉 CSS，請不要修改 CSS。否則可能會導致意外的顯示問題。

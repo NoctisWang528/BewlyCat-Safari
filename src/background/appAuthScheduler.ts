@@ -10,7 +10,11 @@ const ALARM_NAME = 'bewlycat-app-auth-refresh'
 const PERIOD_MINUTES = 5
 
 let timer: ReturnType<typeof setInterval> | null = null
-let refreshing = false
+let refreshPromise: Promise<boolean> | null = null
+
+export function getRefreshPromise(): Promise<boolean> | null {
+  return refreshPromise
+}
 
 function clearTimer() {
   if (timer) {
@@ -19,46 +23,56 @@ function clearTimer() {
   }
 }
 
-async function ensureFreshTokens() {
+async function ensureFreshTokens(): Promise<boolean> {
   const tokens = appAuthTokens.value
 
   if (!tokens.accessToken || !tokens.refreshToken)
-    return
+    return false
 
   if (tokens.refreshTokenExpiresAt && tokens.refreshTokenExpiresAt <= Date.now()) {
     console.warn('[BewlyCat] APP refresh token 已过期，清除授权。')
     resetAppAuthTokens()
-    return
+    return false
   }
 
   if (!tokens.accessTokenExpiresAt)
-    return
+    return true
 
   const shouldRefresh = tokens.accessTokenExpiresAt <= Date.now() + REFRESH_BUFFER
   if (!shouldRefresh)
-    return
+    return true
 
-  if (refreshing)
-    return
+  // If a refresh is already in progress, wait for it
+  if (refreshPromise)
+    return await refreshPromise
 
-  refreshing = true
-  try {
-    const ok = await refreshAppAccessToken()
-    if (!ok)
-      console.warn('[BewlyCat] APP access token 刷新失败，请重新授权。')
-  }
-  finally {
-    refreshing = false
-  }
+  // Create a new refresh promise that all concurrent callers share
+  refreshPromise = (async () => {
+    try {
+      const ok = await refreshAppAccessToken()
+      if (!ok)
+        console.warn('[BewlyCat] APP access token 刷新失败，请重新授权。')
+      return ok
+    }
+    finally {
+      refreshPromise = null
+    }
+  })()
+
+  return await refreshPromise
 }
 
-async function registerAlarm() {
-  if (browser.alarms?.create) {
+async function registerAlarm(): Promise<boolean> {
+  if (!browser.alarms?.create)
+    return false
+  try {
     await browser.alarms.clear(ALARM_NAME).catch(() => {})
     browser.alarms.create(ALARM_NAME, { periodInMinutes: PERIOD_MINUTES })
     return true
   }
-  return false
+  catch {
+    return false
+  }
 }
 
 function registerInterval() {
@@ -96,8 +110,18 @@ export function wireAppAuthScheduler() {
   void ensureFreshTokens()
 }
 
-export async function ensureFreshTokensOnDemand() {
-  await ensureFreshTokens()
+/**
+ * Ensure tokens are fresh and return the latest access token.
+ * Waits for any in-progress refresh, then returns the current token
+ * from background memory (the authoritative source).
+ */
+export async function ensureFreshTokensOnDemand(): Promise<string> {
+  const usable = await ensureFreshTokens()
+  if (!usable)
+    return ''
+
+  const token = appAuthTokens.value.accessToken
+  return token || ''
 }
 
 export function setupAppAuthScheduler() {

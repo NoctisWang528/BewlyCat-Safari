@@ -3,6 +3,7 @@
 // import fs from 'fs-extra'
 import { defineConfig } from 'tsup'
 
+import packageJson from './package.json'
 import { isDev, isFirefox, isSafari } from './scripts/utils'
 
 const outDir = isFirefox ? 'extension-firefox/dist' : isSafari ? 'extension-safari/dist' : 'extension/dist'
@@ -27,7 +28,8 @@ export default defineConfig(() => ({
     '__DEV__': JSON.stringify(isDev),
     'process.env.NODE_ENV': JSON.stringify(isDev ? 'development' : 'production'),
     'process.env.FIREFOX': isFirefox ? 'true' : 'false',
-    'process.env.SAFARI': isSafari ? 'true' : 'false',
+    'process.env.SAFARI': JSON.stringify(isSafari),
+    '__BEWLY_VERSION__': JSON.stringify(packageJson.version),
   },
   platform: 'browser',
   minifyWhitespace: !isDev,

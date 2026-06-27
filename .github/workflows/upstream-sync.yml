@@ -5,9 +5,12 @@ on:
     - cron: '0 3 * * 1'
   workflow_dispatch:
 
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   sync:
@@ -17,6 +20,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.21.0
 
       - name: Configure git
         run: |
@@ -26,57 +40,84 @@ jobs:
       - name: Add upstream and fetch
         run: |
           git remote add upstream https://github.com/keleus/BewlyCat.git || true
+          git remote set-url --push upstream DISABLED
           git fetch origin
           git fetch upstream
 
-      - name: Create sync branch
-        id: sync
+      - name: Check if sync is needed
+        id: check
         run: |
-          BRANCH="bot/upstream-sync-$(date +%Y%m%d)"
-          git checkout -B "$BRANCH" origin/main
-          if git rebase upstream/main; then
-            echo "branch=$BRANCH" >> $GITHUB_OUTPUT
-            echo "conflict=false" >> $GITHUB_OUTPUT
+          if git merge-base --is-ancestor upstream/main origin/main; then
+            echo "up_to_date=true" >> $GITHUB_OUTPUT
           else
-            git rebase --abort
+            echo "up_to_date=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Merge upstream into temporary branch
+        if: steps.check.outputs.up_to_date == 'false'
+        id: merge
+        run: |
+          TEMP_BRANCH="bot/upstream-sync-$(date +%Y%m%d-%H%M%S)"
+          ORIGIN_MAIN_SHA=$(git rev-parse origin/main)
+          echo "origin_main_sha=$ORIGIN_MAIN_SHA" >> $GITHUB_OUTPUT
+          echo "branch=$TEMP_BRANCH" >> $GITHUB_OUTPUT
+
+          git checkout -B "$TEMP_BRANCH" origin/main
+
+          if ! git merge --no-ff -m "sync: merge upstream/main" upstream/main; then
+            echo "## Upstream Sync Conflict" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "The following files have merge conflicts:" >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            git diff --name-only --diff-filter=U >> $GITHUB_STEP_SUMMARY
+            echo '```' >> $GITHUB_STEP_SUMMARY
+            git merge --abort
             echo "conflict=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
+          echo "conflict=false" >> $GITHUB_OUTPUT
+
       - name: Install dependencies
-        if: steps.sync.outputs.conflict == 'false'
+        if: steps.merge.outputs.conflict != 'true' && steps.check.outputs.up_to_date == 'false'
         run: |
-          corepack enable
+          # Clear write credentials during install
+          git config --unset-all credential.helper || true
           pnpm install --frozen-lockfile
 
-      - name: Run CI checks
-        if: steps.sync.outputs.conflict == 'false'
+      - name: Run Safari CI
+        if: steps.merge.outputs.conflict != 'true' && steps.check.outputs.up_to_date == 'false'
         run: |
           pnpm lint
           pnpm typecheck
+          pnpm knip
           pnpm test
-          pnpm build-safari
+          pnpm build
           pnpm validate-safari
 
-      - name: Create pull request
-        if: steps.sync.outputs.conflict == 'false'
-        uses: peter-evans/create-pull-request@v7
-        with:
-          branch: ${{ steps.sync.outputs.branch }}
-          title: 'sync: rebase onto upstream/main'
-          body: |
-            Automated sync from `keleus/BewlyCat`.
+      - name: Push to origin/main
+        if: steps.merge.outputs.conflict != 'true' && steps.check.outputs.up_to_date == 'false'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Re-fetch origin to verify main hasn't changed
+          git fetch origin refs/heads/main:refs/remotes/origin/main
+          CURRENT_MAIN=$(git rev-parse origin/main)
+          EXPECTED_MAIN="${{ steps.merge.outputs.origin_main_sha }}"
 
-            Before merging, verify:
-            - Safari patch queue remains small and focused
-            - `pnpm build-safari && pnpm validate-safari` passes
-            - MAIN world, background, network, storage smoke tests pass
-          commit-message: 'sync: rebase onto upstream/main'
+          if [ "$CURRENT_MAIN" != "$EXPECTED_MAIN" ]; then
+            echo "ERROR: origin/main changed during sync (was $EXPECTED_MAIN, now $CURRENT_MAIN). Aborting push."
+            exit 1
+          fi
 
-      - name: Create issue on conflict
-        if: steps.sync.outputs.conflict == 'true'
-        uses: peter-evans/create-issue-from-file@v5
-        with:
-          title: 'sync: upstream rebase conflict'
-          content-filepath: .github/upstream-sync-conflict-template.md
-          labels: upstream-sync
+          # Push using token
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
+          SYNC_BRANCH="${{ steps.merge.outputs.branch }}"
+          git checkout "$SYNC_BRANCH"
+          git push origin HEAD:main
+
+      - name: Report conflict
+        if: steps.merge.outputs.conflict == 'true'
+        run: |
+          echo "::error::Upstream sync encountered merge conflicts. See step summary for details."
+          exit 1

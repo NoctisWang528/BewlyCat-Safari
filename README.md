@@ -1,22 +1,29 @@
 # BewlyCat
 
 > [!IMPORTANT]
-> ## BewlyCat Safari 适配项目
+> ## BewlyCat Safari — 仅限 macOS Safari
 >
-> 本仓库是针对 [keleus/BewlyCat](https://github.com/keleus/BewlyCat) 进行
-> Safari Web Extension 适配的实验性 Fork，目标是在尽量保持原有功能和
-> Chrome、Edge、Firefox 行为不变的前提下，使 BewlyCat 能够在 macOS Safari
-> 中构建、安装和运行。
+> 本仓库是 [keleus/BewlyCat](https://github.com/keleus/BewlyCat) 的
+> **Safari-only** 分支。Chrome、Edge 和 Firefox 由上游项目维护，
+> 本仓库不承担这些浏览器的兼容性或回归测试。
 >
-> 当前工作仍处于适配与验证阶段。仓库中存在 Safari 构建脚本并不代表所有功能
-> 已兼容 Safari；后台脚本生命周期、网络请求规则、页面脚本注入、权限申请、
-> 登录状态和扩展存储等功能仍需要逐项测试。现阶段生成的构建产物仅用于开发和
-> 本地验证，不应视为稳定版本或上游项目的官方 Safari 发行版。
+> 本仓库的正式构建、CI、验证、文档和发行流程**仅支持 macOS Safari**。
+> 上游 Chromium/Firefox 源码分支被保留以减少合并冲突，但不会在本仓库中
+> 构建或发布。
 >
-> 本项目不是 BewlyCat 官方维护的 Safari 版本。原项目的问题、功能说明及其他
-> 浏览器版本请以上游仓库为准；本仓库的 Safari 适配问题则应在本仓库中跟踪。
-> 本仓库保留上游提交历史、作者信息和许可证，所有修改均需遵守原项目当前的
-> 许可条款。
+> Safari 适配仍需逐项验证：后台生命周期、DNR、MAIN-world 注入、
+> 权限、登录状态和存储等功能需要在真实 Safari 环境中测试。
+>
+> 原项目的问题、功能说明及其他浏览器版本请以上游仓库为准；
+> 本仓库的 Safari 适配问题则应在本仓库中跟踪。
+
+Safari 构建、Xcode 打包和测试方法见
+[Safari 开发文档](./docs/SAFARI.md)。
+
+## 上游项目资料
+
+以下内容保留自 BewlyCat 上游，仅用于说明功能来源，不代表本仓库支持或发布
+Chrome、Edge、Firefox 版本。
 
 ![GitHub Release](https://img.shields.io/github/v/release/keleus/BewlyCat?label=Github) ![Chrome Web Store Version](https://img.shields.io/chrome-web-store/v/oopkfefbgecikmfbbapnlpjidoomhjpl?label=Chrome) ![Edge Addons Version](https://img.shields.io/badge/dynamic/json?color=blue&label=Edge&query=%24.version&url=https%3A%2F%2Fmicrosoftedge.microsoft.com%2Faddons%2Fgetproductdetailsbycrxid%2Faaammfjdfifgnfnbflolojihjfhdploj&prefix=v) ![Firefox Version](https://img.shields.io/amo/v/bewlycat?label=Firefox)
 
@@ -38,8 +45,6 @@
 > 该项目面向我个人使用习惯修改。当然，欢迎功能建议与bug反馈。
 >
 > 浏览器拓展商店上架均同时提交审核，实际更新速度取决于各个商店审核速度。请勿在issue中催促审核，商店异常行为由商店导致！
->
-> 不会打包safari，也不会在项目里做大量的safari only适配，如果有需要欢迎自行打包。
 >
 > 本项目由MIT许可在原项目基础上开发，并亦与原作者联系取得了授权，包括上架Chrome应用商店等权利。
 

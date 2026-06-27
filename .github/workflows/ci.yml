@@ -58,28 +58,12 @@ jobs:
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: pnpm run knip
 
-      - name: Build Extension
-        run: pnpm build
-
-      - name: Upload Chrome Extension Zip
-        if: ${{ matrix.os == 'ubuntu-latest' && matrix.node == 'lts/*' && github.ref_name == 'main' }}
-        uses: actions/upload-artifact@v4.3.1
-        with:
-          name: BewlyCat-chrome-extension
-          path: extension
-
-      - name: Build Firefox Extension
-        run: pnpm build-firefox
-
-      - name: Upload Firefox Extension Zip
-        if: ${{ matrix.os == 'ubuntu-latest' && matrix.node == 'lts/*' && github.ref_name == 'main' }}
-        uses: actions/upload-artifact@v4.3.1
-        with:
-          name: BewlyCat-firefox-extension
-          path: extension-firefox
+      - name: Test
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: pnpm test
 
       - name: Build Safari Extension
-        run: pnpm build-safari
+        run: pnpm build
 
       - name: Validate Safari Build
         run: pnpm validate-safari

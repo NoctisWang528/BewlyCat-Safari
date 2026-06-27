@@ -40,7 +40,7 @@ export async function getManifest() {
     // Setting `persistent` to true in Manifest V3 results in an error in Firefox
     // https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/background
     background: (isFirefox || isSafari)
-      ? { scripts: ['./dist/background/index.js'], persistent: isFirefox ? undefined : false }
+      ? { scripts: ['./dist/background/index.js'] }
       : { service_worker: './dist/background/index.js', type: 'module' },
 
     icons: {
@@ -68,17 +68,20 @@ export async function getManifest() {
         js: ['./dist/contentScripts/index.global.js'],
         css: ['./dist/contentScripts/style.css'],
         run_at: 'document_start',
-        match_about_blank: true,
+        ...isSafari ? {} : { match_about_blank: true },
         all_frames: true,
       },
-      {
-        matches: BILIBILI_MATCHES,
-        js: ['./dist/contentScripts/inject.global.js'],
-        run_at: 'document_start',
-        match_about_blank: true,
-        all_frames: true,
-        world: 'MAIN',
-      },
+      // Safari does not support world: "MAIN" — inject via web_accessible_resources instead
+      ...isSafari
+        ? []
+        : [{
+            matches: BILIBILI_MATCHES,
+            js: ['./dist/contentScripts/inject.global.js'],
+            run_at: 'document_start' as const,
+            match_about_blank: true,
+            all_frames: true,
+            world: 'MAIN' as const,
+          }],
     ],
     web_accessible_resources: [
       {

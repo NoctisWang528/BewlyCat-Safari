@@ -11,9 +11,13 @@
   "ignore": ["src/components/Settings/**", "src/inject/**"],
   "ignoreDependencies": [
     "@iconify/json",
-    "uno.css"
+    "uno.css",
+    "@ffflorian/jszip-cli",
+    "crx",
+    "web-ext",
+    "wxt"
   ],
-  "ignoreBinaries": ["gh", "xcrun"],
+  "ignoreBinaries": ["gh"],
   "rules": {
     "types": "off",
     "enumMembers": "off",

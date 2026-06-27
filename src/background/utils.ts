@@ -5,6 +5,7 @@
 import type Browser from 'webextension-polyfill'
 import browser from 'webextension-polyfill'
 
+import { ensureFreshTokensOnDemand } from './appAuthScheduler'
 import { requestWithSafariCompat } from './requestWithSafariCompat'
 import { addWbiSign, getWbiKeys, initWbiKeys, needsWbiSign, storeWbiKeys } from './wbiSign'
 
@@ -14,6 +15,14 @@ export class ApiRiskControlError extends Error {
     this.name = 'ApiRiskControlError'
   }
 }
+
+/**
+ * Auth strategy for API requests:
+ * - 'none': no APP auth needed (web APIs)
+ * - 'inject': inject fresh access_token from background memory
+ * - 'inject+sign': inject access_token and re-sign with TV APP credentials
+ */
+export type AuthStrategy = 'none' | 'inject' | 'inject+sign'
 
 type FetchAfterHandler = ((data: Response) => Promise<any>) | ((data: any) => any)
 
@@ -82,6 +91,7 @@ interface API {
     [key: string]: any
   }
   afterHandle: ((response: Response) => Response | Promise<Response>)[]
+  auth?: AuthStrategy
 }
 // 重载API 可以为函数
 type APIFunction = (message: Message, sender?: any, sendResponse?: (response?: any) => void) => any
@@ -101,24 +111,73 @@ function apiListenerFactory(API_MAP: APIMAP) {
       return (API_MAP[contentScriptQuery] as APIFunction)(typedMessage, sender)
 
     const api = API_MAP[contentScriptQuery] as API
+    const authStrategy: AuthStrategy = api.auth ?? 'none'
+    let appAccessToken: string | undefined
+
+    // Only refresh tokens for APIs that need APP auth
+    if (authStrategy !== 'none') {
+      const token = await ensureFreshTokensOnDemand()
+      if (!token) {
+        const err = new Error('APP access token 不可用，请重新授权')
+        ;(err as any).code = 'ERR_APP_AUTH_REQUIRED'
+        throw err
+      }
+      appAccessToken = token
+    }
 
     // eslint-disable-next-line node/prefer-global/process
     if (process.env.FIREFOX && sender && sender.tab?.id) {
       if (api._fetch.credentials === 'omit')
-        return await doRequest(typedMessage, api)
+        return await doRequest(typedMessage, api, undefined, undefined, authStrategy, appAccessToken)
 
       // 获取tab信息以获取正确的cookieStoreId
       const tab = await browser.tabs.get(sender.tab.id)
       const storeId = tab.cookieStoreId || 'default'
       const cookies = await browser.cookies.getAll({ storeId })
-      return await doRequest(typedMessage, api, undefined, cookies)
+      return await doRequest(typedMessage, api, undefined, cookies, authStrategy, appAccessToken)
     }
 
-    return await doRequest(typedMessage, api)
+    return await doRequest(typedMessage, api, undefined, undefined, authStrategy, appAccessToken)
   }
 }
 
-async function doRequest(message: Message, api: API, sendResponse?: (response?: any) => void, cookies?: Browser.Cookies.Cookie[]) {
+function hasRequestValue(value: unknown) {
+  return value !== undefined && value !== null && value !== ''
+}
+
+export async function applyAppAuthToParams(
+  params: Record<string, any>,
+  authStrategy: AuthStrategy,
+  accessToken?: string,
+  now: () => number = Date.now,
+): Promise<Record<string, any>> {
+  const authenticatedParams = { ...params }
+  if (authStrategy === 'none')
+    return authenticatedParams
+
+  if (!accessToken) {
+    const error = new Error('APP access token 不可用，请重新授权')
+    ;(error as any).code = 'ERR_APP_AUTH_REQUIRED'
+    throw error
+  }
+
+  authenticatedParams.access_key = accessToken
+  if (authStrategy === 'inject')
+    return authenticatedParams
+
+  delete authenticatedParams.sign
+  const { TVAppKey, getTvSign } = await import('~/utils/authProvider')
+  authenticatedParams.appkey = TVAppKey.appkey
+  authenticatedParams.ts = Math.floor(now() / 1000).toString()
+
+  const paramsToSign = Object.fromEntries(
+    Object.entries(authenticatedParams).filter(([, value]) => hasRequestValue(value)),
+  )
+  authenticatedParams.sign = getTvSign(paramsToSign)
+  return authenticatedParams
+}
+
+async function doRequest(message: Message, api: API, sendResponse?: (response?: any) => void, cookies?: Browser.Cookies.Cookie[], authStrategy: AuthStrategy = 'none', appAccessToken?: string) {
   try {
     let { contentScriptQuery, ...rest } = message
     // rest above two part body or params
@@ -128,7 +187,7 @@ async function doRequest(message: Message, api: API, sendResponse?: (response?: 
     const { method, headers = {}, body, credentials = 'include' } = _fetch as _FETCH
     const isGET = method.toLocaleLowerCase() === 'get'
     // merge params and body
-    const targetParams = Object.assign({}, params)
+    let targetParams = Object.assign({}, params)
     const targetBody = Object.assign({}, body)
     Object.keys(rest).forEach((key) => {
       if (body && body[key] !== undefined)
@@ -136,6 +195,8 @@ async function doRequest(message: Message, api: API, sendResponse?: (response?: 
       else
         targetParams[key] = rest[key]
     })
+
+    targetParams = await applyAppAuthToParams(targetParams, authStrategy, appAccessToken)
 
     const baseUrl = url
     const needsWbi = needsWbiSign(url)
@@ -167,7 +228,7 @@ async function doRequest(message: Message, api: API, sendResponse?: (response?: 
           const value = requestParams[key]
           // 过滤空值参数：undefined、null、空字符串
           // 保留数字 0 和布尔值 false
-          if (value !== undefined && value !== null && value !== '') {
+          if (hasRequestValue(value)) {
             urlParams.append(key, value)
           }
         }

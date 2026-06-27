@@ -4,14 +4,14 @@
 
 These instructions apply to the entire repository.
 
-BewlyCat is a Vue 3 browser extension that modifies Bilibili pages. The upstream
-project primarily ships Chromium and Firefox builds. This checkout is also being
-used to make the extension work as a Safari Web Extension.
+BewlyCat Safari is the Safari-only build of the BewlyCat browser extension for
+Bilibili. This repository exclusively targets macOS Safari; Chrome, Edge, and
+Firefox are maintained by the upstream project
+[keleus/BewlyCat](https://github.com/keleus/BewlyCat) and are **not** supported
+here.
 
-Treat Safari support as incomplete until behavior has been tested in Safari.
-The presence of `build-safari` means that a Safari-shaped WebExtension bundle can
-be produced; it does not prove API or runtime compatibility. Preserve Chromium
-and Firefox behavior unless a task explicitly changes that requirement.
+Upstream Chromium/Firefox source branches are preserved to reduce merge
+conflicts, but they are never built, tested, or released from this repository.
 
 ## Toolchain
 
@@ -29,22 +29,23 @@ pnpm lint
 pnpm typecheck
 pnpm test
 pnpm knip
-pnpm build
-pnpm build-firefox
+pnpm build            # alias for Safari build
 pnpm build-safari
-pnpm convert-safari
+pnpm validate-safari
+pnpm package-safari   # generates Xcode project
+pnpm convert-safari   # compat alias for package-safari
 ```
 
-`pnpm convert-safari` requires a full Xcode installation with its developer
-directory selected. Command Line Tools alone do not contain
-`safari-web-extension-converter`.
+`pnpm package-safari` requires Xcode 27 Beta at
+`/Applications/Xcode-beta.app` with its developer directory selected.
 
 Generated and ignored output directories are:
 
-- `extension/` for Chromium
-- `extension-firefox/` for Firefox
 - `extension-safari/` for the Safari WebExtension input
-- `extension-safari-macos/` for the converted Xcode project
+- `extension-safari-macos/` for the generated Xcode project
+
+The `extension/` (Chromium) and `extension-firefox/` directories are upstream
+build artifacts and are never produced by this repository's CI.
 
 Do not edit generated bundles to implement a source change. Update `src/`,
 `scripts/`, or the build configuration and regenerate them. Native wrapper work
@@ -53,11 +54,8 @@ WebExtension output and revisit `.gitignore` before deciding to version them.
 
 ## Build pipeline
 
-The platform is selected at build time:
-
-- default: Chromium
-- `FIREFOX=true`: Firefox
-- `SAFARI=true`: Safari
+The build always targets Safari (`SAFARI=true`). The `FIREFOX` and default
+Chromium paths exist only in upstream source and are not invoked here.
 
 `scripts/utils.ts` exposes `isFirefox` and `isSafari`. Platform output selection
 is repeated in `scripts/prepare.ts`, `scripts/manifest.ts`, `vite.config.ts`,
@@ -97,24 +95,31 @@ The options and popup Vue entries exist, but their manifest declarations are
 currently commented out in `src/manifest.ts`. Do not assume they are reachable
 from Safari's extension UI without adding and testing manifest configuration.
 
-## Safari compatibility work
+## Safari compatibility
 
-The current Safari path does the following:
+The Safari build:
 
 - writes output to `extension-safari/`;
 - emits an MV3 manifest with a non-persistent script-based background page;
 - retains `declarativeNetRequest` and `assets/rules.json`;
-- can be passed to Apple's converter with `pnpm convert-safari`.
+- injects the MAIN-world script via `<script src="browser.runtime.getURL(...)">`
+  rather than `world: "MAIN"` (unsupported in Safari);
+- can be passed to Apple's packager with `pnpm package-safari`.
 
-It has not established runtime compatibility. Review these hotspots when making
-Safari changes:
+Key Safari manifest constraints:
+
+- `persistent` is ignored (MV3 background is non-persistent by default);
+- `world` is not supported;
+- `match_about_blank` is not supported.
+
+Review these hotspots when making Safari changes:
 
 - background lifecycle behavior, especially scheduled auth refresh and WBI key
   initialization;
 - `declarativeNetRequest` support for `modifyHeaders`, request methods, and
   resource-type matching;
-- the `world: "MAIN"` content script and its `window.postMessage` bridge;
-- `match_about_blank`, `all_frames`, and iframe behavior;
+- the MAIN-world injection and its `window.postMessage` bridge;
+- `all_frames` and iframe behavior;
 - async values returned from `browser.runtime.onMessage` listeners;
 - `browser.tabs.create`, inactive-tab creation, and tab placement;
 - `browser.storage.local` persistence and migration;
@@ -168,27 +173,20 @@ pnpm typecheck
 pnpm test
 ```
 
-Also run the builds affected by the change. For shared extension code, validate
-all three targets:
+Also run the Safari build and validator:
 
 ```bash
 pnpm build
-pnpm build-firefox
-pnpm build-safari
 pnpm validate-safari
 ```
 
-CI runs `pnpm build-safari` and `pnpm validate-safari` on every push and PR.
-A failed `validate-safari` blocks merging. For full Safari CI locally:
-
-```bash
-pnpm ci:safari
-```
+CI runs `pnpm build`, `pnpm validate-safari`, lint, typecheck, knip, and test
+on every push and PR. Chromium and Firefox builds are never run in CI.
 
 For Safari-specific work:
 
 1. Inspect `extension-safari/manifest.json` after generation.
-2. Run `pnpm convert-safari` with full Xcode installed.
+2. Run `pnpm package-safari` with Xcode 27 Beta installed.
 3. Build and run the containing app from Xcode.
 4. Enable the extension in Safari and grant the requested website access.
 5. Test logged-out and logged-in Bilibili use.

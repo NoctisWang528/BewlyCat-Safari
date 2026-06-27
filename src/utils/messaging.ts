@@ -5,19 +5,71 @@ export interface Message<T = any> {
   data: T
 }
 
+export interface SerializedError {
+  name: string
+  message: string
+  code?: string | number
+  isRiskControl?: boolean
+  originalError?: string
+}
+
 interface MessageResponse<R = any> {
   ok: boolean
   data?: R
-  error?: {
-    name: string
-    message: string
-  }
+  error?: SerializedError
 }
 
 export type MessageHandler<T = any, R = any> = (
   data: T,
   sender?: browser.Runtime.MessageSender,
 ) => R | Promise<R>
+
+export const ERROR_WHITELIST: (keyof SerializedError)[] = ['name', 'message', 'code', 'isRiskControl', 'originalError']
+
+export function serializeError(error: unknown): SerializedError {
+  if (error instanceof Error) {
+    const serialized: SerializedError = {
+      name: error.name,
+      message: error.message,
+    }
+    for (const key of ERROR_WHITELIST) {
+      if (key === 'name' || key === 'message')
+        continue
+      const value = (error as any)[key]
+      if (value !== undefined) {
+        if (key === 'code') {
+          if (typeof value === 'string' || typeof value === 'number')
+            serialized.code = value
+        }
+        else if (key === 'isRiskControl') {
+          if (typeof value === 'boolean')
+            serialized.isRiskControl = value
+        }
+        else if (key === 'originalError') {
+          if (typeof value === 'string')
+            serialized.originalError = value
+        }
+      }
+    }
+    return serialized
+  }
+  return {
+    name: 'Error',
+    message: String(error),
+  }
+}
+
+export function deserializeError(serialized: SerializedError): Error {
+  const err = new Error(serialized.message)
+  err.name = serialized.name || 'Error'
+  if (serialized.code !== undefined)
+    (err as any).code = serialized.code
+  if (serialized.isRiskControl !== undefined)
+    (err as any).isRiskControl = serialized.isRiskControl
+  if (serialized.originalError !== undefined)
+    (err as any).originalError = serialized.originalError
+  return err
+}
 
 type OnMessageListener = (
   message: any,
@@ -36,9 +88,12 @@ export async function sendMessage<T = any, R = any>(type: string, data?: T): Pro
     return response as unknown as R
   }
   if (!response.ok) {
-    const err = new Error(response.error?.message || 'Unknown messaging error')
-    err.name = response.error?.name || 'Error'
-    throw err
+    if (!response.error
+      || typeof response.error.name !== 'string'
+      || typeof response.error.message !== 'string') {
+      throw new Error('Malformed messaging error response')
+    }
+    throw deserializeError(response.error)
   }
   return response.data as R
 }
@@ -63,10 +118,7 @@ export function onMessage<T = any, R = any>(
       .catch((error) => {
         sendResponse({
           ok: false,
-          error: {
-            name: error instanceof Error ? error.name : 'Error',
-            message: error instanceof Error ? error.message : String(error),
-          },
+          error: serializeError(error),
         } satisfies MessageResponse)
       })
 

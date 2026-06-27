@@ -26,7 +26,7 @@ import { initVerticalVideoZoom, resetVerticalVideoZoom } from '~/utils/verticalV
 import { version } from '../../package.json'
 import { initAudioInterceptor, setupSettingsWatcher } from './audioInterceptor'
 import { setupIframePhotoViewerDetector } from './features/iframePhotoViewerDetector'
-import { ensureMainWorldInjectedFallback } from './pageWorldFallback'
+import { ensureMainWorldInjected } from './pageWorldInjection'
 import App from './views/App.vue'
 import { initVolumeNormalizationControl } from './volumeNormalizationControl'
 
@@ -138,7 +138,11 @@ if (isElectronEnv) {
   console.warn('[BewlyCat] Detected Electron environment, extension disabled.')
 }
 else {
-  ensureMainWorldInjectedFallback()
+  // Safari injects the page-world bundle through a web-accessible script tag.
+  // The idempotency guard inside inject.global.js protects all platforms.
+  // eslint-disable-next-line node/prefer-global/process
+  if (process.env.SAFARI)
+    ensureMainWorldInjected()
 
   // Fix `OverlayScrollbars` not working in Firefox
   // https://github.com/fingerprintjs/fingerprintjs/issues/683#issuecomment-881210244

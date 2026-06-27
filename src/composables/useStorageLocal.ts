@@ -31,10 +31,15 @@ export type StorageRef<T> = Omit<Ref<T>, 'value'> & {
   set value(value: T | null | undefined)
 }
 
-function normalizeStorageError(error: unknown): Error {
+export interface StorageRefExtra<T> extends StorageRef<T> {
+  readyPromise: Promise<void>
+  setAndPersist: (value: T) => Promise<void>
+}
+
+export function normalizeStorageError(error: unknown): Error {
   const message = error instanceof Error ? error.message : String(error)
-  if (/quota|exceeded|storage/i.test(message)) {
-    const e = new Error('storage.local quota exceeded')
+  if (/QUOTA_BYTES|quota exceeded|exceeded storage quota|storage quota/i.test(message)) {
+    const e = new Error(error instanceof Error ? error.message : message)
     ;(e as any).code = 'ERR_STORAGE_QUOTA'
     return e
   }
@@ -173,7 +178,44 @@ function runWithFilter(eventFilter: StorageEventFilter | undefined, invoke: () =
   void invoke()
 }
 
-export function useStorageLocal<T>(key: string, initialValue: MaybeRef<T>, options?: UseStorageLocalOptions<T>): StorageRef<T> {
+/**
+ * Serial write queue to prevent concurrent storage.local.set calls.
+ * Writes are executed one at a time in FIFO order.
+ */
+class WriteQueue {
+  private queue: Array<() => Promise<void>> = []
+  private running = false
+
+  enqueue(task: () => Promise<void>): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      this.queue.push(async () => {
+        try {
+          await task()
+          resolve()
+        }
+        catch (e) {
+          reject(e)
+        }
+      })
+      this.flush()
+    })
+  }
+
+  private async flush() {
+    if (this.running)
+      return
+    this.running = true
+    while (this.queue.length > 0) {
+      const task = this.queue.shift()!
+      await task()
+    }
+    this.running = false
+  }
+}
+
+const globalWriteQueue = new WriteQueue()
+
+export function useStorageLocal<T>(key: string, initialValue: MaybeRef<T>, options?: UseStorageLocalOptions<T>): StorageRefExtra<T> {
   const {
     flush = 'pre',
     deep = true,
@@ -196,8 +238,9 @@ export function useStorageLocal<T>(key: string, initialValue: MaybeRef<T>, optio
   let ready = false
   let dirtyBeforeReady = false
   let hasStoredValue = false
-  let suppressedWriteCount = 0
   let syncStarted = false
+  let activeWatcher: ReturnType<typeof watch> | null = null
+  let scopeDisposed = false
   const pendingOwnStorageChanges: unknown[] = []
 
   const normalizePendingStorageValue = (value: unknown) => value ?? null
@@ -227,50 +270,49 @@ export function useStorageLocal<T>(key: string, initialValue: MaybeRef<T>, optio
     { deep, flush: 'sync' },
   )
 
-  const persistValue = async () => {
-    if (data.value == null) {
-      enqueuePendingOwnStorageChange(null)
+  /**
+   * Write to storage.local via the serial queue.
+   * Creates a stable snapshot of the value before enqueuing.
+   * Only updates memory ref on success.
+   */
+  const persistValue = async (valueToPersist: T | null | undefined, updateMemory: boolean): Promise<void> => {
+    const serializedValue = valueToPersist == null
+      ? null
+      : await serializer.write(valueToPersist)
+
+    enqueuePendingOwnStorageChange(serializedValue ?? null)
+
+    await globalWriteQueue.enqueue(async () => {
       try {
-        await browser.storage.local.remove(key)
+        if (valueToPersist == null) {
+          await browser.storage.local.remove(key)
+        }
+        else {
+          await browser.storage.local.set({ [key]: serializedValue })
+        }
       }
       catch (error) {
-        consumePendingOwnStorageChange(null)
+        consumePendingOwnStorageChange(serializedValue ?? null)
         throw normalizeStorageError(error)
       }
-    }
-    else {
-      const serializedValue = await serializer.write(data.value)
-      enqueuePendingOwnStorageChange(serializedValue)
-      try {
-        await browser.storage.local.set({ [key]: serializedValue })
-      }
-      catch (error) {
-        consumePendingOwnStorageChange(serializedValue)
-        throw normalizeStorageError(error)
-      }
-    }
+    })
+
+    // Only update memory ref after successful write
+    if (updateMemory)
+      updateMemoryWithoutPersisting(valueToPersist as T)
   }
 
-  const startSync = () => {
-    if (syncStarted)
-      return
-
-    syncStarted = true
-
-    watch(
+  function createSyncWatcher() {
+    return watch(
       data,
       () => {
         if (!ready)
           return
 
-        if (suppressedWriteCount > 0) {
-          suppressedWriteCount--
-          return
-        }
-
+        const snapshot = cloneValue(data.value)
         runWithFilter(eventFilter, async () => {
           try {
-            await persistValue()
+            await persistValue(snapshot, false)
           }
           catch (error) {
             onError(error)
@@ -279,6 +321,28 @@ export function useStorageLocal<T>(key: string, initialValue: MaybeRef<T>, optio
       },
       { flush, deep },
     )
+  }
+
+  function updateMemoryWithoutPersisting(value: T) {
+    const shouldRestartWatcher = syncStarted && activeWatcher != null && !scopeDisposed
+    activeWatcher?.()
+    activeWatcher = null
+    data.value = value
+    if (shouldRestartWatcher)
+      activeWatcher = createSyncWatcher()
+  }
+
+  const startSync = () => {
+    if (syncStarted)
+      return
+
+    syncStarted = true
+    activeWatcher = createSyncWatcher()
+    tryOnScopeDispose(() => {
+      scopeDisposed = true
+      activeWatcher?.()
+      activeWatcher = null
+    })
 
     if (listenToStorageChanges) {
       const onChanged = async (changes: Record<string, browser.Storage.StorageChange>, areaName: string) => {
@@ -291,13 +355,12 @@ export function useStorageLocal<T>(key: string, initialValue: MaybeRef<T>, optio
           if (consumePendingOwnStorageChange(change.newValue))
             return
 
-          suppressedWriteCount++
           if (change.newValue == null) {
-            data.value = createInitialValue(initialValue) as T
+            updateMemoryWithoutPersisting(createInitialValue(initialValue) as T)
           }
           else {
             const storedValue = await deserializeStoredValue(change.newValue, serializer)
-            data.value = cloneValue(mergeStoredValue(storedValue, createInitialValue(initialValue), mergeDefaults))
+            updateMemoryWithoutPersisting(cloneValue(mergeStoredValue(storedValue, createInitialValue(initialValue), mergeDefaults)))
           }
         }
         catch (error) {
@@ -309,6 +372,11 @@ export function useStorageLocal<T>(key: string, initialValue: MaybeRef<T>, optio
       tryOnScopeDispose(() => browser.storage.onChanged.removeListener(onChanged))
     }
   }
+
+  let readyResolver!: () => void
+  const readyPromise = new Promise<void>((resolve) => {
+    readyResolver = () => resolve()
+  })
 
   void (async () => {
     try {
@@ -335,7 +403,7 @@ export function useStorageLocal<T>(key: string, initialValue: MaybeRef<T>, optio
 
     try {
       if (!hasStoredValue && (dirtyBeforeReady || writeDefaults) && data.value != null)
-        await persistValue()
+        await persistValue(data.value, false)
     }
     catch (error) {
       onError(error)
@@ -343,7 +411,20 @@ export function useStorageLocal<T>(key: string, initialValue: MaybeRef<T>, optio
 
     onReady?.(data.value)
     startSync()
+    readyResolver()
   })()
 
-  return data
+  async function setAndPersist(value: T): Promise<void> {
+    if (!ready)
+      await readyPromise
+
+    // Create a stable snapshot before enqueuing
+    const snapshot = cloneValue(value)
+    await persistValue(snapshot, true)
+  }
+
+  const result = data as StorageRefExtra<T>
+  result.readyPromise = readyPromise
+  result.setAndPersist = setAndPersist
+  return result
 }

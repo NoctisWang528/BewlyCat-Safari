@@ -3,10 +3,12 @@
  * 将图片base64存储在本地storage的单独项中，设置里只保存引用
  */
 
+import type { StorageRefExtra } from '~/composables/useStorageLocal'
 import { useStorageLocal } from '~/composables/useStorageLocal'
 
 const MAX_WALLPAPER_BYTES = 1_500_000
 const MAX_WALLPAPER_COUNT = 8
+let wallpaperMutationQueue: Promise<void> = Promise.resolve()
 
 export class WallpaperTooLargeError extends Error {
   code = 'ERR_WALLPAPER_TOO_LARGE'
@@ -47,12 +49,16 @@ export interface LocalWallpaperRef {
 }
 
 // 本地壁纸存储
-const localWallpapers = useStorageLocal<Record<string, LocalWallpaperData>>('localWallpapers', {})
+const localWallpapers: StorageRefExtra<Record<string, LocalWallpaperData>> = useStorageLocal<Record<string, LocalWallpaperData>>('localWallpapers', {})
+
+function enqueueWallpaperMutation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = wallpaperMutationQueue.then(operation, operation)
+  wallpaperMutationQueue = result.then(() => undefined, () => undefined)
+  return result
+}
 
 /**
  * 生成本地壁纸的唯一标识符
- * @param fileName 原始文件名
- * @returns 唯一标识符
  */
 export function generateWallpaperId(fileName: string): string {
   const timestamp = Date.now()
@@ -62,77 +68,111 @@ export function generateWallpaperId(fileName: string): string {
 }
 
 /**
- * 存储本地壁纸
- * @param file 文件对象
- * @param base64 base64数据
- * @returns 壁纸引用对象
+ * 原子替换壁纸：删除旧壁纸并保存新壁纸为单次持久化操作。
+ * storage.set 成功后才更新内存状态。失败时旧数据保持不变。
+ */
+export async function replaceLocalWallpaper(
+  oldId: string | null | undefined,
+  file: File,
+  base64: string,
+): Promise<LocalWallpaperRef> {
+  return enqueueWallpaperMutation(async () => {
+    await localWallpapers.readyPromise
+
+    const current = localWallpapers.value || {}
+    const nextMap: Record<string, LocalWallpaperData> = {}
+
+    for (const key of Object.keys(current)) {
+      if (key !== oldId)
+        nextMap[key] = current[key]
+    }
+
+    if (Object.keys(nextMap).length >= MAX_WALLPAPER_COUNT)
+      throw new WallpaperQuotaRiskError()
+
+    if (estimateBase64Bytes(base64) > MAX_WALLPAPER_BYTES)
+      throw new WallpaperTooLargeError()
+
+    const id = generateWallpaperId(file.name)
+    nextMap[id] = {
+      id,
+      name: file.name,
+      base64,
+      size: file.size,
+      type: file.type,
+      lastModified: file.lastModified,
+      timestamp: Date.now(),
+    }
+
+    await localWallpapers.setAndPersist(nextMap)
+    return { id, name: file.name, isLocal: true }
+  })
+}
+
+/**
+ * 存储本地壁纸（新增，不删除旧壁纸）
  */
 export async function storeLocalWallpaper(file: File, base64: string): Promise<LocalWallpaperRef> {
-  const currentWallpapers = localWallpapers.value || {}
+  return enqueueWallpaperMutation(async () => {
+    await localWallpapers.readyPromise
 
-  if (Object.keys(currentWallpapers).length >= MAX_WALLPAPER_COUNT)
-    throw new WallpaperQuotaRiskError()
+    const current = localWallpapers.value || {}
 
-  if (estimateBase64Bytes(base64) > MAX_WALLPAPER_BYTES)
-    throw new WallpaperTooLargeError()
+    if (Object.keys(current).length >= MAX_WALLPAPER_COUNT)
+      throw new WallpaperQuotaRiskError()
 
-  const id = generateWallpaperId(file.name)
+    if (estimateBase64Bytes(base64) > MAX_WALLPAPER_BYTES)
+      throw new WallpaperTooLargeError()
 
-  const wallpaperData: LocalWallpaperData = {
-    id,
-    name: file.name,
-    base64,
-    size: file.size,
-    type: file.type,
-    lastModified: file.lastModified,
-    timestamp: Date.now(),
-  }
+    const id = generateWallpaperId(file.name)
+    const nextMap: Record<string, LocalWallpaperData> = { ...current }
+    nextMap[id] = {
+      id,
+      name: file.name,
+      base64,
+      size: file.size,
+      type: file.type,
+      lastModified: file.lastModified,
+      timestamp: Date.now(),
+    }
 
-  // 存储到本地storage
-  currentWallpapers[id] = wallpaperData
-  localWallpapers.value = currentWallpapers
-
-  // 返回引用对象
-  return {
-    id,
-    name: file.name,
-    isLocal: true,
-  }
+    await localWallpapers.setAndPersist(nextMap)
+    return { id, name: file.name, isLocal: true }
+  })
 }
 
 /**
  * 获取本地壁纸的base64数据
- * @param id 壁纸ID
- * @returns base64数据或null
  */
 export function getLocalWallpaper(id: string): string | null {
   const wallpapers = localWallpapers.value || {}
   const wallpaper = wallpapers[id]
-
-  if (wallpaper) {
-    return wallpaper.base64
-  }
-
-  return null
+  return wallpaper?.base64 ?? null
 }
 
 /**
- * 删除本地壁纸
- * @param id 壁纸ID
+ * 删除本地壁纸（可等待持久化）
  */
-export function removeLocalWallpaper(id: string): void {
-  const currentWallpapers = localWallpapers.value || {}
+export async function removeLocalWallpaper(id: string): Promise<void> {
+  await enqueueWallpaperMutation(async () => {
+    await localWallpapers.readyPromise
 
-  if (currentWallpapers[id]) {
-    delete currentWallpapers[id]
-    localWallpapers.value = currentWallpapers
-  }
+    const current = localWallpapers.value || {}
+    if (!current[id])
+      return
+
+    const nextMap: Record<string, LocalWallpaperData> = {}
+    for (const key of Object.keys(current)) {
+      if (key !== id)
+        nextMap[key] = current[key]
+    }
+
+    await localWallpapers.setAndPersist(nextMap)
+  })
 }
 
 /**
  * 检查本地壁纸是否存在
- * @param id 壁纸ID
- * @returns 是否存在
  */
 export function hasLocalWallpaper(id: string): boolean {
   const wallpapers = localWallpapers.value || {}
@@ -141,7 +181,6 @@ export function hasLocalWallpaper(id: string): boolean {
 
 /**
  * 获取所有本地壁纸的信息
- * @returns 壁纸信息数组
  */
 export function getAllLocalWallpapers(): LocalWallpaperData[] {
   const wallpapers = localWallpapers.value || {}
@@ -151,55 +190,50 @@ export function getAllLocalWallpapers(): LocalWallpaperData[] {
 /**
  * 清理所有本地壁纸
  */
-export function clearAllLocalWallpapers(): void {
-  localWallpapers.value = {}
+export async function clearAllLocalWallpapers(): Promise<void> {
+  await enqueueWallpaperMutation(async () => {
+    await localWallpapers.setAndPersist({})
+  })
 }
 
 /**
- * 检查并清理过期的本地壁纸（可选功能）
- * @param maxAge 最大保存时间（毫秒），默认30天
+ * 检查并清理过期的本地壁纸
  */
-export function cleanupExpiredWallpapers(maxAge: number = 30 * 24 * 60 * 60 * 1000): void {
-  const currentWallpapers = localWallpapers.value || {}
-  const now = Date.now()
-  let cleaned = 0
+export async function cleanupExpiredWallpapers(maxAge: number = 30 * 24 * 60 * 60 * 1000): Promise<void> {
+  await enqueueWallpaperMutation(async () => {
+    await localWallpapers.readyPromise
 
-  Object.keys(currentWallpapers).forEach((id) => {
-    const wallpaper = currentWallpapers[id]
-    if (now - wallpaper.timestamp > maxAge) {
-      delete currentWallpapers[id]
-      cleaned++
+    const current = localWallpapers.value || {}
+    const now = Date.now()
+    const nextMap: Record<string, LocalWallpaperData> = {}
+
+    for (const key of Object.keys(current)) {
+      if (now - current[key].timestamp <= maxAge)
+        nextMap[key] = current[key]
     }
-  })
 
-  if (cleaned > 0) {
-    localWallpapers.value = currentWallpapers
-  }
+    if (Object.keys(nextMap).length !== Object.keys(current).length)
+      await localWallpapers.setAndPersist(nextMap)
+  })
 }
 
 /**
  * 解析本地壁纸URL，获取实际的base64数据
- * @param url 壁纸URL（可能是local-wallpaper:id格式或普通URL）
- * @returns 实际的显示URL
  */
 export function resolveWallpaperUrl(url: string): string | null {
   if (!url)
     return null
 
-  // 如果是本地壁纸引用格式
   if (url.startsWith('local-wallpaper:')) {
     const id = url.replace('local-wallpaper:', '')
     return getLocalWallpaper(id)
   }
 
-  // 普通URL直接返回
   return url
 }
 
 /**
  * 检查是否为本地壁纸URL
- * @param url 壁纸URL
- * @returns 是否为本地壁纸URL
  */
 export function isLocalWallpaperUrl(url: string): boolean {
   return url.startsWith('local-wallpaper:')
@@ -207,8 +241,6 @@ export function isLocalWallpaperUrl(url: string): boolean {
 
 /**
  * 从本地壁纸URL中提取ID
- * @param url 本地壁纸URL
- * @returns 壁纸ID或null
  */
 export function extractWallpaperId(url: string): string | null {
   if (isLocalWallpaperUrl(url)) {

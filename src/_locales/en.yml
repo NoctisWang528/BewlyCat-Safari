@@ -336,6 +336,11 @@ settings:
   no_cache: No cache
   wallpaper_mask_opacity: Wallpaper masking opacity
   wallpaper_blur_intensity: Wallpaper blur intensity
+  wallpaper_too_large: Image is too large. Please use a smaller image.
+  wallpaper_quota_risk: Too many local wallpapers. Please remove some first.
+  wallpaper_storage_quota: Storage quota exceeded. Unable to save wallpaper.
+  wallpaper_upload_failed: Wallpaper upload failed. Please try again.
+  wallpaper_remove_failed: Failed to remove wallpaper. Please try again.
   customize_css: Customize CSS
   customize_css_desc: >-
     If you are unfamiliar with CSS, please DO NOT modify CSS. Doing so may cause

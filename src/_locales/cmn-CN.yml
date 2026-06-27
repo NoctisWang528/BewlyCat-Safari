@@ -363,6 +363,11 @@ settings:
   no_cache: 不缓存
   wallpaper_mask_opacity: 背景遮罩透明度调整
   wallpaper_blur_intensity: 背景模糊强度调整
+  wallpaper_too_large: 图片过大，请使用更小的图片。
+  wallpaper_quota_risk: 本地壁纸数量过多，请先删除一些。
+  wallpaper_storage_quota: 存储空间不足，无法保存壁纸。
+  wallpaper_upload_failed: 壁纸上传失败，请重试。
+  wallpaper_remove_failed: 壁纸删除失败，请重试。
   customize_css: 自定义 CSS
   customize_css_desc: |-
     如果你不熟悉 CSS，请不要修改 CSS。否则可能会导致意外的显示问题。

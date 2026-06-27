@@ -82,10 +82,10 @@ if (bg.scripts && !bg.type) {
   }
 }
 
-// 10. MAIN world content script entry exists
+// 10. Safari should NOT have world: "MAIN" in content_scripts
 const cs = manifest.content_scripts || []
 const mainWorldEntry = cs.find(item => item.world === 'MAIN')
-assert(mainWorldEntry, 'missing MAIN world content_script entry')
+assert(!mainWorldEntry, 'Safari manifest must not have world: "MAIN" in content_scripts')
 
 // 11. web_accessible_resources should not use <all_urls>
 const war = manifest.web_accessible_resources || []
@@ -95,11 +95,43 @@ assert(
   'web_accessible_resources should not default to <all_urls>, tighten to specific domains',
 )
 
-// 12. inject.global.js should be in web_accessible_resources for fallback
+// 12. inject.global.js should be in web_accessible_resources for script-tag injection
 assert(
   warText.includes('inject.global.js'),
-  'inject.global.js should be in web_accessible_resources for script-tag fallback',
+  'inject.global.js should be in web_accessible_resources for script-tag injection',
 )
+
+// 13. Safari manifest should have alarms permission
+const permissions = manifest.permissions || []
+assert(
+  permissions.includes('alarms'),
+  'Safari manifest should include alarms permission',
+)
+
+// 14. Safari should NOT have persistent key (MV3 is non-persistent by default)
+assert(
+  bg.persistent === undefined,
+  'Safari manifest background should not have persistent key (MV3 default is non-persistent)',
+)
+
+// 15. Safari should NOT have match_about_blank (unsupported)
+const hasMatchAboutBlank = cs.some(item => item.match_about_blank === true)
+assert(
+  !hasMatchAboutBlank,
+  'Safari manifest content_scripts should not use match_about_blank (unsupported)',
+)
+
+// 16. Safari content bundle should contain the script-tag injection guard
+const contentBundlePath = path.join(extDir, 'dist/contentScripts/index.global.js')
+if (fileExists(contentBundlePath)) {
+  const contentCode = fs.readFileSync(contentBundlePath, 'utf8')
+  const hasFallbackReference = contentCode.includes('data-bewly-main-world-fallback')
+    || contentCode.includes('ensureMainWorldInjected')
+  assert(
+    hasFallbackReference,
+    'Safari content bundle should contain script-tag injection reference',
+  )
+}
 
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed.`)

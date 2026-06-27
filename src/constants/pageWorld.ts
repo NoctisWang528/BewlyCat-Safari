@@ -1,0 +1,6 @@
+export const BEWLY_PAGE_WORLD_READY = 'BEWLY_PAGE_WORLD_READY'
+export const BEWLY_PAGE_WORLD_FAILED = 'BEWLY_PAGE_WORLD_FAILED'
+export const BEWLY_PAGE_WORLD_PING = 'BEWLY_PAGE_WORLD_PING'
+export const BEWLY_PAGE_WORLD_SOURCE = 'bewlycat'
+export const BEWLY_PAGE_WORLD_GLOBAL_KEY = '__bewlyPageWorldState'
+export const BEWLY_PAGE_WORLD_FALLBACK_ATTR = 'data-bewly-main-world-fallback'
