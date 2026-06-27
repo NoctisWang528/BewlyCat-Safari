@@ -5,6 +5,29 @@
 
 import { useStorageLocal } from '~/composables/useStorageLocal'
 
+const MAX_WALLPAPER_BYTES = 1_500_000
+const MAX_WALLPAPER_COUNT = 8
+
+export class WallpaperTooLargeError extends Error {
+  code = 'ERR_WALLPAPER_TOO_LARGE'
+  constructor(message: string = '图片过大，不建议直接保存到 storage.local') {
+    super(message)
+    this.name = 'WallpaperTooLargeError'
+  }
+}
+
+export class WallpaperQuotaRiskError extends Error {
+  code = 'ERR_WALLPAPER_QUOTA_RISK'
+  constructor(message: string = '本地壁纸数量超出上限，请先删除旧壁纸') {
+    super(message)
+    this.name = 'WallpaperQuotaRiskError'
+  }
+}
+
+function estimateBase64Bytes(base64: string): number {
+  return Math.ceil(base64.length * 0.75)
+}
+
 // 本地壁纸数据接口
 export interface LocalWallpaperData {
   id: string
@@ -45,6 +68,14 @@ export function generateWallpaperId(fileName: string): string {
  * @returns 壁纸引用对象
  */
 export async function storeLocalWallpaper(file: File, base64: string): Promise<LocalWallpaperRef> {
+  const currentWallpapers = localWallpapers.value || {}
+
+  if (Object.keys(currentWallpapers).length >= MAX_WALLPAPER_COUNT)
+    throw new WallpaperQuotaRiskError()
+
+  if (estimateBase64Bytes(base64) > MAX_WALLPAPER_BYTES)
+    throw new WallpaperTooLargeError()
+
   const id = generateWallpaperId(file.name)
 
   const wallpaperData: LocalWallpaperData = {
@@ -58,7 +89,6 @@ export async function storeLocalWallpaper(file: File, base64: string): Promise<L
   }
 
   // 存储到本地storage
-  const currentWallpapers = localWallpapers.value || {}
   currentWallpapers[id] = wallpaperData
   localWallpapers.value = currentWallpapers
 

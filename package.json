@@ -36,6 +36,8 @@
     "clear": "rimraf --glob extension extension.*",
     "clear-firefox": "rimraf --glob extension-firefox extension-firefox.*",
     "clear-safari": "rimraf --glob extension-safari extension-safari.*",
+    "validate-safari": "node scripts/validate-safari-build.mjs",
+    "ci:safari": "pnpm lint && pnpm typecheck && pnpm test && pnpm build-safari && pnpm validate-safari",
     "lint": "eslint",
     "lint:fix": "eslint --fix",
     "test": "vitest test",

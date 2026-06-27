@@ -77,3 +77,9 @@ jobs:
         with:
           name: BewlyCat-firefox-extension
           path: extension-firefox
+
+      - name: Build Safari Extension
+        run: pnpm build-safari
+
+      - name: Validate Safari Build
+        run: pnpm validate-safari

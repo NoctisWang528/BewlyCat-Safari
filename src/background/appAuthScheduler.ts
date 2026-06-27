@@ -1,9 +1,13 @@
+import browser from 'webextension-polyfill'
+
 import { appAuthTokens, resetAppAuthTokens } from '~/logic'
 import { refreshAppAccessToken } from '~/utils/authProvider'
 
 const CHECK_INTERVAL = 5 * 60 * 1000 // 5 minutes
 const REFRESH_BUFFER = 10 * 60 * 1000 // 10 minutes
 const MIN_INTERVAL = 60 * 1000
+const ALARM_NAME = 'bewlycat-app-auth-refresh'
+const PERIOD_MINUTES = 5
 
 let timer: ReturnType<typeof setInterval> | null = null
 let refreshing = false
@@ -48,16 +52,62 @@ async function ensureFreshTokens() {
   }
 }
 
-export function setupAppAuthScheduler() {
-  clearTimer()
+async function registerAlarm() {
+  if (browser.alarms?.create) {
+    await browser.alarms.clear(ALARM_NAME).catch(() => {})
+    browser.alarms.create(ALARM_NAME, { periodInMinutes: PERIOD_MINUTES })
+    return true
+  }
+  return false
+}
 
+function registerInterval() {
+  clearTimer()
   timer = setInterval(() => {
     void ensureFreshTokens()
   }, Math.max(CHECK_INTERVAL, MIN_INTERVAL))
+}
+
+export async function registerAppAuthScheduler() {
+  const usedAlarm = await registerAlarm()
+  if (!usedAlarm) {
+    registerInterval()
+  }
+}
+
+export function wireAppAuthScheduler() {
+  if (browser.alarms?.onAlarm) {
+    browser.alarms.onAlarm.addListener((alarm) => {
+      if (alarm.name === ALARM_NAME)
+        void ensureFreshTokens()
+    })
+  }
+
+  browser.runtime.onInstalled.addListener(() => {
+    void registerAppAuthScheduler()
+  })
+
+  if (browser.runtime.onStartup) {
+    browser.runtime.onStartup.addListener(() => {
+      void registerAppAuthScheduler()
+    })
+  }
 
   void ensureFreshTokens()
 }
 
+export async function ensureFreshTokensOnDemand() {
+  await ensureFreshTokens()
+}
+
+export function setupAppAuthScheduler() {
+  void registerAppAuthScheduler()
+  wireAppAuthScheduler()
+}
+
 export function teardownAppAuthScheduler() {
   clearTimer()
+  if (browser.alarms?.clear) {
+    void browser.alarms.clear(ALARM_NAME)
+  }
 }

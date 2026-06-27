@@ -31,6 +31,16 @@ export type StorageRef<T> = Omit<Ref<T>, 'value'> & {
   set value(value: T | null | undefined)
 }
 
+function normalizeStorageError(error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error)
+  if (/quota|exceeded|storage/i.test(message)) {
+    const e = new Error('storage.local quota exceeded')
+    ;(e as any).code = 'ERR_STORAGE_QUOTA'
+    return e
+  }
+  return error instanceof Error ? error : new Error(message)
+}
+
 const storageSerializers: Record<SerializerType, StorageSerializer<any>> = {
   boolean: {
     read: raw => raw === 'true',
@@ -225,7 +235,7 @@ export function useStorageLocal<T>(key: string, initialValue: MaybeRef<T>, optio
       }
       catch (error) {
         consumePendingOwnStorageChange(null)
-        throw error
+        throw normalizeStorageError(error)
       }
     }
     else {
@@ -236,7 +246,7 @@ export function useStorageLocal<T>(key: string, initialValue: MaybeRef<T>, optio
       }
       catch (error) {
         consumePendingOwnStorageChange(serializedValue)
-        throw error
+        throw normalizeStorageError(error)
       }
     }
   }

@@ -5,6 +5,7 @@
 import type Browser from 'webextension-polyfill'
 import browser from 'webextension-polyfill'
 
+import { requestWithSafariCompat } from './requestWithSafariCompat'
 import { addWbiSign, getWbiKeys, initWbiKeys, needsWbiSign, storeWbiKeys } from './wbiSign'
 
 export class ApiRiskControlError extends Error {
@@ -207,7 +208,13 @@ async function doRequest(message: Message, api: API, sendResponse?: (response?: 
       if (!isGET)
         fetchOpt.body = requestBody
 
-      return fetch(requestUrl, fetchOpt)
+      return requestWithSafariCompat({
+        url: requestUrl,
+        method,
+        headers: requestHeaders,
+        body: fetchOpt.body ?? null,
+        credentials,
+      })
     }
 
     // 标记是否已经尝试过无 WBI 重试

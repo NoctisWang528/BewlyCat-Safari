@@ -16,7 +16,8 @@ export default defineConfig(() => ({
     // fs.copySync(path.resolve(__dirname, './src/inject/index.js'), path.resolve(__dirname, `./${outDir}/inject/index.js`))
   },
   outDir,
-  format: ['esm'],
+  format: isSafari ? ['iife'] : ['esm'],
+  outExtension: isSafari ? () => ({ js: '.js' }) : undefined,
   target: 'esnext',
   ignoreWatch: ['**/extension/**', '**/extension-firefox/**', '**/extension-safari/**'],
   splitting: false,
@@ -26,6 +27,7 @@ export default defineConfig(() => ({
     '__DEV__': JSON.stringify(isDev),
     'process.env.NODE_ENV': JSON.stringify(isDev ? 'development' : 'production'),
     'process.env.FIREFOX': isFirefox ? 'true' : 'false',
+    'process.env.SAFARI': isSafari ? 'true' : 'false',
   },
   platform: 'browser',
   minifyWhitespace: !isDev,

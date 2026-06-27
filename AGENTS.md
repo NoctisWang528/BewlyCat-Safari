@@ -175,6 +175,14 @@ all three targets:
 pnpm build
 pnpm build-firefox
 pnpm build-safari
+pnpm validate-safari
+```
+
+CI runs `pnpm build-safari` and `pnpm validate-safari` on every push and PR.
+A failed `validate-safari` blocks merging. For full Safari CI locally:
+
+```bash
+pnpm ci:safari
 ```
 
 For Safari-specific work:
@@ -194,6 +202,9 @@ For Safari-specific work:
 Unit tests are under `src/tests/`. Add focused tests for platform-independent
 logic. Safari API behavior still requires integration or manual testing in
 Safari; a successful bundle build is not sufficient evidence.
+
+See `docs/SAFARI.md` for the full Safari build, conversion, and troubleshooting
+reference.
 
 ## Change hygiene
 

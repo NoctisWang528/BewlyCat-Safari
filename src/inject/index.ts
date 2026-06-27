@@ -619,3 +619,5 @@ else {
     return originalWriteText(text)
   }
 }
+
+window.postMessage({ type: 'BEWLY_PAGE_WORLD_READY', source: 'bewlycat' }, '*')

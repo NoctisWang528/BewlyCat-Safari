@@ -26,6 +26,7 @@ import { initVerticalVideoZoom, resetVerticalVideoZoom } from '~/utils/verticalV
 import { version } from '../../package.json'
 import { initAudioInterceptor, setupSettingsWatcher } from './audioInterceptor'
 import { setupIframePhotoViewerDetector } from './features/iframePhotoViewerDetector'
+import { ensureMainWorldInjectedFallback } from './pageWorldFallback'
 import App from './views/App.vue'
 import { initVolumeNormalizationControl } from './volumeNormalizationControl'
 
@@ -137,6 +138,8 @@ if (isElectronEnv) {
   console.warn('[BewlyCat] Detected Electron environment, extension disabled.')
 }
 else {
+  ensureMainWorldInjectedFallback()
+
   // Fix `OverlayScrollbars` not working in Firefox
   // https://github.com/fingerprintjs/fingerprintjs/issues/683#issuecomment-881210244
   if (isFirefox) {
