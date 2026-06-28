@@ -7,9 +7,10 @@ const DNR_COVERED_HOSTS: ReadonlySet<string> = new Set([
  * Pure function: determines whether the given request is covered by the
  * static DNR rules in assets/rules.json.
  *
- * Current rules cover POST xmlhttprequest to api.bilibili.com and
- * passport.bilibili.com (thirdParty). This function mirrors that scope
- * exactly.
+ * Current rules cover POST xmlhttprequest/other requests to
+ * api.bilibili.com and passport.bilibili.com (thirdParty). The request
+ * resource type is assigned by the browser, so this function mirrors the
+ * URL and method portion of that scope.
  */
 export function isDnrCoveredRequest(url: string, method: string): boolean {
   let hostname: string
@@ -34,16 +35,11 @@ export interface SafariCompatRequestOptions {
  * Execute a fetch request with Safari-compatible header handling.
  *
  * When DNR covers the request (POST to api/passport.bilibili.com),
- * both Origin and Referer are removed from caller headers — DNR rules
- * in assets/rules.json set them at the browser level.
+ * Origin and Referer are removed from caller headers so the browser-level
+ * modifyHeaders rules can set them.
  *
- * For non-DNR requests, Origin is removed (it's a forbidden header
- * that ordinary fetch code cannot reliably set), but caller-provided
- * Referer is preserved.
- *
- * Note: code can only choose the DNR path; it cannot simulate DNR
- * behavior through ordinary fetch. Whether rules actually take effect
- * in Safari requires on-device verification.
+ * For non-DNR requests, Origin is removed because ordinary fetch code cannot
+ * reliably set it, while a caller-provided Referer is preserved.
  */
 export async function requestWithSafariCompat(input: SafariCompatRequestOptions): Promise<Response> {
   const {
@@ -59,12 +55,10 @@ export async function requestWithSafariCompat(input: SafariCompatRequestOptions)
   const dnrCovered = isDnrCoveredRequest(url, method)
 
   if (dnrCovered) {
-    // DNR-covered: remove Origin and Referer — let DNR rules set them
     normalizedHeaders.delete('Origin')
     normalizedHeaders.delete('Referer')
   }
   else {
-    // Non-DNR: remove Origin (forbidden header), keep Referer if provided
     normalizedHeaders.delete('Origin')
   }
 

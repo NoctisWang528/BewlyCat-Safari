@@ -1,11 +1,24 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import browser from 'webextension-polyfill'
 
-import api from '~/utils/api'
+import api, { APIClient, shouldUsePageWatchLater } from '~/utils/api'
+
+const pageWatchLaterMocks = vi.hoisted(() => ({
+  request: vi.fn(),
+}))
+
+vi.mock('~/utils/pageWatchLater', async (importOriginal) => {
+  const original = await importOriginal<typeof import('~/utils/pageWatchLater')>()
+  return {
+    ...original,
+    requestPageWatchLater: pageWatchLaterMocks.request,
+  }
+})
 
 describe('apiClient response validation', () => {
   beforeEach(() => {
     vi.mocked(browser.runtime.sendMessage).mockReset()
+    pageWatchLaterMocks.request.mockReset()
   })
 
   it('returns response when it has code property', async () => {
@@ -41,5 +54,43 @@ describe('apiClient response validation', () => {
     vi.mocked(browser.runtime.sendMessage).mockResolvedValueOnce({ ok: true, data: { code: -101, message: 'not logged in' } })
     const result = await api.user.getUserInfo()
     expect(result).toEqual({ code: -101, message: 'not logged in' })
+  })
+
+  it('routes Safari watch-later mutations through the page bridge', async () => {
+    pageWatchLaterMocks.request.mockResolvedValueOnce({ code: 0 })
+    const safariApi = new APIClient(true)
+
+    const result = await safariApi.watchlater.saveToWatchLater({
+      aid: 123,
+      csrf: 'not-forwarded-by-the-bridge',
+    })
+
+    expect(result).toEqual({ code: 0 })
+    expect(pageWatchLaterMocks.request).toHaveBeenCalledWith('saveToWatchLater', {
+      aid: 123,
+      csrf: 'not-forwarded-by-the-bridge',
+    })
+    expect(browser.runtime.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it('keeps non-Safari watch-later mutations on background messaging', async () => {
+    vi.mocked(browser.runtime.sendMessage).mockResolvedValueOnce({ ok: true, data: { code: 0 } })
+    const nonSafariApi = new APIClient(false)
+
+    await nonSafariApi.watchlater.removeFromWatchLater({
+      aid: 123,
+      csrf: 'token',
+    })
+
+    expect(pageWatchLaterMocks.request).not.toHaveBeenCalled()
+    expect(browser.runtime.sendMessage).toHaveBeenCalledOnce()
+  })
+
+  it('limits the Safari page bridge to watch-later add and remove', () => {
+    expect(shouldUsePageWatchLater('watchlater', 'saveToWatchLater', true)).toBe(true)
+    expect(shouldUsePageWatchLater('watchlater', 'removeFromWatchLater', true)).toBe(true)
+    expect(shouldUsePageWatchLater('watchlater', 'clearAllWatchLater', true)).toBe(false)
+    expect(shouldUsePageWatchLater('video', 'saveToWatchLater', true)).toBe(false)
+    expect(shouldUsePageWatchLater('watchlater', 'saveToWatchLater', false)).toBe(false)
   })
 })

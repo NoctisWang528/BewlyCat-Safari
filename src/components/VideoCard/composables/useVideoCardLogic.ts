@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useToast } from 'vue-toastification'
 
 import { useBewlyApp } from '~/composables/useAppProvider'
@@ -47,6 +48,7 @@ function createAppFeedFeedbackParams(video: Video, selection?: AppFeedFeedbackSe
 
 export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps>) {
   const toast = useToast()
+  const { t } = useI18n()
   const { openIframeDrawer } = useBewlyApp()
   const topBarStore = useTopBarStore()
 
@@ -66,6 +68,7 @@ export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps
   const selectedDislikeOpt = ref<AppFeedFeedbackSelection>()
   const videoCurrentTime = ref<number | null>(null)
   const isInWatchLater = ref<boolean>(false)
+  const isTogglingWatchLater = ref(false)
   const isHover = ref<boolean>(false)
   const mouseEnterTimeOut = ref<number | null>(null)
   const mouseLeaveTimeOut = ref<number | null>(null)
@@ -264,54 +267,86 @@ export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps
   })
 
   // Methods
-  function toggleWatchLater() {
+  async function toggleWatchLater() {
     if (!props.value.video)
       return
 
-    if (!isInWatchLater.value) {
-      const params: { bvid?: string, aid?: number, csrf: string } = {
-        csrf: getCSRF(),
-      }
+    if (isTogglingWatchLater.value)
+      return
 
-      // 优先使用bvid，如果没有则使用aid
-      if (props.value.video.bvid) {
-        params.bvid = props.value.video.bvid
+    const csrf = getCSRF()
+    if (!csrf) {
+      toast.error(t('common.watch_later_login_required'))
+      return
+    }
+
+    const video = props.value.video
+    const aid = Number(video.aid || video.id || 0)
+    const hasValidAid = Number.isFinite(aid) && aid > 0
+    const bvid = typeof video.bvid === 'string' && video.bvid.trim()
+      ? video.bvid.trim()
+      : undefined
+
+    if (!hasValidAid && !bvid) {
+      toast.error(t('common.watch_later_invalid_video_id'))
+      return
+    }
+
+    isTogglingWatchLater.value = true
+
+    try {
+      if (!isInWatchLater.value) {
+        const params: { aid?: number, bvid?: string, csrf: string } = { csrf }
+
+        if (hasValidAid)
+          params.aid = aid
+        if (bvid)
+          params.bvid = bvid
+
+        const res = await api.watchlater.saveToWatchLater(params)
+
+        if (res?.code === 0) {
+          isInWatchLater.value = true
+          toast.success(t('common.watch_later_add_success'))
+          // 延时1秒后获取稍后再看列表（add成功后居然不是立即生效的）
+          setTimeout(() => {
+            topBarStore.getAllWatchLaterList()
+          }, 1000)
+        }
+        else {
+          toast.error(res?.message || t('common.watch_later_add_failed'))
+        }
       }
       else {
-        params.aid = props.value.video.id
-      }
+        if (!hasValidAid) {
+          toast.error(t('common.watch_later_remove_invalid_aid'))
+          return
+        }
 
-      api.watchlater.saveToWatchLater(params)
-        .then((res) => {
-          if (res.code === 0) {
-            isInWatchLater.value = true
-            // 延时1秒后获取稍后再看列表（add成功后居然不是立即生效的）
-            setTimeout(() => {
-              topBarStore.getAllWatchLaterList()
-            }, 1000)
-          }
-          else {
-            toast.error(res.message)
-          }
+        const res = await api.watchlater.removeFromWatchLater({
+          aid,
+          csrf,
         })
+
+        if (res?.code === 0) {
+          isInWatchLater.value = false
+          toast.success(t('common.watch_later_remove_success'))
+          // 延时1秒后获取稍后再看列表（add成功后居然不是立即生效的）
+          setTimeout(() => {
+            topBarStore.getAllWatchLaterList()
+          }, 1000)
+        }
+        else {
+          toast.error(res?.message || t('common.watch_later_remove_failed'))
+        }
+      }
     }
-    else {
-      api.watchlater.removeFromWatchLater({
-        aid: props.value.video.id,
-        csrf: getCSRF(),
-      })
-        .then((res) => {
-          if (res.code === 0) {
-            isInWatchLater.value = false
-            // 延时1秒后获取稍后再看列表（add成功后居然不是立即生效的）
-            setTimeout(() => {
-              topBarStore.getAllWatchLaterList()
-            }, 1000)
-          }
-          else {
-            toast.error(res.message)
-          }
-        })
+    catch (error) {
+      console.error('[BewlyCat] toggle watch later failed:', error)
+      toast.error(error instanceof Error ? error.message : t('common.watch_later_operation_failed'))
+    }
+    finally {
+      isTogglingWatchLater.value = false
     }
   }
 

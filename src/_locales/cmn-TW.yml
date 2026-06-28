@@ -25,6 +25,14 @@ common:
   login: 登入
   save_to_watch_later: 稍後觀看
   added: 已新增
+  watch_later_login_required: 無法取得登入憑證，請確認已登入 Bilibili 並允許 Safari 擴充功能存取此網站
+  watch_later_invalid_video_id: 無法識別影片 ID，稍後觀看操作失敗
+  watch_later_remove_invalid_aid: 無法識別影片 aid，無法移出稍後觀看
+  watch_later_add_success: 已加入稍後觀看
+  watch_later_add_failed: 加入稍後觀看失敗
+  watch_later_remove_success: 已從稍後觀看移除
+  watch_later_remove_failed: 移出稍後觀看失敗
+  watch_later_operation_failed: 稍後觀看操作失敗
   performance_impact_warn: 這個功能可能會降低效能！
   no_data: 暫無資料
   no_more_content: 沒有更多內容了

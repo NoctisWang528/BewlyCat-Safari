@@ -190,7 +190,7 @@ async function doRequest(message: Message, api: API, sendResponse?: (response?: 
     let targetParams = Object.assign({}, params)
     const targetBody = Object.assign({}, body)
     Object.keys(rest).forEach((key) => {
-      if (body && body[key] !== undefined)
+      if (body && Object.prototype.hasOwnProperty.call(body, key))
         targetBody[key] = rest[key]
       else
         targetParams[key] = rest[key]
@@ -232,15 +232,26 @@ async function doRequest(message: Message, api: API, sendResponse?: (response?: 
             urlParams.append(key, value)
           }
         }
-        requestUrl += `?${urlParams.toString()}`
+        const query = urlParams.toString()
+        if (query)
+          requestUrl += `?${query}`
       }
 
       // generate body
       let requestBody = targetBody
       if (!isGET) {
-        requestBody = (headers && headers['Content-Type'] && headers['Content-Type'].includes('application/x-www-form-urlencoded'))
-          ? new URLSearchParams(targetBody)
-          : JSON.stringify(targetBody)
+        const bodyEntries = Object.entries(targetBody)
+          .filter(([, value]) => hasRequestValue(value))
+
+        if (headers && headers['Content-Type'] && headers['Content-Type'].includes('application/x-www-form-urlencoded')) {
+          const formBody = new URLSearchParams()
+          for (const [key, value] of bodyEntries)
+            formBody.append(key, String(value))
+          requestBody = formBody
+        }
+        else {
+          requestBody = JSON.stringify(Object.fromEntries(bodyEntries))
+        }
       }
 
       // generate cookies

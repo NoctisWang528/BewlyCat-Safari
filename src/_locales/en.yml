@@ -25,6 +25,14 @@ common:
   login: Login
   save_to_watch_later: Save to Watch later
   added: Added
+  watch_later_login_required: Unable to get login credentials. Make sure you are logged in to Bilibili and Safari has granted this extension access to the site.
+  watch_later_invalid_video_id: Unable to identify the video. The Watch later operation failed.
+  watch_later_remove_invalid_aid: Unable to identify the video aid. The video could not be removed from Watch later.
+  watch_later_add_success: Added to Watch later
+  watch_later_add_failed: Failed to add to Watch later
+  watch_later_remove_success: Removed from Watch later
+  watch_later_remove_failed: Failed to remove from Watch later
+  watch_later_operation_failed: Watch later operation failed
   performance_impact_warn: This feature may cause performance *DECREASE*!
   no_data: No data available
   no_more_content: No more content now, owari da

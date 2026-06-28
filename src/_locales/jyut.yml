@@ -25,6 +25,14 @@ common:
   login: 登入
   save_to_watch_later: 陣間至睇
   added: 已添加
+  watch_later_login_required: 攞唔到登入憑證，請確認已登入 Bilibili，同埋已允許 Safari 擴充功能存取呢個網站
+  watch_later_invalid_video_id: 認唔到影片 ID，陣間至睇操作失敗
+  watch_later_remove_invalid_aid: 認唔到影片 aid，無法移出陣間至睇
+  watch_later_add_success: 已加到陣間至睇
+  watch_later_add_failed: 加到陣間至睇失敗
+  watch_later_remove_success: 已由陣間至睇移除
+  watch_later_remove_failed: 移出陣間至睇失敗
+  watch_later_operation_failed: 陣間至睇操作失敗
   performance_impact_warn: 呢個功能可能會降低效能！
   no_data: 暫時冇數據
   no_more_content: 唔使睇喇，冇嘢喇

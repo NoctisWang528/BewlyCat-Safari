@@ -25,6 +25,14 @@ common:
   login: 登录
   save_to_watch_later: 稍后再看
   added: 已添加
+  watch_later_login_required: 无法获取登录凭证，请确认已登录 Bilibili 并允许 Safari 扩展访问本站点
+  watch_later_invalid_video_id: 无法识别视频 ID，稍后再看操作失败
+  watch_later_remove_invalid_aid: 无法识别视频 aid，移出稍后再看失败
+  watch_later_add_success: 已添加到稍后再看
+  watch_later_add_failed: 添加稍后再看失败
+  watch_later_remove_success: 已从稍后再看移除
+  watch_later_remove_failed: 移出稍后再看失败
+  watch_later_operation_failed: 稍后再看操作失败
   performance_impact_warn: 这个功能可能会影响性能！
   no_data: 暂无数据
   no_more_content: 没有更多内容了

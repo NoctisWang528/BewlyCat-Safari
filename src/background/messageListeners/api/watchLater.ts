@@ -11,8 +11,8 @@ const API_WATCHLATER = {
         'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
       },
       body: {
-        aid: 0,
-        bvid: '',
+        aid: undefined as number | undefined,
+        bvid: undefined as string | undefined,
         csrf: '',
       },
     },
@@ -32,7 +32,7 @@ const API_WATCHLATER = {
       },
     },
     params: {
-      aid: 0,
+      aid: undefined as number | undefined,
     },
     afterHandle: AHS.J_D,
   },

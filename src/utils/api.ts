@@ -2,6 +2,7 @@ import type { API_COLLECTION } from '~/background/messageListeners/api'
 import { settings } from '~/logic'
 import { sendMessage } from '~/utils/messaging'
 import { isPageNoCookieSearchMethod, requestPageNoCookieSearch } from '~/utils/pageNoCookieSearch'
+import { isPageWatchLaterMethod, requestPageWatchLater } from '~/utils/pageWatchLater'
 
 type CamelCase<S extends string> = S extends `${infer P1}_${infer P2}${infer P3}`
   ? `${Lowercase<P1>}${Uppercase<P2>}${CamelCase<P3>}`
@@ -17,6 +18,14 @@ type APIFunction<T = typeof API_COLLECTION> = {
 // eslint-disable-next-line ts/no-unsafe-declaration-merging
 export interface APIClient extends APIFunction<typeof API_COLLECTION> {
 
+}
+
+export function shouldUsePageWatchLater(
+  namespace: PropertyKey,
+  method: PropertyKey,
+  isSafari: boolean,
+): method is 'saveToWatchLater' | 'removeFromWatchLater' {
+  return isSafari && namespace === 'watchlater' && isPageWatchLaterMethod(method)
 }
 
 function assertApiResponse(value: unknown, namespace: string | symbol, method: string | symbol) {
@@ -40,7 +49,8 @@ function assertApiResponse(value: unknown, namespace: string | symbol, method: s
 export class APIClient {
   private readonly cache = new Map<string | symbol, any>()
 
-  constructor() {
+  // eslint-disable-next-line node/prefer-global/process
+  constructor(useSafariPageWatchLater = Boolean(process.env.SAFARI)) {
     // @ts-expect-error ignore
     return new Proxy({}, {
       get: (_, namespace) => { // namespace
@@ -51,6 +61,11 @@ export class APIClient {
           const api = new Proxy({}, {
             get(_, p) {
               return (options?: object) => {
+                if (shouldUsePageWatchLater(namespace, p, useSafariPageWatchLater)) {
+                  return requestPageWatchLater(p, options as Record<string, unknown> | undefined)
+                    .then(response => assertApiResponse(response, namespace, p))
+                }
+
                 if (
                   namespace === 'search'
                   && typeof p === 'string'

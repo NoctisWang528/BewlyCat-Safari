@@ -74,6 +74,22 @@ describe('requestWithSafariCompat', () => {
     expect(init.headers).toHaveProperty('content-type', 'application/json')
   })
 
+  it('dNR POST does not synthesize script-level referrer options', async () => {
+    await requestWithSafariCompat({
+      url: 'https://api.bilibili.com/x/v2/history/toview/add',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({ aid: '123', csrf: 'token' }),
+    })
+
+    const [, init] = fetchSpy.mock.calls[0]
+    expect(init.headers).not.toHaveProperty('referer')
+    expect(init).not.toHaveProperty('referrer')
+    expect(init).not.toHaveProperty('referrerPolicy')
+  })
+
   it('non-DNR GET preserves Referer but removes Origin', async () => {
     await requestWithSafariCompat({
       url: 'https://www.bilibili.com/x/web-interface/nav',
@@ -118,6 +134,7 @@ describe('requestWithSafariCompat', () => {
     expect(init.method).toBe('POST')
     expect(init.body).toBe('{"foo":"bar"}')
     expect(init.credentials).toBe('omit')
+    expect(init.headers).not.toHaveProperty('referer')
   })
 
   it('malicious suffix hostname is not matched', async () => {
@@ -134,6 +151,8 @@ describe('requestWithSafariCompat', () => {
     // Not DNR-covered, so Referer preserved but Origin removed
     expect(init.headers).not.toHaveProperty('origin')
     expect(init.headers).toHaveProperty('referer', 'https://evil.com/')
+    expect(init).not.toHaveProperty('referrer')
+    expect(init).not.toHaveProperty('referrerPolicy')
   })
 
   it('case-insensitive header normalization', async () => {

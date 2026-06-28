@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
 import { useI18n } from 'vue-i18n'
+import { useToast } from 'vue-toastification'
 
 import Empty from '~/components/Empty.vue'
 import Loading from '~/components/Loading.vue'
@@ -17,6 +18,8 @@ interface MomentTab { type: MomentType, name: any }
 const topBarStore = useTopBarStore()
 
 const { t } = useI18n()
+const toast = useToast()
+const pendingWatchLaterAids = reactive(new Set<number>())
 
 const momentTabs = computed((): MomentTab[] => {
   return [
@@ -79,31 +82,63 @@ function getData() {
   topBarStore.getMomentsData(selectedMomentTab.value.type)
 }
 
-function toggleWatchLater(aid: number) {
-  // 修改这里，直接使用 topBarStore.addedWatchLaterList
-  const isInWatchLater = topBarStore.addedWatchLaterList.includes(aid)
-
-  if (!isInWatchLater) {
-    api.watchlater.saveToWatchLater({
-      aid,
-      csrf: getCSRF(),
-    })
-      .then((res) => {
-        if (res.code === 0)
-          topBarStore.addedWatchLaterList.push(aid)
-      })
+async function toggleWatchLater(aid: number) {
+  if (!Number.isFinite(aid) || aid <= 0) {
+    toast.error(t('common.watch_later_invalid_video_id'))
+    return
   }
-  else {
-    api.watchlater.removeFromWatchLater({
-      aid,
-      csrf: getCSRF(),
-    })
-      .then((res) => {
-        if (res.code === 0) {
-          topBarStore.addedWatchLaterList.length = 0
-          Object.assign(topBarStore.addedWatchLaterList, topBarStore.addedWatchLaterList.filter(item => item !== aid))
-        }
+
+  if (pendingWatchLaterAids.has(aid))
+    return
+
+  const csrf = getCSRF()
+  if (!csrf) {
+    toast.error(t('common.watch_later_login_required'))
+    return
+  }
+
+  const isInWatchLater = topBarStore.addedWatchLaterList.includes(aid)
+  pendingWatchLaterAids.add(aid)
+
+  try {
+    if (!isInWatchLater) {
+      const res = await api.watchlater.saveToWatchLater({
+        aid,
+        csrf,
       })
+
+      if (res?.code === 0) {
+        if (!topBarStore.addedWatchLaterList.includes(aid))
+          topBarStore.addedWatchLaterList.push(aid)
+        toast.success(t('common.watch_later_add_success'))
+      }
+      else {
+        toast.error(res?.message || t('common.watch_later_add_failed'))
+      }
+    }
+    else {
+      const res = await api.watchlater.removeFromWatchLater({
+        aid,
+        csrf,
+      })
+
+      if (res?.code === 0) {
+        const index = topBarStore.addedWatchLaterList.indexOf(aid)
+        if (index >= 0)
+          topBarStore.addedWatchLaterList.splice(index, 1)
+        toast.success(t('common.watch_later_remove_success'))
+      }
+      else {
+        toast.error(res?.message || t('common.watch_later_remove_failed'))
+      }
+    }
+  }
+  catch (error) {
+    console.error('[BewlyCat] toggle moment watch later failed:', error)
+    toast.error(error instanceof Error ? error.message : t('common.watch_later_operation_failed'))
+  }
+  finally {
+    pendingWatchLaterAids.delete(aid)
   }
 }
 
@@ -294,13 +329,15 @@ defineExpose({
               >
               <!-- 修改这里，使用 topBarStore.addedWatchLaterList -->
               <div
+                class="moment-watch-later-toggle"
                 opacity-0 group-hover:opacity-100
                 pos="absolute" duration-300 bg="black opacity-60"
                 rounded="$bew-radius-half" p-1
                 z-1 color-white
-                @click.prevent="toggleWatchLater(moment.rid || 0)"
+                @click.prevent.stop="toggleWatchLater(moment.rid || 0)"
               >
-                <Tooltip v-if="!topBarStore.addedWatchLaterList.includes(moment.rid || 0)" :content="$t('common.save_to_watch_later')" placement="bottom" type="dark">
+                <Icon v-if="pendingWatchLaterAids.has(moment.rid || 0)" icon="line-md:loading-twotone-loop" />
+                <Tooltip v-else-if="!topBarStore.addedWatchLaterList.includes(moment.rid || 0)" :content="$t('common.save_to_watch_later')" placement="bottom" type="dark">
                   <div i-mingcute:carplay-line />
                 </Tooltip>
                 <Tooltip v-else :content="$t('common.added')" placement="bottom" type="dark">

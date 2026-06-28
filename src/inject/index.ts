@@ -4,6 +4,7 @@ import { BEWLY_PAGE_WORLD_GLOBAL_KEY } from '~/constants/pageWorld'
 import type { Settings } from '~/logic/storage'
 import { isElectron } from '~/utils/main'
 
+import { installPageWatchLaterBridge } from './pageWatchLater'
 import type { BewlyPageWorldState } from './pageWorldLifecycle'
 import {
   installPageWorldPingListener,
@@ -473,6 +474,9 @@ else {
       }
 
       const originalFetch = window.fetch
+      installPageWatchLaterBridge({
+        fetchImpl: originalFetch.bind(window),
+      })
 
       function isAllowedPageNoCookieSearchUrl(url: string): boolean {
         try {

@@ -204,16 +204,28 @@ control) and `ERR_STORAGE_QUOTA` to round-trip through the messaging layer.
 ### Network Requests
 
 `requestWithSafariCompat` provides a fetch wrapper that integrates with DNR
-rules. The DNR rules in `assets/rules.json` cover POST requests to
-`api.bilibili.com` and `passport.bilibili.com` — these rules set `Origin` and
-`Referer` headers at the browser level.
+rules. The DNR rules in `assets/rules.json` cover POST `xmlhttprequest` and
+`other` requests to `api.bilibili.com` and `passport.bilibili.com`. These rules
+set `Origin` and `Referer` headers at the browser level.
+
+Safari uses the `declarativeNetRequestWithHostAccess` permission because its
+`modifyHeaders` action requires host-backed DNR access. The existing Bilibili
+host permissions supply that access without broadening the allowed domains.
 
 For DNR-covered requests, the wrapper removes caller-provided `Origin` and
-`Referer` headers, letting DNR rules handle them. For non-DNR requests, only
-`Origin` is removed (it's a forbidden header); `Referer` is preserved.
+`Referer` values and lets Safari set them through the static rules. For
+non-DNR requests, only `Origin` is removed.
 
-The `isDnrCoveredRequest(url, method)` pure function accurately reflects the
-DNR rule scope and is exported for testing.
+The `isDnrCoveredRequest(url, method)` pure function reflects the URL and method
+portion of the DNR rule scope and is exported for testing. Safari assigns the
+request resource type at runtime.
+
+Safari watch-later add/remove operations do not depend on background header
+rewriting. The content script sends a strictly typed request to the existing
+MAIN-world bridge, which accepts only the fixed add/remove operations and uses
+the page's original `window.fetch`. This lets Safari generate the page Origin,
+Referer, and credentials naturally. The bridge never accepts arbitrary URLs and
+does not fall back to a background POST after a timeout.
 
 ### Token Refresh (P1 fix)
 

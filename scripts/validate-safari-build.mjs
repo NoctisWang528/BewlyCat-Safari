@@ -108,6 +108,16 @@ assert(
   'Safari manifest should include alarms permission',
 )
 
+// 14. Safari modifyHeaders rules require the host-access DNR permission
+assert(
+  permissions.includes('declarativeNetRequestWithHostAccess'),
+  'Safari manifest should include declarativeNetRequestWithHostAccess for modifyHeaders rules',
+)
+assert(
+  !permissions.includes('declarativeNetRequest'),
+  'Safari manifest should use declarativeNetRequestWithHostAccess instead of declarativeNetRequest',
+)
+
 // 14. Safari should NOT have persistent key (MV3 is non-persistent by default)
 assert(
   bg.persistent === undefined,
