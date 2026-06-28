@@ -53,6 +53,9 @@ export const sharedConfig: UserConfig = {
       '__BEWLY_VERSION__': JSON.stringify(packageJson.version),
       '__VUE_OPTIONS_API__': JSON.stringify(true),
       '__VUE_PROD_DEVTOOLS__': JSON.stringify(false),
+      '__VUE_PROD_HYDRATION_MISMATCH_DETAILS__': JSON.stringify(false),
+      '__VUE_INSTANCE_SETTERS__': JSON.stringify(true),
+      '__VUE_DEVTOOLS_HOOK_REPLAY__': JSON.stringify(true),
       'preventAssignment': true,
     }),
 

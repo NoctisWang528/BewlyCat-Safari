@@ -133,6 +133,38 @@ if (fileExists(contentBundlePath)) {
   )
 }
 
+// 17. JS bundles must not contain unresolved Vue compile-time feature flags.
+// Only the known flags are checked. Vue internals use similar-looking identifiers
+// as runtime properties (e.g. e.__VUE_DEVTOOLS_HOOK_REPLAY__) and string arguments
+// (e.g. registerGlobalSetter("__VUE_INSTANCE_SETTERS__", ...)) which are NOT
+// compile-time feature flags and must not be treated as false positives.
+const vueFeatureFlags = [
+  '__VUE_OPTIONS_API__',
+  '__VUE_PROD_DEVTOOLS__',
+  '__VUE_PROD_HYDRATION_MISMATCH_DETAILS__',
+]
+
+const jsFilesToScan = [
+  path.join(extDir, 'dist/background/index.js'),
+  path.join(extDir, 'dist/contentScripts/index.global.js'),
+  path.join(extDir, 'dist/contentScripts/inject.global.js'),
+]
+
+for (const file of jsFilesToScan) {
+  if (!fileExists(file))
+    continue
+
+  const code = fs.readFileSync(file, 'utf8')
+  for (const flag of vueFeatureFlags) {
+    const flagRegex = new RegExp(`(?<!["'.\\w])${flag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?!["'\\w])`)
+    const match = code.match(flagRegex)
+    assert(
+      !match,
+      `${path.relative(root, file)} contains unresolved Vue feature flag: ${flag}`,
+    )
+  }
+}
+
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed.`)
   process.exit(1)

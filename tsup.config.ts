@@ -27,9 +27,17 @@ export default defineConfig(() => ({
   define: {
     '__DEV__': JSON.stringify(isDev),
     'process.env.NODE_ENV': JSON.stringify(isDev ? 'development' : 'production'),
-    'process.env.FIREFOX': isFirefox ? 'true' : 'false',
+    'process.env.FIREFOX': JSON.stringify(isFirefox),
     'process.env.SAFARI': JSON.stringify(isSafari),
     '__BEWLY_VERSION__': JSON.stringify(packageJson.version),
+
+    // Vue compile-time feature flags.
+    // Required because background is bundled by tsup, not Vite.
+    '__VUE_OPTIONS_API__': JSON.stringify(true),
+    '__VUE_PROD_DEVTOOLS__': JSON.stringify(false),
+    '__VUE_PROD_HYDRATION_MISMATCH_DETAILS__': JSON.stringify(false),
+    '__VUE_INSTANCE_SETTERS__': JSON.stringify(true),
+    '__VUE_DEVTOOLS_HOOK_REPLAY__': JSON.stringify(true),
   },
   platform: 'browser',
   minifyWhitespace: !isDev,
