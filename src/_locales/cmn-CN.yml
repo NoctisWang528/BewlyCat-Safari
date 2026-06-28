@@ -479,6 +479,8 @@ settings:
   follow_bilibili_evolved_color: 使用 Bilibili Evolved 主题色
   follow_bilibili_evolved_color_desc: 每次选完 Bilibili Evolved 主题色时，记得重新选中这一选项以更新配置。
   links: 链接
+  safari_github: Safari GitHub
+  upstream_github: 上游 GitHub
   import_settings: 导入设置
   export_settings: 导出设置
   export_settings_desc: 一些敏感的数据，例如 access key，可能需要重新获取。

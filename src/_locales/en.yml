@@ -490,6 +490,8 @@ settings:
     After changing the theme color in Bilibili Evolved, you will need to
     re-select this option in order to update the theme color.
   links: Links
+  safari_github: Safari GitHub
+  upstream_github: Upstream GitHub
   import_settings: Import Settings
   export_settings: Export Settings
   export_settings_desc: >-

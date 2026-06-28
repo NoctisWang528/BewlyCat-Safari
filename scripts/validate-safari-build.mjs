@@ -7,6 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
 const extDir = path.join(root, 'extension-safari')
 const manifestPath = path.join(extDir, 'manifest.json')
+const packagePath = path.join(root, 'package.json')
 
 let failures = 0
 
@@ -30,9 +31,14 @@ if (failures > 0) {
 }
 
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+const pkg = JSON.parse(fs.readFileSync(packagePath, 'utf8'))
 
 // 2. MV3
 assert(manifest.manifest_version === 3, 'manifest_version must be 3')
+assert(
+  manifest.version === `${pkg.version}.${pkg.safariRevision}`,
+  'Safari manifest version must combine package version and safariRevision',
+)
 
 // 3. Background bundle exists
 assert(

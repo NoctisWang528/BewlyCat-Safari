@@ -4,7 +4,13 @@ import browser from 'webextension-polyfill'
 
 import { originalSettings, settings } from '~/logic'
 
-import { version } from '../../../../package.json'
+import { safariRevision, version } from '../../../../package.json'
+
+const SAFARI_REPOSITORY_URL = 'https://github.com/NoctisWang528/BewlyCat-Safari'
+const SAFARI_RELEASES_URL = `${SAFARI_REPOSITORY_URL}/releases`
+const SAFARI_LATEST_RELEASE_API_URL = 'https://api.github.com/repos/NoctisWang528/BewlyCat-Safari/releases/latest'
+const UPSTREAM_REPOSITORY_URL = 'https://github.com/keleus/BewlyCat'
+const safariVersion = `${version}-safari.${safariRevision}`
 
 const { t } = useI18n()
 
@@ -77,18 +83,17 @@ function handleResetSettings() {
 }
 
 async function checkGitHubRelease() {
-  const apiUrl = `https://api.github.com/repos/keleus/BewlyCat/releases/latest`
-
   try {
-    const response = await fetch(apiUrl)
+    const response = await fetch(SAFARI_LATEST_RELEASE_API_URL)
     if (!response.ok)
       throw new Error('Network response was not ok')
 
-    const data = await response.json()
+    const data = await response.json() as { tag_name?: unknown }
     const latestVersion = data.tag_name
+    if (typeof latestVersion !== 'string')
+      return
 
-    // Here you can compare `latestVersion` with your current version
-    const currentVersion = `v${version}` // Replace with your actual current version
+    const currentVersion = `v${safariVersion}`
 
     if (latestVersion !== currentVersion)
       hasNewVersion.value = true
@@ -108,7 +113,8 @@ async function checkGitHubRelease() {
 
         <a
           v-if="hasNewVersion"
-          href="https://github.com/keleus/BewlyCat/releases" target="_blank"
+          :href="SAFARI_RELEASES_URL" target="_blank"
+          class="new-version-link"
           pos="absolute bottom-0 right-0" transform="translate-x-50%" un-text="xs $bew-text-1" p="y-1 x-2" bg="$bew-fill-1"
           rounded-12
         >
@@ -117,7 +123,7 @@ async function checkGitHubRelease() {
       </div>
       <section text-2xl text-center mt-2>
         <p flex="inline gap-2" fw-900>
-          <span>BewlyCat</span>
+          <span class="product-name">BewlyCat-Safari</span>
           <span
             v-if="isDev"
             inline-block text="$bew-warning-color"
@@ -127,10 +133,11 @@ async function checkGitHubRelease() {
         </p>
         <p text-center>
           <a
-            href="https://github.com/keleus/BewlyCat/releases" target="_blank"
+            :href="SAFARI_RELEASES_URL" target="_blank"
+            class="version-link"
             un-text="sm color-$bew-text-2 hover:color-$bew-text-3"
           >
-            v{{ version }}
+            v{{ safariVersion }}
           </a>
         </p>
       </section>
@@ -146,12 +153,20 @@ async function checkGitHubRelease() {
           </h3>
           <div grid="~ xl:cols-6 lg:cols-5 md:cols-4 cols-3 gap-2">
             <a
-              href="https://github.com/keleus/BewlyCat" target="_blank"
+              :href="SAFARI_REPOSITORY_URL" target="_blank"
               class="link-card"
               bg="black dark:white !opacity-10 !hover:opacity-20"
               un-text="black dark:white"
             >
-              <div i-tabler:brand-github /> GitHub
+              <div i-tabler:brand-github /> {{ $t('settings.safari_github') }}
+            </a>
+            <a
+              :href="UPSTREAM_REPOSITORY_URL" target="_blank"
+              class="link-card"
+              bg="black dark:white !opacity-10 !hover:opacity-20"
+              un-text="black dark:white"
+            >
+              <div i-tabler:brand-github /> {{ $t('settings.upstream_github') }}
             </a>
             <a
               href="https://space.bilibili.com/32487218/dynamic" target="_blank"

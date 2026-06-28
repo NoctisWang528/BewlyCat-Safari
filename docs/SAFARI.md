@@ -115,7 +115,7 @@ been preserved elsewhere.
 Pass the version and the built host app path to the release script:
 
 ```bash
-pnpm release:macos -- v1.6.7 "/path/to/BewlyCat Safari.app"
+pnpm release:macos -- v1.6.7-safari.3 "/path/to/BewlyCat Safari.app"
 ```
 
 The app path can instead be supplied through `BEWLYCAT_APP_PATH`. If omitted,
@@ -127,7 +127,7 @@ The script:
 
 1. Runs `pnpm build` and `pnpm validate-safari`.
 2. validates the supplied app bundle path;
-3. creates `release/BewlyCat-Safari-v1.6.7-macOS.zip` with
+3. creates `release/BewlyCat-Safari-v1.6.7-safari.3-macOS.zip` with
    `ditto -c -k --keepParent`;
 4. creates `release/SHA256SUMS.txt`; and
 5. reports basic code-signature verification status and prints the manual
@@ -300,13 +300,12 @@ Storage quota errors are normalized to `ERR_STORAGE_QUOTA`.
 For the maintainer and Agent runbook, see
 [`UPSTREAM-MAINTENANCE-cmn_CN.md`](./UPSTREAM-MAINTENANCE-cmn_CN.md).
 
-See `.github/workflows/upstream-sync.yml`. The workflow runs weekly (Monday
-03:00 UTC) or on manual trigger. It fetches `keleus/BewlyCat` (read-only),
-merges into a temporary branch, runs Safari CI, and pushes to `origin/main`.
-
-**Important:** The upstream remote is read-only. The workflow never pushes to
-`keleus/BewlyCat`. If merge conflicts occur, the workflow fails and records
-conflict files in the step summary.
+Upstream releases are reviewed and merged manually. Fetch the upstream tags,
+create a dedicated branch from `origin/main`, and merge the exact release tag
+rather than automatically tracking `upstream/main`. Keep the upstream remote
+read-only, preserve Safari compatibility changes while resolving conflicts,
+and run the complete Safari CI and manual Safari checks before updating
+`main`.
 
 ## Still Requires Manual Safari Verification
 

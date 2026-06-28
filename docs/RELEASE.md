@@ -4,7 +4,10 @@ Use this checklist for a GitHub Release of the macOS Safari host app.
 
 ## Maintainer checklist
 
-- [ ] Set the intended version in `package.json` and in both Xcode targets.
+- [ ] Set the upstream base in `package.json#version` and increment
+      `package.json#safariRevision`.
+- [ ] Keep both Xcode targets on the upstream base as `MARKETING_VERSION`, and
+      increment their numeric `CURRENT_PROJECT_VERSION`.
 - [ ] Run `pnpm install --frozen-lockfile`.
 - [ ] Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm knip`.
 - [ ] Run `pnpm package-safari`.
@@ -12,10 +15,10 @@ Use this checklist for a GitHub Release of the macOS Safari host app.
 - [ ] Archive/export the macOS host app and test its embedded Safari extension.
 - [ ] If notarizing, submit the signed app, wait for acceptance, staple the
       ticket, and verify the final app before packaging.
-- [ ] Run `pnpm release:macos -- vX.Y.Z "/path/to/BewlyCat Safari.app"`.
+- [ ] Run `pnpm release:macos -- vX.Y.Z-safari.N "/path/to/BewlyCat Safari.app"`.
 - [ ] Verify the generated zip digest against `release/SHA256SUMS.txt`.
 - [ ] Test installation from the generated zip on a clean macOS user or machine.
-- [ ] Create and push the matching `vX.Y.Z` tag.
+- [ ] Create and push the matching `vX.Y.Z-safari.N` tag.
 - [ ] Create the GitHub Release and upload the zip and `SHA256SUMS.txt`.
 - [ ] Record the exact signing and notarization status in the notes.
 
@@ -25,7 +28,7 @@ passwords, or notarytool keychain profiles in this repository.
 ## GitHub Release notes template
 
 ```markdown
-# BewlyCat Safari vX.Y.Z
+# BewlyCat Safari vX.Y.Z-safari.N
 
 ## 系统要求
 
@@ -35,7 +38,7 @@ passwords, or notarytool keychain profiles in this repository.
 
 ## 安装
 
-1. 下载 `BewlyCat-Safari-vX.Y.Z-macOS.zip` 和 `SHA256SUMS.txt`。
+1. 下载 `BewlyCat-Safari-vX.Y.Z-safari.N-macOS.zip` 和 `SHA256SUMS.txt`。
 2. 校验 SHA-256 后解压，将 `.app` 移入“应用程序”并打开。
 3. 在 Safari → 设置 → 扩展中启用 BewlyCat。
 4. 授予 Bilibili 相关域名的网站访问权限。
@@ -61,5 +64,5 @@ passwords, or notarytool keychain profiles in this repository.
 
 以本 Release 附件 `SHA256SUMS.txt` 为准：
 
-`待粘贴校验值  BewlyCat-Safari-vX.Y.Z-macOS.zip`
+`待粘贴校验值  BewlyCat-Safari-vX.Y.Z-safari.N-macOS.zip`
 ```

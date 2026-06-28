@@ -13,8 +13,8 @@ Usage:
   pnpm release:macos -- <version> [path-to-app]
 
 Examples:
-  pnpm release:macos -- v1.6.7 "/path/to/BewlyCat Safari.app"
-  BEWLYCAT_APP_PATH="/path/to/BewlyCat Safari.app" pnpm release:macos -- v1.6.7
+  pnpm release:macos -- v1.6.7-safari.3 "/path/to/BewlyCat Safari.app"
+  BEWLYCAT_APP_PATH="/path/to/BewlyCat Safari.app" pnpm release:macos -- v1.6.7-safari.3
 
 The app path may be omitted only when exactly one .app can be found under
 extension-safari-macos/. Xcode commonly writes build products to DerivedData,
@@ -41,8 +41,8 @@ if [[ "${VERSION}" != v* ]]; then
   VERSION="v${VERSION}"
 fi
 
-if [[ ! "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([._+-][0-9A-Za-z.-]+)?$ ]]; then
-  fail "Invalid version '${VERSION}'. Use a version such as v1.6.7 or v1.6.7-beta.1."
+if [[ ! "${VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-safari\.[1-9][0-9]*$ ]]; then
+  fail "Invalid version '${VERSION}'. Use the upstream base plus Safari revision, such as v1.6.7-safari.3."
 fi
 
 [[ "$(uname -s)" == "Darwin" ]] || fail "This release script requires macOS."

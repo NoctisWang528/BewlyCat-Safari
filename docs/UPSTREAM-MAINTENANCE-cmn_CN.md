@@ -8,8 +8,7 @@
 
 ## 快速结论
 
-- GitHub Actions 每周检查并合并上游更新。
-- 自动同步只更新 GitHub 上的 `origin/main`，不会更新维护者的本地仓库。
+- 上游更新仅由维护者在正式 Release 节点手动合并，不配置自动合并工作流。
 - CI 只能构建和验证 Safari WebExtension，不能运行真实 Safari 或 Xcode。
 - 日常源码更新应使用 `pnpm sync-safari-xcode` 刷新现有 Xcode 工程。
 - 不要为普通源码更新运行 `pnpm package-safari`，它会重新生成整个 Xcode 工程。
@@ -42,76 +41,34 @@ pnpm --version
 
 如果工作树存在未提交修改，先确认其归属。不要覆盖、还原或提交不属于当前任务的修改。
 
-## 自动上游同步会做什么
+## 手动同步上游 Release
 
-工作流位于 `.github/workflows/upstream-sync.yml`。
-
-触发方式：
-
-- 每周一 UTC 03:00，即北京时间周一 11:00；
-- 在 GitHub Actions 页面手动触发 `Upstream Sync`。
-
-工作流执行以下操作：
-
-1. 获取 `origin/main` 和 `keleus/BewlyCat` 的 `upstream/main`。
-2. 检查 `upstream/main` 是否已经包含在 `origin/main` 历史中。
-3. 如有新提交，从当前 `origin/main` 创建临时分支。
-4. 使用非 fast-forward merge 合并 `upstream/main`。
-5. 安装锁定依赖。
-6. 运行 Safari CI：
-
-   ```bash
-   pnpm lint
-   pnpm typecheck
-   pnpm knip
-   pnpm test
-   pnpm build
-   pnpm validate-safari
-   ```
-
-7. 再次确认同步期间 `origin/main` 没有被其他提交改变。
-8. 全部通过后，将临时分支直接推送到 `origin/main`。
-
-工作流不会：
-
-- 向 `keleus/BewlyCat` 推送；
-- 自动修改维护者 Mac 上的本地仓库；
-- 自动生成或编译 Xcode App；
-- 自动安装或重启 Safari 扩展；
-- 自动进行真实 Bilibili 账号测试；
-- 自动创建 macOS Release。
-
-## 自动同步的失败行为
-
-以下任一情况发生时，`origin/main` 不会被同步工作流修改：
-
-- 合并冲突；
-- 依赖安装失败；
-- lint、typecheck、knip 或测试失败；
-- Safari WebExtension 构建或验证失败；
-- 同步期间 `origin/main` 被其他提交更新。
-
-发生合并冲突时，工作流会中止 merge，并在 GitHub Actions 的 step summary 中列出冲突文件。
-需要人工创建分支解决，禁止使用 `git reset --hard` 或直接丢弃 Safari 兼容代码。
-
-## 上游同步成功后的本地更新
-
-确认 GitHub Actions 中的 `Upstream Sync` 成功后执行：
+只在确认需要跟进的上游正式 Release 后同步。不要自动跟踪 `upstream/main`。
 
 ```bash
 cd /Users/baixu/Documents/BewlyCat-Safari
 git status --short
-git pull --ff-only origin main
+git fetch origin
+git remote get-url upstream >/dev/null 2>&1 \
+  || git remote add upstream https://github.com/keleus/BewlyCat.git
+git fetch upstream --tags
+git switch -c chore/sync-upstream-vX.Y.Z origin/main
+git merge --no-ff vX.Y.Z
 pnpm install --frozen-lockfile
-pnpm sync-safari-xcode
+pnpm lint
+pnpm typecheck
+pnpm knip
+pnpm test
+pnpm build
+pnpm validate-safari
 ```
 
 说明：
 
-- `git pull --ff-only` 防止在不知情的情况下产生本地 merge commit；
-- 如果该命令失败，停止操作并检查本地提交与 `origin/main` 的分叉，不要强制重置；
-- 即使 `package.json` 看起来没有变化，也建议在上游同步后执行一次锁定依赖安装；
-- `pnpm sync-safari-xcode` 会构建、验证并刷新现有 Xcode 工程中的 WebExtension 资源。
+- 合并上游对应 Release tag，不合并 Release 之后尚未发布的提交；
+- 冲突必须人工理解并解决，不要直接选择整份 `ours` 或 `theirs`；
+- 验证通过后再同步 Xcode Resources、完成 Safari 实机测试并合并到 `main`；
+- 如果无法安全解决，可在 merge 尚未提交时执行 `git merge --abort`。
 
 ## 刷新现有 Xcode 工程
 
@@ -301,8 +258,8 @@ CI 证明源码可以通过自动检查和生成 Safari WebExtension，但不证
 
 发布前：
 
-1. 更新 `package.json` 版本；
-2. 同步父 App 和 Extension target 的 Xcode 版本；
+1. 将 `package.json#version` 设为上游基线，并递增 `safariRevision`；
+2. 将父 App 和 Extension target 的 `MARKETING_VERSION` 设为上游基线，并递增 `CURRENT_PROJECT_VERSION`；
 3. 完成完整 CI 命令；
 4. 构建并验证 Safari WebExtension；
 5. 同步 Xcode Resources；
@@ -314,9 +271,8 @@ CI 证明源码可以通过自动检查和生成 Safari WebExtension，但不证
 生成发布压缩包：
 
 ```bash
-pnpm release:macos -- vX.Y.Z "/absolute/path/to/BewlyCat Safari.app"
+pnpm release:macos -- vX.Y.Z-safari.N "/absolute/path/to/BewlyCat Safari.app"
 ```
-
 该脚本会：
 
 - 重新构建并验证 Safari WebExtension；
@@ -369,7 +325,7 @@ pnpm release:macos -- vX.Y.Z "/absolute/path/to/BewlyCat Safari.app"
 git status --short
 git log --oneline --decorate -10
 
-# 获取 GitHub 上已自动合并的更新
+# 更新本地 main
 git pull --ff-only origin main
 pnpm install --frozen-lockfile
 
@@ -391,6 +347,5 @@ pnpm check-safari-xcode-sync
 pnpm package-safari
 
 # 打包已构建的最终 App
-pnpm release:macos -- vX.Y.Z "/absolute/path/to/BewlyCat Safari.app"
+pnpm release:macos -- vX.Y.Z-safari.N "/absolute/path/to/BewlyCat Safari.app"
 ```
-

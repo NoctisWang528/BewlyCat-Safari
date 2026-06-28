@@ -25,7 +25,7 @@ export async function getManifest() {
   const manifest: Manifest.WebExtensionManifest = {
     manifest_version: 3,
     name: `${pkg.displayName || pkg.name}${isDev ? ' Dev' : ''}`,
-    version: pkg.version,
+    version: isSafari ? `${pkg.version}.${pkg.safariRevision}` : pkg.version,
     description: pkg.description,
     homepage_url: pkg.homepage,
     // action: {
