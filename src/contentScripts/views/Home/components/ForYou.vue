@@ -719,6 +719,12 @@ async function getRecommendVideos(version = requestVersion, requestType: WebReco
       return
     }
 
+    if (typeof response.code !== 'number') {
+      requestFailed.value = true
+      noMoreContent.value = true
+      return
+    }
+
     if (response.code === 0) {
       // 只在成功时递增 refreshIdx
       refreshIdx.value = currentRefreshIdx + 1
@@ -893,6 +899,11 @@ async function getAppRecommendVideos(version = requestVersion) {
 
       if (!response) {
         console.error('Failed to load batch', batch, 'Response is undefined')
+        requestFailed.value = true
+        break
+      }
+
+      if (typeof response.code !== 'number') {
         requestFailed.value = true
         break
       }

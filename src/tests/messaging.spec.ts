@@ -133,4 +133,23 @@ describe('messaging error serialization', () => {
     vi.mocked(browser.runtime.sendMessage).mockResolvedValueOnce({ ok: false } as any)
     await expect(sendMessage('foo')).rejects.toThrow('Malformed messaging error response')
   })
+
+  it('sendMessage throws ERR_EXTENSION_NO_RESPONSE when background returns undefined', async () => {
+    vi.mocked(browser.runtime.sendMessage).mockResolvedValueOnce(undefined as any)
+    const promise = sendMessage('getData')
+    await expect(promise).rejects.toThrow('No response from background for message: getData')
+    await expect(promise).rejects.toMatchObject({ code: 'ERR_EXTENSION_NO_RESPONSE' })
+  })
+
+  it('sendMessage throws ERR_EXTENSION_MALFORMED_RESPONSE for non-object responses', async () => {
+    vi.mocked(browser.runtime.sendMessage).mockResolvedValueOnce('string-response' as any)
+    const promise = sendMessage('foo')
+    await expect(promise).rejects.toThrow('Malformed background response for message: foo')
+    await expect(promise).rejects.toMatchObject({ code: 'ERR_EXTENSION_MALFORMED_RESPONSE' })
+  })
+
+  it('sendMessage throws ERR_EXTENSION_MALFORMED_RESPONSE for object without ok', async () => {
+    vi.mocked(browser.runtime.sendMessage).mockResolvedValueOnce({ data: 123 } as any)
+    await expect(sendMessage('foo')).rejects.toThrow('Malformed background response for message: foo')
+  })
 })

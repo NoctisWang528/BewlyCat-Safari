@@ -84,8 +84,17 @@ type OnMessageListener = (
 export async function sendMessage<T = any, R = any>(type: string, data?: T): Promise<R> {
   const message: Message<T> = { type, data: data as T }
   const response: MessageResponse<R> = await browser.runtime.sendMessage(message)
-  if (!response || typeof response !== 'object' || !('ok' in response)) {
-    return response as unknown as R
+  if (!response) {
+    const err = new Error(`No response from background for message: ${type}`)
+    ;(err as any).code = 'ERR_EXTENSION_NO_RESPONSE'
+    throw err
+  }
+
+  if (typeof response !== 'object' || !('ok' in response)) {
+    const err = new Error(`Malformed background response for message: ${type}`)
+    ;(err as any).code = 'ERR_EXTENSION_MALFORMED_RESPONSE'
+    ;(err as any).originalResponse = response
+    throw err
   }
   if (!response.ok) {
     if (!response.error

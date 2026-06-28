@@ -19,6 +19,23 @@ export interface APIClient extends APIFunction<typeof API_COLLECTION> {
 
 }
 
+function assertApiResponse(value: unknown, namespace: string | symbol, method: string | symbol) {
+  if (!value || typeof value !== 'object') {
+    const err = new Error(`Invalid API response from ${String(namespace)}.${String(method)}: response is ${value}`)
+    ;(err as any).code = 'ERR_INVALID_API_RESPONSE'
+    throw err
+  }
+
+  if (!('code' in value)) {
+    const err = new Error(`Invalid API response from ${String(namespace)}.${String(method)}: missing code`)
+    ;(err as any).code = 'ERR_INVALID_API_RESPONSE'
+    ;(err as any).response = value
+    throw err
+  }
+
+  return value
+}
+
 // eslint-disable-next-line ts/no-unsafe-declaration-merging
 export class APIClient {
   private readonly cache = new Map<string | symbol, any>()
@@ -49,6 +66,7 @@ export class APIClient {
                 }
 
                 return sendMessage(p as string, message)
+                  .then(response => assertApiResponse(response, namespace, p))
               }
             },
           })

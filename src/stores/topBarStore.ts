@@ -20,6 +20,14 @@ import type { List as VideoItem } from '~/models/video/watchLater'
 import api from '~/utils/api'
 import { getCSRF, isHomePage } from '~/utils/main'
 
+function isApiResponse(res: unknown): res is { code: number, data?: any, message?: string } {
+  return !!res && typeof res === 'object' && typeof (res as any).code === 'number'
+}
+
+function isApiSuccess(res: unknown): res is { code: 0, data: any, message?: string } {
+  return isApiResponse(res) && res.code === 0
+}
+
 export const useTopBarStore = defineStore('topBar', () => {
   const toast = useToast()
   const isLogin = ref<boolean>(true)
@@ -152,6 +160,10 @@ export const useTopBarStore = defineStore('topBar', () => {
     try {
       const res = await api.user.getUserInfo()
 
+      if (!isApiResponse(res)) {
+        throw new Error('Invalid getUserInfo response')
+      }
+
       if (res.code === 0) {
         const wasLoggedIn = isLogin.value
         const previousMid = userInfo.mid
@@ -213,12 +225,12 @@ export const useTopBarStore = defineStore('topBar', () => {
 
     try {
       let res = await api.notification.getUnreadMsg()
-      if (res.code === 0) {
+      if (isApiSuccess(res)) {
         Object.assign(unReadMessage, res.data)
       }
 
       res = await api.notification.getUnreadDm()
-      if (res.code === 0) {
+      if (isApiSuccess(res)) {
         Object.assign(unReadDm, res.data)
       }
     }
@@ -239,7 +251,7 @@ export const useTopBarStore = defineStore('topBar', () => {
 
     try {
       const res = await api.user.getPrivilegeInfo()
-      if (res.code === 0) {
+      if (isApiSuccess(res)) {
         Object.assign(privilegeInfo, res.data)
         if (privilegeInfo.vip_type < 2) {
           return
@@ -285,14 +297,14 @@ export const useTopBarStore = defineStore('topBar', () => {
         csrf: getCSRF(),
       })
 
-      if (res.code === 0) {
+      if (isApiSuccess(res)) {
         // 领取成功，更新状态
         bCoinAlreadyReceived.value = true
         hasBCoinToReceive.value = false
         toast.success('B币券自动领取成功')
       }
       else {
-        toast.error(`B币券自动领取失败: ${res.message}`)
+        toast.error(`B币券自动领取失败: ${(res as any)?.message ?? 'unknown'}`)
       }
     }
     catch {
@@ -316,12 +328,12 @@ export const useTopBarStore = defineStore('topBar', () => {
         csrf: getCSRF(),
       })
 
-      if (res.code === 0) {
+      if (isApiSuccess(res)) {
         // 领取成功，更新状态并显示消息
         vipExpAlreadyReceived.value = true
         toast.success('大会员经验自动领取成功', { timeout: 1500 })
       }
-      else if (res.code === 69198) {
+      else if (isApiResponse(res) && res.code === 69198) {
         // 经验已领取，静默更新状态
         vipExpAlreadyReceived.value = true
       }
@@ -345,7 +357,7 @@ export const useTopBarStore = defineStore('topBar', () => {
         update_baseline: '0',
       })
 
-      if (res.code === 0 && res.data) {
+      if (isApiSuccess(res) && res.data) {
         newMomentsCount.value = res.data.update_num
       }
     }
@@ -367,7 +379,7 @@ export const useTopBarStore = defineStore('topBar', () => {
         pn: 1,
         ps: 10,
       })
-      if (res.code === 0) {
+      if (isApiSuccess(res)) {
         watchLaterCount.value = res.data.count
         Object.assign(watchLaterList, res.data.list)
       }
@@ -389,7 +401,7 @@ export const useTopBarStore = defineStore('topBar', () => {
         pn: 1,
         ps: 10,
       })
-      if (res.code === 0) {
+      if (isApiSuccess(res)) {
         watchLaterCount.value = res.data.count
         Object.assign(watchLaterList, res.data.list)
       }
@@ -420,7 +432,7 @@ export const useTopBarStore = defineStore('topBar', () => {
         pn: currentPage,
         ps: 10,
       })
-      if (res.code === 0) {
+      if (isApiSuccess(res)) {
         watchLaterList.push(...res.data.list)
       }
     }
@@ -439,7 +451,7 @@ export const useTopBarStore = defineStore('topBar', () => {
         aid,
         csrf: getCSRF(),
       })
-      if (res.code === 0) {
+      if (isApiSuccess(res)) {
         watchLaterList.splice(index, 1)
         watchLaterCount.value = watchLaterList.length
       }
@@ -482,88 +494,89 @@ export const useTopBarStore = defineStore('topBar', () => {
       offset: momentOffset.value || undefined,
     })
       .then((res: any) => {
-        if (res.code === 0) {
-          const { has_more, items, offset, update_baseline } = res.data
+        if (!isApiSuccess(res))
+          return
 
-          if (!has_more) {
-            noMoreMomentsContent.value = true
-            return
+        const { has_more, items, offset, update_baseline } = res.data
+
+        if (!has_more) {
+          noMoreMomentsContent.value = true
+          return
+        }
+
+        // 更新状态
+        // newMomentsCount.value = update_num
+        momentUpdateBaseline.value = update_baseline
+        momentOffset.value = offset
+
+        // 添加新内容
+        if (items?.length) {
+          // 根据 selectedType 和设置过滤数据
+          // type: 8 是视频，type: 64 是专栏
+          let filteredItems = items
+
+          // 如果是视频类型，根据设置决定是否过滤专栏
+          if (selectedType === 'video') {
+            if (settings.value.filterArticlesInMoments) {
+              // 开启过滤专栏：只保留视频（type: 8）
+              filteredItems = items.filter((item: any) => item.type === 8)
+            }
+            else {
+              // 关闭过滤专栏：保留视频和专栏（type: 8 或 64）
+              filteredItems = items.filter((item: any) => item.type === 8 || item.type === 64)
+            }
           }
 
-          // 更新状态
-          // newMomentsCount.value = update_num
-          momentUpdateBaseline.value = update_baseline
-          momentOffset.value = offset
-
-          // 添加新内容
-          if (items?.length) {
-            // 根据 selectedType 和设置过滤数据
-            // type: 8 是视频，type: 64 是专栏
-            let filteredItems = items
-
-            // 如果是视频类型，根据设置决定是否过滤专栏
-            if (selectedType === 'video') {
-              if (settings.value.filterArticlesInMoments) {
-                // 开启过滤专栏：只保留视频（type: 8）
-                filteredItems = items.filter((item: any) => item.type === 8)
-              }
-              else {
-                // 关闭过滤专栏：保留视频和专栏（type: 8 或 64）
-                filteredItems = items.filter((item: any) => item.type === 8 || item.type === 64)
-              }
-            }
-
-            // 合并联合投稿视频 - 只对视频类型进行合并
-            let processedItems = filteredItems
-            if (selectedType === 'video') {
-              // 只合并视频，不合并专栏
-              const videos = filteredItems.filter((item: any) => item.type === 8)
-              const articles = filteredItems.filter((item: any) => item.type === 64)
-              const mergedVideos = mergeCollaborativeVideos(videos)
-              // 将合并后的视频和专栏合并到一起
-              processedItems = [...mergedVideos, ...articles]
-            }
-
-            // 如果是第一次加载（offset为空），需要根据过滤和合并后的实际数量调整 newMomentsCount
-            // 因为过滤专栏和合并联合投稿会导致显示的条目数量少于原始的 update_num
-            if (!momentOffset.value && selectedType === 'video') {
-              // 计算过滤前有多少新内容
-              const originalNewCount = newMomentsCount.value
-              // 计算过滤和合并后的实际条目数
-              const actualNewCount = Math.min(originalNewCount, processedItems.length)
-              // 更新为实际的新内容数量
-              newMomentsCount.value = actualNewCount
-            }
-
-            processedItems.forEach((item: any) => {
-              const momentItem = {
-                type: selectedType,
-                title: item.title,
-                author: item.authors ? item.authors.map((a: any) => a.name).join(' / ') : item.author.name,
-                authorFace: item.author.face,
-                authorJumpUrl: item.author.jump_url,
-                pubTime: item.pub_time,
-                cover: item.cover,
-                link: item.jump_url,
-                rid: item.rid,
-                isCollaborative: !!item.authors,
-                authors: item.authors,
-              }
-
-              moments.push(momentItem)
-
-              if (selectedType === 'video' && item.type === 8) {
-                const bvid = extractBvid(item)
-                if (!bvid)
-                  return
-                const entry = collaborativeVideoMap.get(bvid)
-                if (!entry)
-                  return
-                entry.moment = momentItem
-                updateMomentCollaborative(momentItem, entry.item)
-              }
-            })
+          // 合并联合投稿视频 - 只对视频类型进行合并
+          let processedItems = filteredItems
+          if (selectedType === 'video') {
+            // 只合并视频，不合并专栏
+            const videos = filteredItems.filter((item: any) => item.type === 8)
+            const articles = filteredItems.filter((item: any) => item.type === 64)
+            const mergedVideos = mergeCollaborativeVideos(videos)
+            // 将合并后的视频和专栏合并到一起
+            processedItems = [...mergedVideos, ...articles]
           }
+
+          // 如果是第一次加载（offset为空），需要根据过滤和合并后的实际数量调整 newMomentsCount
+          // 因为过滤专栏和合并联合投稿会导致显示的条目数量少于原始的 update_num
+          if (!momentOffset.value && selectedType === 'video') {
+            // 计算过滤前有多少新内容
+            const originalNewCount = newMomentsCount.value
+            // 计算过滤和合并后的实际条目数
+            const actualNewCount = Math.min(originalNewCount, processedItems.length)
+            // 更新为实际的新内容数量
+            newMomentsCount.value = actualNewCount
+          }
+
+          processedItems.forEach((item: any) => {
+            const momentItem = {
+              type: selectedType,
+              title: item.title,
+              author: item.authors ? item.authors.map((a: any) => a.name).join(' / ') : item.author.name,
+              authorFace: item.author.face,
+              authorJumpUrl: item.author.jump_url,
+              pubTime: item.pub_time,
+              cover: item.cover,
+              link: item.jump_url,
+              rid: item.rid,
+              isCollaborative: !!item.authors,
+              authors: item.authors,
+            }
+
+            moments.push(momentItem)
+
+            if (selectedType === 'video' && item.type === 8) {
+              const bvid = extractBvid(item)
+              if (!bvid)
+                return
+              const entry = collaborativeVideoMap.get(bvid)
+              if (!entry)
+                return
+              entry.moment = momentItem
+              updateMomentCollaborative(momentItem, entry.item)
+            }
+          })
         }
       })
       .catch(error => console.error(error))
@@ -665,31 +678,33 @@ export const useTopBarStore = defineStore('topBar', () => {
       pagesize: pageSize,
     })
       .then((res: any) => {
-        if (res.code === 0) {
-          const { list } = res.data
+        if (!isApiSuccess(res))
+          return
 
-          // if the length of this list is less then the pageSize, it means that it have no more contents
-          if (list.length < pageSize) {
-            noMoreMomentsContent.value = true
-          }
+        const { list } = res.data
 
-          // if the length of this list is equal to the pageSize, this means that it may have the next page.
-          if (list.length === pageSize)
-            livePage.value++
-
-          moments.push(
-            ...list.map((item: any) => ({
-              type: 'live',
-              title: item.title,
-              author: item.uname,
-              authorFace: item.face,
-              cover: item.pic,
-              link: item.link,
-            }),
-            ),
-          )
+        // if the length of this list is less then the pageSize, it means that it have no more contents
+        if (list.length < pageSize) {
+          noMoreMomentsContent.value = true
         }
+
+        // if the length of this list is equal to the pageSize, this means that it may have the next page.
+        if (list.length === pageSize)
+          livePage.value++
+
+        moments.push(
+          ...list.map((item: any) => ({
+            type: 'live',
+            title: item.title,
+            author: item.uname,
+            authorFace: item.face,
+            cover: item.pic,
+            link: item.link,
+          }),
+          ),
+        )
       })
+      .catch(error => console.error(error))
       .finally(() => isLoadingMoments.value = false)
   }
 
@@ -706,9 +721,10 @@ export const useTopBarStore = defineStore('topBar', () => {
         csrf: getCSRF(),
       })
         .then((res: any) => {
-          if (res.code === 0)
+          if (isApiSuccess(res))
             addedWatchLaterList.push(aid)
         })
+        .catch(error => console.error(error))
     }
     else {
       api.watchlater.removeFromWatchLater({
@@ -716,11 +732,12 @@ export const useTopBarStore = defineStore('topBar', () => {
         csrf: getCSRF(),
       })
         .then((res: any) => {
-          if (res.code === 0) {
+          if (isApiSuccess(res)) {
             addedWatchLaterList.length = 0
             Object.assign(addedWatchLaterList, addedWatchLaterList.filter(item => item !== aid))
           }
         })
+        .catch(error => console.error(error))
     }
   }
 
