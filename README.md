@@ -87,49 +87,28 @@ Chrome、Edge、Firefox 版本。
 
 ## ⬇️ 安装
 
-### 在线安装
+### macOS Safari（本仓库 Release）
 
-[Chrome应用商店](https://chromewebstore.google.com/detail/oopkfefbgecikmfbbapnlpjidoomhjpl)
+本仓库的 [Releases](https://github.com/NoctisWang528/BewlyCat-Safari/releases)
+只提供 macOS Safari 版本。下载
+`BewlyCat-Safari-v版本号-macOS.zip` 后：
 
-[Edge应用商店](https://microsoftedge.microsoft.com/addons/detail/bewlycat/aaammfjdfifgnfnbflolojihjfhdploj):审核周期不定
+1. 按 Release 附带的 `SHA256SUMS.txt` 校验文件并解压。
+2. 将解压得到的 `.app` 移入“应用程序”（`/Applications`）并打开。
+3. 前往 Safari → 设置 → 扩展，启用 BewlyCat。
+4. 按提示授予 Bilibili 及相关域名的网站访问权限。
 
-[Firefox应用商店](https://addons.mozilla.org/en-US/firefox/addon/bewlycat/):已上线～（`1.0.2`版本已经修复抽屉问题）
+Safari Web Extension 必须包含在 macOS 宿主 app 中，不能像 Chrome 的
+`extension.zip` 一样拖入浏览器安装。如果 Release 未签名或未经过 Apple
+notarization，macOS 可能阻止或警告打开；本项目不承诺自动绕过 Gatekeeper。
+详细说明见 [Safari 开发与分发文档](./docs/SAFARI.md#release-distribution)。
 
-> [!CAUTION]
-> 审核可能存在延迟，Chrome一般会晚30分钟-15天，Edge一般会晚3-30天，Firefox一般会晚1-30分钟
+### Chrome、Edge 和 Firefox（上游项目）
 
-### 本地安装
-
-[CI](https://github.com/keleus/BewlyCat/actions)：使用最新代码自动构建
-
-[Releases](https://github.com/keleus/BewlyCat/releases)：稳定版
-
-#### Edge 和 Chrome(推荐)
-
-> 确保您下载了 [extension.zip](https://github.com/keleus/BewlyCat/releases)。
-
-在 Edge 浏览器中打开 `edge://extensions` 或者在 Chrome 浏览器中打开 `chrome://extensions` 界面，只需将下载的 `extension.zip` 文件拖放到浏览器中即可完成安装。
-
-<details>
- <summary> Edge & Chrome 的另一种安装方法 </summary>
-
-#### Edge
-
-> 确保您下载了 [extension.zip](https://github.com/keleus/BewlyCat/releases) 并解压缩该文件。
-
-1. 在地址栏输入 `edge://extensions/` 并按回车
-2. 打开 `开发者模式` 并点击 `加载已解压的拓展程序` <br/> <img width="655" alt="image" src="https://user-images.githubusercontent.com/33394391/232246901-e3544c16-bde2-480d-b770-ca5242793963.png">
-3. 在浏览器中加载解压后的扩展文件夹
-
-#### Chrome
-
-> 确保您下载了 [extension.zip](https://github.com/keleus/BewlyCat/releases) 并解压缩该文件。
-
-1. 在地址栏输入 `chrome://extensions/` 并按回车
-2. 打开 `开发者模式` 并点击 `加载已解压的拓展程序` <br/> <img width="655" alt="Snipaste_2022-03-27_18-17-04" src="https://user-images.githubusercontent.com/33394391/160276882-13da0484-92c1-47dd-add8-7655c5c2bf1c.png">
-3. 在浏览器中加载解压后的扩展文件夹
-
-</details>
+这些浏览器不属于本仓库的构建和发布范围。请使用
+[上游 keleus/BewlyCat 的安装渠道和 Releases](https://github.com/keleus/BewlyCat#%EF%B8%8F-%E5%AE%89%E8%A3%85)；
+其中的商店版本和 `extension.zip` 仅适用于 Chrome、Edge 或 Firefox，
+不适用于本仓库的 Safari Release。
 
 ## 🤝 构建项目参考
 

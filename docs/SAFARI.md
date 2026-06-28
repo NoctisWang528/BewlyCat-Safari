@@ -60,6 +60,91 @@ The script:
 4. In Safari → Settings → Extensions, enable BewlyCat
 5. Grant website access for Bilibili domains
 
+## Release Distribution
+
+GitHub Releases distribute the macOS host app, not a Chrome, Edge, or Firefox
+`extension.zip`. A Safari Web Extension must be embedded in its containing
+macOS app and cannot be installed by dragging a WebExtension zip into Safari.
+
+### Build the release app
+
+1. Run `pnpm package-safari` to generate the Xcode project.
+2. Open the generated project and configure the release Team, bundle
+   identifiers, version, and signing settings.
+3. Build or archive the Release configuration in Xcode and export the macOS
+   host `.app`.
+4. Test the exported app and its embedded Safari extension on the supported
+   macOS and Safari versions.
+
+`pnpm package-safari` regenerates `extension-safari-macos/`; do not run it after
+making deliberate changes to that generated project unless those changes have
+been preserved elsewhere.
+
+### Create GitHub Release assets
+
+Pass the version and the built host app path to the release script:
+
+```bash
+pnpm release:macos -- v1.6.7 "/path/to/BewlyCat Safari.app"
+```
+
+The app path can instead be supplied through `BEWLYCAT_APP_PATH`. If omitted,
+the script uses the app only when exactly one `.app` exists under
+`extension-safari-macos/`. Xcode normally stores build products in DerivedData,
+so an explicit path is recommended.
+
+The script:
+
+1. Runs `pnpm build` and `pnpm validate-safari`.
+2. validates the supplied app bundle path;
+3. creates `release/BewlyCat-Safari-v1.6.7-macOS.zip` with
+   `ditto -c -k --keepParent`;
+4. creates `release/SHA256SUMS.txt`; and
+5. reports basic code-signature verification status and prints the manual
+   tag/Release steps.
+
+Upload both the zip and `SHA256SUMS.txt` to the matching GitHub Release. The
+script does not create tags, upload assets, sign code, or access Apple
+credentials.
+
+### Install from a GitHub Release
+
+1. Download the macOS zip from this repository's
+   [Releases](https://github.com/NoctisWang528/BewlyCat-Safari/releases).
+2. Verify its SHA-256 digest against `SHA256SUMS.txt`, then extract it.
+3. Move the `.app` to `/Applications` and open it.
+4. In Safari → Settings → Extensions, enable BewlyCat.
+5. Grant access to the requested Bilibili and `hdslb` domains.
+
+If a release is unsigned or has not been notarized, macOS Gatekeeper may block
+or warn when opening it. Formal public distribution should use Developer ID
+Application signing and Apple notarization. The project does not promise or
+provide an automatic Gatekeeper bypass.
+
+### Signing and notarization
+
+For a notarized release:
+
+1. Configure Developer ID Application signing for the host app and extension
+   targets, then create a Release archive in Xcode.
+2. Export the signed app with Xcode's Developer ID distribution workflow.
+3. Store notarytool credentials in the local login keychain (or another secure
+   CI secret store), never in this repository.
+4. Submit the signed archive with `xcrun notarytool submit ... --wait`.
+5. After Apple accepts it, staple the ticket to the app with
+   `xcrun stapler staple "/path/to/BewlyCat Safari.app"`.
+6. Verify the signature, staple, and Gatekeeper assessment with `codesign`,
+   `xcrun stapler validate`, and `spctl`.
+7. Run `pnpm release:macos` against the stapled app so the published zip and
+   checksum contain the final notarized artifact.
+
+Apple account identifiers, app-specific passwords, API keys, certificates,
+private keys, and notarytool keychain profiles are local release credentials
+and must not be committed.
+
+See [Release checklist and notes template](./RELEASE.md) for the maintainer
+workflow and the suggested GitHub Release description.
+
 ## Architecture Notes
 
 ### Background Lifecycle
