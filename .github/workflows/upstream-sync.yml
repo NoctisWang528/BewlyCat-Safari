@@ -1,12 +1,18 @@
-name: Upstream Sync
+name: Upstream Release Sync
 
 on:
-  schedule:
-    - cron: '0 3 * * 1'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Upstream release tag to merge (leave empty for the latest stable release)
+        required: false
+        type: string
+  repository_dispatch:
+    types:
+      - upstream-release
 
 concurrency:
-  group: upstream-sync
+  group: upstream-release-sync
   cancel-in-progress: false
 
 permissions:
@@ -37,51 +43,84 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Add upstream and fetch
+      - name: Add upstream and fetch origin
         run: |
           git remote add upstream https://github.com/keleus/BewlyCat.git || true
           git remote set-url --push upstream DISABLED
           git fetch origin
-          git fetch upstream
 
-      - name: Check if sync is needed
-        id: check
+      - name: Resolve upstream release
+        id: release
+        env:
+          DISPATCH_TAG: ${{ github.event.client_payload.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MANUAL_TAG: ${{ inputs.release_tag }}
         run: |
-          if git merge-base --is-ancestor upstream/main origin/main; then
-            echo "up_to_date=true" >> $GITHUB_OUTPUT
-          else
-            echo "up_to_date=false" >> $GITHUB_OUTPUT
+          RELEASE_TAG="${DISPATCH_TAG:-$MANUAL_TAG}"
+          if [ -z "$RELEASE_TAG" ]; then
+            RELEASE_TAG=$(gh api repos/keleus/BewlyCat/releases/latest --jq '.tag_name')
           fi
 
-      - name: Merge upstream into temporary branch
+          if ! git check-ref-format "refs/tags/$RELEASE_TAG"; then
+            echo "ERROR: invalid upstream release tag: $RELEASE_TAG"
+            exit 1
+          fi
+
+          RELEASE_REF="refs/upstream-releases/$RELEASE_TAG"
+          git fetch --no-tags upstream "+refs/tags/$RELEASE_TAG:$RELEASE_REF"
+          RELEASE_COMMIT=$(git rev-parse "$RELEASE_REF^{commit}")
+
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          echo "ref=$RELEASE_REF" >> "$GITHUB_OUTPUT"
+          echo "commit=$RELEASE_COMMIT" >> "$GITHUB_OUTPUT"
+          echo "Selected upstream release: $RELEASE_TAG ($RELEASE_COMMIT)"
+
+      - name: Check if release is already merged
+        id: check
+        env:
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
+        run: |
+          if git merge-base --is-ancestor "$RELEASE_COMMIT" origin/main; then
+            echo "up_to_date=true" >> "$GITHUB_OUTPUT"
+            echo "Release ${{ steps.release.outputs.tag }} is already included in origin/main."
+          else
+            echo "up_to_date=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Merge upstream release into temporary branch
         if: steps.check.outputs.up_to_date == 'false'
         id: merge
+        env:
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
-          TEMP_BRANCH="bot/upstream-sync-$(date +%Y%m%d-%H%M%S)"
+          SAFE_TAG=$(printf '%s' "$RELEASE_TAG" | tr -c 'A-Za-z0-9._-' '-')
+          TEMP_BRANCH="bot/upstream-release-${SAFE_TAG}-$(date +%Y%m%d-%H%M%S)"
           ORIGIN_MAIN_SHA=$(git rev-parse origin/main)
-          echo "origin_main_sha=$ORIGIN_MAIN_SHA" >> $GITHUB_OUTPUT
-          echo "branch=$TEMP_BRANCH" >> $GITHUB_OUTPUT
+          echo "origin_main_sha=$ORIGIN_MAIN_SHA" >> "$GITHUB_OUTPUT"
+          echo "branch=$TEMP_BRANCH" >> "$GITHUB_OUTPUT"
 
           git checkout -B "$TEMP_BRANCH" origin/main
 
-          if ! git merge --no-ff -m "sync: merge upstream/main" upstream/main; then
-            echo "## Upstream Sync Conflict" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "The following files have merge conflicts:" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            git diff --name-only --diff-filter=U >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
+          if ! git merge --no-ff -m "sync: merge upstream release $RELEASE_TAG" "$RELEASE_COMMIT"; then
+            echo "## Upstream Release Sync Conflict" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "Release: \`$RELEASE_TAG\`" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "The following files have merge conflicts:" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            git diff --name-only --diff-filter=U >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
             git merge --abort
-            echo "conflict=true" >> $GITHUB_OUTPUT
+            echo "conflict=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          echo "conflict=false" >> $GITHUB_OUTPUT
+          echo "conflict=false" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         if: steps.merge.outputs.conflict != 'true' && steps.check.outputs.up_to_date == 'false'
         run: |
-          # Clear write credentials during install
           git config --unset-all credential.helper || true
           pnpm install --frozen-lockfile
 
@@ -100,7 +139,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Re-fetch origin to verify main hasn't changed
           git fetch origin refs/heads/main:refs/remotes/origin/main
           CURRENT_MAIN=$(git rev-parse origin/main)
           EXPECTED_MAIN="${{ steps.merge.outputs.origin_main_sha }}"
@@ -110,7 +148,6 @@ jobs:
             exit 1
           fi
 
-          # Push using token
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
           SYNC_BRANCH="${{ steps.merge.outputs.branch }}"
           git checkout "$SYNC_BRANCH"
@@ -119,5 +156,5 @@ jobs:
       - name: Report conflict
         if: steps.merge.outputs.conflict == 'true'
         run: |
-          echo "::error::Upstream sync encountered merge conflicts. See step summary for details."
+          echo "::error::Upstream release sync encountered merge conflicts. See step summary for details."
           exit 1
