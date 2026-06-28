@@ -297,6 +297,9 @@ Storage quota errors are normalized to `ERR_STORAGE_QUOTA`.
 
 ## Upstream Sync
 
+For the maintainer and Agent runbook, see
+[`UPSTREAM-MAINTENANCE-cmn_CN.md`](./UPSTREAM-MAINTENANCE-cmn_CN.md).
+
 See `.github/workflows/upstream-sync.yml`. The workflow runs weekly (Monday
 03:00 UTC) or on manual trigger. It fetches `keleus/BewlyCat` (read-only),
 merges into a temporary branch, runs Safari CI, and pushes to `origin/main`.
