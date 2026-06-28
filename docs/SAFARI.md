@@ -52,6 +52,32 @@ The script:
 5. Fails on non-zero exit or unsupported manifest key warnings.
 6. Verifies the generated `.xcodeproj` exists.
 
+## Refresh an Existing Xcode Project
+
+The packager uses `--copy-resources`, so `extension-safari-macos/` contains a
+snapshot of the WebExtension files. Running `pnpm build` alone does not update
+the files embedded by Xcode.
+
+After the Xcode project has been generated and signing has been configured, use:
+
+```bash
+pnpm sync-safari-xcode
+```
+
+This builds and validates `extension-safari/`, then atomically replaces only the
+extension target's copied `dist/`, `assets/`, and `manifest.json`. It preserves
+the Xcode project, Team, bundle identifiers, and signing configuration.
+
+After rebuilding the containing app in Xcode, verify that the source bundle,
+copied Xcode resources, and embedded app extension are identical:
+
+```bash
+pnpm check-safari-xcode-sync
+```
+
+Set `BEWLYCAT_APP_PATH` when checking an app outside Xcode's active Debug build
+directory.
+
 ## Run in Safari
 
 1. Open the generated `.xcodeproj` in Xcode
@@ -59,6 +85,10 @@ The script:
 3. Build and Run the host app (Cmd+R)
 4. In Safari → Settings → Extensions, enable BewlyCat
 5. Grant website access for Bilibili domains
+
+The generated Embed Foundation Extensions phase intentionally keeps Apple's
+default `RemoveHeadersOnCopy` attribute. The app extension target is signed
+before it is embedded, so this project does not add `CodeSignOnCopy`.
 
 ## Release Distribution
 

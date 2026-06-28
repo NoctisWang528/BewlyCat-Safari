@@ -18,6 +18,7 @@ export default antfu(
       '**/extension/**',
       '**/extension-firefox/**',
       '**/.kiro/**',
+      '**/.reasonix/**',
     ],
     rules: {
       'vue/max-attributes-per-line': [

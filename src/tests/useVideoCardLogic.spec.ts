@@ -106,7 +106,6 @@ describe('useVideoCardLogic watch later', () => {
         en: {
           common: {
             watch_later_add_failed: 'Failed to add',
-            watch_later_add_success: 'Added',
             watch_later_invalid_video_id: 'Invalid video',
             watch_later_login_required: 'Login required',
             watch_later_operation_failed: 'Operation failed',
@@ -133,7 +132,7 @@ describe('useVideoCardLogic watch later', () => {
 
     await expect(logic.toggleWatchLater()).resolves.toBeUndefined()
 
-    expect(mocks.toastError).toHaveBeenCalledWith('Risk control')
+    expect(mocks.toastError).not.toHaveBeenCalled()
     expect(logic.isInWatchLater.value).toBe(false)
   })
 
@@ -143,7 +142,7 @@ describe('useVideoCardLogic watch later', () => {
     await logic.toggleWatchLater()
 
     expect(mocks.saveToWatchLater).not.toHaveBeenCalled()
-    expect(mocks.toastError).toHaveBeenCalledWith('Login required')
+    expect(mocks.toastError).not.toHaveBeenCalled()
   })
 
   it('guards against concurrent watch-later requests', async () => {
@@ -160,7 +159,7 @@ describe('useVideoCardLogic watch later', () => {
 
     resolveRequest({ code: -1, message: 'Rejected' })
     await firstRequest
-    expect(mocks.toastError).toHaveBeenCalledWith('Rejected')
+    expect(mocks.toastError).not.toHaveBeenCalled()
   })
 
   it('updates state and refreshes the list after a successful add', async () => {
@@ -174,7 +173,7 @@ describe('useVideoCardLogic watch later', () => {
       csrf: 'csrf-token',
     })
     expect(logic.isInWatchLater.value).toBe(true)
-    expect(mocks.toastSuccess).toHaveBeenCalledWith('Added')
+    expect(mocks.toastSuccess).not.toHaveBeenCalled()
 
     await vi.advanceTimersByTimeAsync(1000)
     expect(mocks.getAllWatchLaterList).toHaveBeenCalledOnce()
@@ -190,8 +189,8 @@ describe('useVideoCardLogic watch later', () => {
     await logic.toggleWatchLater()
 
     expect(mocks.removeFromWatchLater).toHaveBeenCalledTimes(2)
-    expect(mocks.toastError).toHaveBeenCalledWith('Remove failed')
+    expect(mocks.toastError).not.toHaveBeenCalled()
     expect(logic.isInWatchLater.value).toBe(false)
-    expect(mocks.toastSuccess).toHaveBeenCalledWith('Removed')
+    expect(mocks.toastSuccess).not.toHaveBeenCalled()
   })
 })

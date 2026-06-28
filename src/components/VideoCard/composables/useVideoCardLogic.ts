@@ -1,5 +1,4 @@
 import type { CSSProperties } from 'vue'
-import { useI18n } from 'vue-i18n'
 import { useToast } from 'vue-toastification'
 
 import { useBewlyApp } from '~/composables/useAppProvider'
@@ -48,7 +47,6 @@ function createAppFeedFeedbackParams(video: Video, selection?: AppFeedFeedbackSe
 
 export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps>) {
   const toast = useToast()
-  const { t } = useI18n()
   const { openIframeDrawer } = useBewlyApp()
   const topBarStore = useTopBarStore()
 
@@ -275,10 +273,8 @@ export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps
       return
 
     const csrf = getCSRF()
-    if (!csrf) {
-      toast.error(t('common.watch_later_login_required'))
+    if (!csrf)
       return
-    }
 
     const video = props.value.video
     const aid = Number(video.aid || video.id || 0)
@@ -287,10 +283,8 @@ export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps
       ? video.bvid.trim()
       : undefined
 
-    if (!hasValidAid && !bvid) {
-      toast.error(t('common.watch_later_invalid_video_id'))
+    if (!hasValidAid && !bvid)
       return
-    }
 
     isTogglingWatchLater.value = true
 
@@ -307,21 +301,15 @@ export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps
 
         if (res?.code === 0) {
           isInWatchLater.value = true
-          toast.success(t('common.watch_later_add_success'))
           // 延时1秒后获取稍后再看列表（add成功后居然不是立即生效的）
           setTimeout(() => {
             topBarStore.getAllWatchLaterList()
           }, 1000)
         }
-        else {
-          toast.error(res?.message || t('common.watch_later_add_failed'))
-        }
       }
       else {
-        if (!hasValidAid) {
-          toast.error(t('common.watch_later_remove_invalid_aid'))
+        if (!hasValidAid)
           return
-        }
 
         const res = await api.watchlater.removeFromWatchLater({
           aid,
@@ -330,20 +318,15 @@ export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps
 
         if (res?.code === 0) {
           isInWatchLater.value = false
-          toast.success(t('common.watch_later_remove_success'))
           // 延时1秒后获取稍后再看列表（add成功后居然不是立即生效的）
           setTimeout(() => {
             topBarStore.getAllWatchLaterList()
           }, 1000)
         }
-        else {
-          toast.error(res?.message || t('common.watch_later_remove_failed'))
-        }
       }
     }
     catch (error) {
       console.error('[BewlyCat] toggle watch later failed:', error)
-      toast.error(error instanceof Error ? error.message : t('common.watch_later_operation_failed'))
     }
     finally {
       isTogglingWatchLater.value = false

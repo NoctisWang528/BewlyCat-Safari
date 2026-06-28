@@ -23,6 +23,8 @@
     "build:bg": "tsup",
     "package-safari": "node scripts/package-safari.mjs",
     "convert-safari": "pnpm package-safari",
+    "sync-safari-xcode": "pnpm build && pnpm validate-safari && node scripts/sync-safari-xcode-resources.mjs",
+    "check-safari-xcode-sync": "node scripts/sync-safari-xcode-resources.mjs --check",
     "release:macos": "bash scripts/release-macos.sh",
     "clear-safari": "rimraf --glob extension-safari extension-safari.*",
     "validate-safari": "node scripts/validate-safari-build.mjs",

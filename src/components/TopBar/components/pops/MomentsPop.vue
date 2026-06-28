@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue'
 import { useI18n } from 'vue-i18n'
-import { useToast } from 'vue-toastification'
 
 import Empty from '~/components/Empty.vue'
 import Loading from '~/components/Loading.vue'
@@ -11,6 +10,7 @@ import { settings } from '~/logic'
 import { useTopBarStore } from '~/stores/topBarStore'
 import api from '~/utils/api'
 import { getCSRF, scrollToTop } from '~/utils/main'
+import type { TopBarMomentItem } from '~/utils/momentVideoIdentifier'
 
 type MomentType = 'video' | 'live' | 'article'
 interface MomentTab { type: MomentType, name: any }
@@ -18,8 +18,7 @@ interface MomentTab { type: MomentType, name: any }
 const topBarStore = useTopBarStore()
 
 const { t } = useI18n()
-const toast = useToast()
-const pendingWatchLaterAids = reactive(new Set<number>())
+const pendingWatchLaterKeys = reactive(new Set<string>())
 
 const momentTabs = computed((): MomentTab[] => {
   return [
@@ -82,63 +81,123 @@ function getData() {
   topBarStore.getMomentsData(selectedMomentTab.value.type)
 }
 
-async function toggleWatchLater(aid: number) {
-  if (!Number.isFinite(aid) || aid <= 0) {
-    toast.error(t('common.watch_later_invalid_video_id'))
-    return
-  }
+function getMomentWatchLaterTarget(moment: TopBarMomentItem) {
+  const aid = Number.isSafeInteger(moment.aid) && Number(moment.aid) > 0
+    ? Number(moment.aid)
+    : undefined
 
-  if (pendingWatchLaterAids.has(aid))
+  const bvid = typeof moment.bvid === 'string' && moment.bvid.trim()
+    ? moment.bvid.trim()
+    : undefined
+
+  return { aid, bvid }
+}
+
+function getMomentWatchLaterKey(moment: TopBarMomentItem): string {
+  const { aid, bvid } = getMomentWatchLaterTarget(moment)
+
+  if (bvid)
+    return `bvid:${bvid}`
+
+  if (aid)
+    return `aid:${aid}`
+
+  return ''
+}
+
+function isMomentInWatchLater(moment: TopBarMomentItem): boolean {
+  const { aid, bvid } = getMomentWatchLaterTarget(moment)
+
+  return Boolean(
+    (aid && topBarStore.addedWatchLaterList.includes(aid))
+    || (bvid && topBarStore.addedWatchLaterBvids.has(bvid)),
+  )
+}
+
+async function toggleWatchLater(moment: TopBarMomentItem) {
+  if (!moment.isVideo)
+    return
+
+  const { aid, bvid } = getMomentWatchLaterTarget(moment)
+
+  if (!aid && !bvid)
+    return
+
+  const key = getMomentWatchLaterKey(moment)
+  if (!key || pendingWatchLaterKeys.has(key))
     return
 
   const csrf = getCSRF()
-  if (!csrf) {
-    toast.error(t('common.watch_later_login_required'))
+  if (!csrf)
     return
-  }
 
-  const isInWatchLater = topBarStore.addedWatchLaterList.includes(aid)
-  pendingWatchLaterAids.add(aid)
+  const isInList = isMomentInWatchLater(moment)
+  pendingWatchLaterKeys.add(key)
 
   try {
-    if (!isInWatchLater) {
-      const res = await api.watchlater.saveToWatchLater({
-        aid,
-        csrf,
-      })
+    if (!isInList) {
+      const params: {
+        aid?: number
+        bvid?: string
+        csrf: string
+      } = { csrf }
+
+      if (aid)
+        params.aid = aid
+
+      if (bvid)
+        params.bvid = bvid
+
+      const res = await api.watchlater.saveToWatchLater(params)
 
       if (res?.code === 0) {
-        if (!topBarStore.addedWatchLaterList.includes(aid))
+        if (aid && !topBarStore.addedWatchLaterList.includes(aid))
           topBarStore.addedWatchLaterList.push(aid)
-        toast.success(t('common.watch_later_add_success'))
-      }
-      else {
-        toast.error(res?.message || t('common.watch_later_add_failed'))
+
+        if (!aid && bvid)
+          topBarStore.addedWatchLaterBvids.add(bvid)
       }
     }
     else {
+      let resolvedAid: number | undefined = aid
+
+      // bvid-only: need to resolve aid from getVideoInfo for removal
+      if (!resolvedAid && bvid) {
+        const info = await api.video.getVideoInfo({ bvid })
+        const infoAid = Number(info?.data?.aid)
+        if (Number.isSafeInteger(infoAid) && infoAid > 0) {
+          resolvedAid = infoAid
+          moment.aid = resolvedAid
+          moment.rid = resolvedAid
+        }
+        else {
+          return
+        }
+      }
+
+      if (!resolvedAid)
+        return
+
       const res = await api.watchlater.removeFromWatchLater({
-        aid,
+        aid: resolvedAid,
         csrf,
       })
 
       if (res?.code === 0) {
-        const index = topBarStore.addedWatchLaterList.indexOf(aid)
+        const index = topBarStore.addedWatchLaterList.indexOf(resolvedAid)
         if (index >= 0)
           topBarStore.addedWatchLaterList.splice(index, 1)
-        toast.success(t('common.watch_later_remove_success'))
-      }
-      else {
-        toast.error(res?.message || t('common.watch_later_remove_failed'))
+
+        if (bvid)
+          topBarStore.addedWatchLaterBvids.delete(bvid)
       }
     }
   }
   catch (error) {
     console.error('[BewlyCat] toggle moment watch later failed:', error)
-    toast.error(error instanceof Error ? error.message : t('common.watch_later_operation_failed'))
   }
   finally {
-    pendingWatchLaterAids.delete(aid)
+    pendingWatchLaterKeys.delete(key)
   }
 }
 
@@ -327,17 +386,18 @@ defineExpose({
                 w="82px" h="46px"
                 rounded="$bew-radius-half"
               >
-              <!-- 修改这里，使用 topBarStore.addedWatchLaterList -->
+              <!-- 稍后再看悬浮按钮 -->
               <div
+                v-if="moment.isVideo && getMomentWatchLaterKey(moment)"
                 class="moment-watch-later-toggle"
                 opacity-0 group-hover:opacity-100
                 pos="absolute" duration-300 bg="black opacity-60"
                 rounded="$bew-radius-half" p-1
                 z-1 color-white
-                @click.prevent.stop="toggleWatchLater(moment.rid || 0)"
+                @click.prevent.stop="toggleWatchLater(moment)"
               >
-                <Icon v-if="pendingWatchLaterAids.has(moment.rid || 0)" icon="line-md:loading-twotone-loop" />
-                <Tooltip v-else-if="!topBarStore.addedWatchLaterList.includes(moment.rid || 0)" :content="$t('common.save_to_watch_later')" placement="bottom" type="dark">
+                <Icon v-if="pendingWatchLaterKeys.has(getMomentWatchLaterKey(moment))" icon="line-md:loading-twotone-loop" />
+                <Tooltip v-else-if="!isMomentInWatchLater(moment)" :content="$t('common.save_to_watch_later')" placement="bottom" type="dark">
                   <div i-mingcute:carplay-line />
                 </Tooltip>
                 <Tooltip v-else :content="$t('common.added')" placement="bottom" type="dark">

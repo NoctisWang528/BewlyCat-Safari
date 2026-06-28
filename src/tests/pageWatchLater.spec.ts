@@ -228,6 +228,34 @@ describe('page watch-later MAIN-world handler', () => {
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
+  it('builds an add request with only bvid and no aid', async () => {
+    const fetchImpl = vi.fn(async (_url: string, _init: RequestInit) => new Response(
+      JSON.stringify({ code: 0 }),
+      { headers: { 'Content-Type': 'application/json' } },
+    ))
+
+    const result = await executePageWatchLaterRequest({
+      id: 'request-bvid-only',
+      method: 'saveToWatchLater',
+      params: {
+        bvid: 'BV1bvid000',
+      },
+    }, {
+      fetchImpl: fetchImpl as any,
+      cookieSource: { cookie: 'bili_jct=csrf%20token' },
+    })
+
+    expect(result).toEqual({ code: 0 })
+    const [url, init] = fetchImpl.mock.calls[0]
+    expect(url).toBe('https://api.bilibili.com/x/v2/history/toview/add')
+    const bodyStr = (init.body as URLSearchParams).toString()
+    expect(bodyStr).toContain('csrf=csrf+token')
+    expect(bodyStr).toContain('bvid=BV1bvid000')
+    expect(bodyStr).not.toContain('aid=0')
+    expect(bodyStr).not.toContain('aid=undefined')
+    expect(bodyStr).not.toContain('aid=')
+  })
+
   it('converts HTML and invalid JSON responses to structured errors', async () => {
     const request = {
       id: 'request-6',

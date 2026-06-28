@@ -19,6 +19,8 @@ import { settings } from '~/logic'
 import type { List as VideoItem } from '~/models/video/watchLater'
 import api from '~/utils/api'
 import { getCSRF, isHomePage } from '~/utils/main'
+import type { TopBarMomentItem } from '~/utils/momentVideoIdentifier'
+import { extractMomentVideoIdentifier } from '~/utils/momentVideoIdentifier'
 
 function isApiResponse(res: unknown): res is { code: number, data?: any, message?: string } {
   return !!res && typeof res === 'object' && typeof (res as any).code === 'number'
@@ -77,8 +79,9 @@ export const useTopBarStore = defineStore('topBar', () => {
   const watchLaterList = reactive<VideoItem[]>([])
   const isLoadingWatchLater = ref<boolean>(false)
   // 添加 Moments 相关状态
-  const moments = reactive<any[]>([])
+  const moments = reactive<TopBarMomentItem[]>([])
   const addedWatchLaterList = reactive<number[]>([])
+  const addedWatchLaterBvids = reactive(new Set<string>())
   const isLoadingMoments = ref<boolean>(false)
   const noMoreMomentsContent = ref<boolean>(false)
   const livePage = ref<number>(1)
@@ -550,7 +553,10 @@ export const useTopBarStore = defineStore('topBar', () => {
           }
 
           processedItems.forEach((item: any) => {
-            const momentItem = {
+            const { aid, bvid } = extractMomentVideoIdentifier(item)
+            const isVideo = item.type === 8 && Boolean(aid || bvid)
+
+            const momentItem: TopBarMomentItem = {
               type: selectedType,
               title: item.title,
               author: item.authors ? item.authors.map((a: any) => a.name).join(' / ') : item.author.name,
@@ -559,7 +565,10 @@ export const useTopBarStore = defineStore('topBar', () => {
               pubTime: item.pub_time,
               cover: item.cover,
               link: item.jump_url,
-              rid: item.rid,
+              rid: aid,
+              aid,
+              bvid,
+              isVideo,
               isCollaborative: !!item.authors,
               authors: item.authors,
             }
@@ -567,10 +576,10 @@ export const useTopBarStore = defineStore('topBar', () => {
             moments.push(momentItem)
 
             if (selectedType === 'video' && item.type === 8) {
-              const bvid = extractBvid(item)
-              if (!bvid)
+              const videoId = extractMomentVideoIdentifier(item)
+              if (!videoId.bvid)
                 return
-              const entry = collaborativeVideoMap.get(bvid)
+              const entry = collaborativeVideoMap.get(videoId.bvid)
               if (!entry)
                 return
               entry.moment = momentItem
@@ -581,16 +590,6 @@ export const useTopBarStore = defineStore('topBar', () => {
       })
       .catch(error => console.error(error))
       .finally(() => isLoadingMoments.value = false)
-  }
-
-  function extractBvid(item: any): string | null {
-    const jumpUrl = typeof item.jump_url === 'string' ? item.jump_url : ''
-    const bvMatch = jumpUrl.match(/\/(BV\w+)/)
-    if (bvMatch?.[1])
-      return bvMatch[1]
-
-    const directBvid = item?.bvid || item?.modules?.module_dynamic?.major?.archive?.bvid
-    return typeof directBvid === 'string' && directBvid ? directBvid : null
   }
 
   function normalizeAuthor(author: any) {
@@ -643,16 +642,16 @@ export const useTopBarStore = defineStore('topBar', () => {
     const newItems: any[] = []
 
     items.forEach((item: any) => {
-      const bvid = extractBvid(item)
-      if (!bvid) {
+      const videoId = extractMomentVideoIdentifier(item)
+      if (!videoId.bvid) {
         newItems.push(item)
         return
       }
 
-      const existingEntry = collaborativeVideoMap.get(bvid)
+      const existingEntry = collaborativeVideoMap.get(videoId.bvid)
       if (!existingEntry) {
         const storedItem = { ...item }
-        collaborativeVideoMap.set(bvid, { item: storedItem })
+        collaborativeVideoMap.set(videoId.bvid, { item: storedItem })
         newItems.push(storedItem)
         return
       }
@@ -700,7 +699,8 @@ export const useTopBarStore = defineStore('topBar', () => {
             authorFace: item.face,
             cover: item.pic,
             link: item.link,
-          }),
+            isVideo: false,
+          } satisfies TopBarMomentItem),
           ),
         )
       })
@@ -873,6 +873,7 @@ export const useTopBarStore = defineStore('topBar', () => {
 
     moments,
     addedWatchLaterList,
+    addedWatchLaterBvids,
     isLoadingMoments,
     noMoreMomentsContent,
     livePage,
