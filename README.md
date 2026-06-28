@@ -18,7 +18,7 @@
   <img alt="Platform macOS" src="https://img.shields.io/badge/platform-macOS-black?logo=apple">
   <img alt="Browser Safari" src="https://img.shields.io/badge/browser-Safari-147EFB?logo=safari&logoColor=white">
   <a href="./LICENSE">
-    <img alt="License MIT" src="https://img.shields.io/badge/license-MIT-green">
+    <img alt="Custom License" src="https://img.shields.io/badge/license-Custom-orange">
   </a>
 </p>
 
@@ -174,4 +174,4 @@ DNR、后台生命周期和 Xcode 打包逻辑。
 - [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
 - [vitesse-webext](https://github.com/antfu/vitesse-webext)
 
-本项目基于 [MIT License](./LICENSE) 发布。
+本项目遵循上游 [Custom License](./LICENSE)，使用、修改与分发时请遵守其中的限制。
