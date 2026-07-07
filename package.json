@@ -2,8 +2,8 @@
   "name": "bewly-cat",
   "displayName": "BewlyCat",
   "type": "module",
-  "version": "1.6.7",
-  "safariRevision": 3,
+  "version": "1.6.8",
+  "safariRevision": 1,
   "private": true,
   "packageManager": "pnpm@10.21.0",
   "description": "Just make a few small changes to your Bilibili homepage.",
@@ -38,7 +38,6 @@
     "knip": "knip"
   },
   "dependencies": {
-    "@tanstack/vue-virtual": "^3.13.24",
     "@types/md5": "^2.3.5",
     "dompurify": "^3.2.6",
     "flv.js": "^1.6.2",
