@@ -69,6 +69,12 @@ Extension 的权限、脚本注入、后台生命周期、登录请求和 Xcode 
 功能会随上游 BewlyCat 正式版本按需同步，但 Safari 兼容性和发布节奏由本仓库
 独立维护。
 
+## 已知问题
+
+- Safari 深色模式下，视频播放页下方评论区可能出现字体颜色或评论输入框颜色
+  异常，导致部分评论内容可读性较差。该问题会在后续 Safari 适配版本中继续
+  跟进。
+
 ## 安装
 
 1. 打开 [Releases](https://github.com/NoctisWang528/BewlyCat-Safari/releases/latest)。

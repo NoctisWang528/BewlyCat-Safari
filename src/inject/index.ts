@@ -4,6 +4,7 @@ import { BEWLY_PAGE_WORLD_GLOBAL_KEY } from '~/constants/pageWorld'
 import type { Settings } from '~/logic/storage'
 import { isElectron } from '~/utils/main'
 
+import { dispatchBewlyCommentThemeChange, installCommentShadowDarkMode } from './commentShadowDarkMode'
 import { installPageWatchLaterBridge } from './pageWatchLater'
 import type { BewlyPageWorldState } from './pageWorldLifecycle'
 import {
@@ -298,6 +299,8 @@ else {
       }
 
       if (window.customElements && isSupportedPage()) {
+        installCommentShadowDarkMode(window)
+
         const { define: originalDefine } = window.customElements
         window.customElements.define = new Proxy(originalDefine, {
           apply: (target, thisArg, args) => {
@@ -431,6 +434,7 @@ else {
             settingsReady = true
             resolveSettingsReady?.()
             resolveSettingsReady = null
+            dispatchBewlyCommentThemeChange(window)
 
             // 只在首次启用时输出日志
             if (isFirstTime && data.enableVolumeNormalization) {
