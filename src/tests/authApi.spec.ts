@@ -1,11 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 
 import API_AUTH from '~/background/messageListeners/api/auth'
 import { AHS } from '~/background/utils'
-
-vi.mock('webextension-polyfill', () => ({
-  default: {},
-}))
 
 describe('auth API message responses', () => {
   it('uses promise-compatible JSON handlers', () => {

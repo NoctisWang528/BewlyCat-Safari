@@ -1,10 +1,14 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { describe, expect, it } from 'vitest'
 
 const commentsScss = readFileSync(
   join(process.cwd(), 'src/styles/adaptedStyles/common/comments.scss'),
+  'utf8',
+)
+const commentPageWorldSource = readFileSync(
+  join(process.cwd(), 'src/inject/commentShadowDarkMode.ts'),
   'utf8',
 )
 
@@ -32,5 +36,13 @@ describe('comment dark-mode styles', () => {
     expect(commentsScss).toContain('.bili-rich-textarea__inner')
     expect(commentsScss).toContain('[contenteditable="true"]')
     expect(commentsScss).toContain('caret-color: var(--bew-theme-color)')
+  })
+
+  it('does not retain the light Shadow DOM fallback or ineffective host stylesheet', () => {
+    expect(commentPageWorldSource).not.toContain('var(--bew-text-1, #18191c)')
+    expect(commentPageWorldSource).not.toContain('global.themeChange')
+    expect(existsSync(
+      join(process.cwd(), 'src/styles/adaptedStyles/shadowDom/comments.scss'),
+    )).toBe(false)
   })
 })

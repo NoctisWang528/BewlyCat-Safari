@@ -77,6 +77,24 @@ describe('content script recovery', () => {
     })
   })
 
+  it('uses Safari-compatible scripting arguments and lets the content script inject the page world', async () => {
+    const { extensionApi, scripting, tabs } = createExtensionApi()
+    tabs.get.mockResolvedValue(eligibleTab)
+    tabs.sendMessage.mockRejectedValue(new Error('Receiving end does not exist'))
+
+    await expect(recoverContentScript(21, extensionApi, 'safari')).resolves.toBe('injected')
+
+    expect(scripting.insertCSS).toHaveBeenCalledWith({
+      target: { tabId: 21 },
+      files: ['dist/contentScripts/style.css'],
+    })
+    expect(scripting.executeScript).toHaveBeenCalledOnce()
+    expect(scripting.executeScript).toHaveBeenCalledWith({
+      target: { tabId: 21 },
+      files: ['dist/contentScripts/index.global.js'],
+    })
+  })
+
   it('allows a normal manifest injection to finish before recovering', async () => {
     const { extensionApi, scripting, tabs } = createExtensionApi()
     tabs.get.mockResolvedValue(eligibleTab)

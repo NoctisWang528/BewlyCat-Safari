@@ -2,15 +2,15 @@
 import { useI18n } from 'vue-i18n'
 import browser from 'webextension-polyfill'
 
+import {
+  SAFARI_LATEST_RELEASE_API_URL,
+  SAFARI_RELEASES_URL,
+  SAFARI_REPOSITORY_URL,
+  SAFARI_TAG,
+  SAFARI_VERSION,
+  UPSTREAM_REPOSITORY_URL,
+} from '~/constants/release'
 import { originalSettings, settings } from '~/logic'
-
-import { safariRevision, version } from '../../../../package.json'
-
-const SAFARI_REPOSITORY_URL = 'https://github.com/NoctisWang528/BewlyCat-Safari'
-const SAFARI_RELEASES_URL = `${SAFARI_REPOSITORY_URL}/releases`
-const SAFARI_LATEST_RELEASE_API_URL = 'https://api.github.com/repos/NoctisWang528/BewlyCat-Safari/releases/latest'
-const UPSTREAM_REPOSITORY_URL = 'https://github.com/keleus/BewlyCat'
-const safariVersion = `${version}-safari.${safariRevision}`
 
 const { t } = useI18n()
 
@@ -93,9 +93,7 @@ async function checkGitHubRelease() {
     if (typeof latestVersion !== 'string')
       return
 
-    const currentVersion = `v${safariVersion}`
-
-    if (latestVersion !== currentVersion)
+    if (latestVersion !== SAFARI_TAG)
       hasNewVersion.value = true
   }
   catch {
@@ -137,7 +135,7 @@ async function checkGitHubRelease() {
             class="version-link"
             un-text="sm color-$bew-text-2 hover:color-$bew-text-3"
           >
-            v{{ safariVersion }}
+            v{{ SAFARI_VERSION }}
           </a>
         </p>
       </section>

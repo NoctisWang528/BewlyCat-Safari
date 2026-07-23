@@ -4,7 +4,8 @@ import 'uno.css'
 import { createApp } from 'vue'
 
 import { useDark } from '~/composables/useDark'
-import { CONTENT_SCRIPT_PING, CONTENT_SCRIPT_PONG } from '~/constants/contentScript'
+import type { ContentScriptInitializationTarget } from '~/constants/contentScript'
+import { claimContentScriptInitialization, CONTENT_SCRIPT_PING, CONTENT_SCRIPT_PONG } from '~/constants/contentScript'
 import { BEWLY_MOUNTED, IFRAME_DARK_MODE_CHANGE, IFRAME_TOP_BAR_CHANGE } from '~/constants/globalEvents'
 import { localSettings, settings, settingsReady } from '~/logic'
 import { setupApp } from '~/logic/common-setup'
@@ -28,19 +29,18 @@ import { recordVideoVisitFromUrl } from '~/utils/videoVisitHistory'
 
 import { version } from '../../package.json'
 import { initAudioInterceptor, setupSettingsWatcher } from './audioInterceptor'
+import { installCommentThemeTokens } from './commentThemeTokens'
 import { setupIframePhotoViewerDetector } from './features/iframePhotoViewerDetector'
 import { ensureMainWorldInjected } from './pageWorldInjection'
 import { initVideoScreenshotControl } from './videoScreenshotControl'
 import App from './views/App.vue'
 import { initVolumeNormalizationControl } from './volumeNormalizationControl'
 
-const contentScriptGlobal = globalThis as typeof globalThis & {
-  __BEWLYCAT_CONTENT_SCRIPT_INITIALIZED__?: boolean
-}
-const shouldInitializeContentScript = !contentScriptGlobal.__BEWLYCAT_CONTENT_SCRIPT_INITIALIZED__
+const shouldInitializeContentScript = claimContentScriptInitialization(
+  globalThis as typeof globalThis & ContentScriptInitializationTarget,
+)
 
 if (shouldInitializeContentScript) {
-  contentScriptGlobal.__BEWLYCAT_CONTENT_SCRIPT_INITIALIZED__ = true
   browser.runtime.onMessage.addListener((message: unknown) => {
     if (typeof message === 'object' && message !== null && 'type' in message && message.type === CONTENT_SCRIPT_PING)
       return Promise.resolve(CONTENT_SCRIPT_PONG)
@@ -157,6 +157,8 @@ if (isElectronEnv) {
   console.warn('[BewlyCat] Detected Electron environment, extension disabled.')
 }
 else if (shouldInitializeContentScript) {
+  installCommentThemeTokens()
+
   // Safari injects the page-world bundle through a web-accessible script tag.
   // The idempotency guard inside inject.global.js protects all platforms.
   // eslint-disable-next-line node/prefer-global/process

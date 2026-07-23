@@ -1,18 +1,16 @@
 <script setup lang="ts">
 import Button from '~/components/Button.vue'
 import Dialog from '~/components/Dialog.vue'
+import { SAFARI_RELEASES_URL, SAFARI_VERSION } from '~/constants/release'
 import { settings } from '~/logic'
 
-import { version } from '../../../../../package.json'
-
-const GITHUB_RELEASES_URL = 'https://github.com/keleus/BewlyCat/releases'
 const BILIBILI_DYNAMIC_URL = 'https://space.bilibili.com/32487218/dynamic'
 
 const dialogVisible = ref(false)
 
 const shouldShowReminder = computed(() =>
   settings.value.enableVersionReminder
-  && settings.value.lastAcknowledgedVersion !== version,
+  && settings.value.lastAcknowledgedVersion !== SAFARI_VERSION,
 )
 
 watch(shouldShowReminder, (visible) => {
@@ -21,7 +19,7 @@ watch(shouldShowReminder, (visible) => {
 })
 
 function acknowledgeCurrentVersion() {
-  settings.value.lastAcknowledgedVersion = version
+  settings.value.lastAcknowledgedVersion = SAFARI_VERSION
   dialogVisible.value = false
 }
 </script>
@@ -37,7 +35,7 @@ function acknowledgeCurrentVersion() {
       <span class="version-reminder-trigger__icon" i-mingcute:notification-newdot-line />
       <span class="version-reminder-trigger__text">
         <strong>{{ $t('version_reminder.trigger') }}</strong>
-        <small>v{{ version }}</small>
+        <small>v{{ SAFARI_VERSION }}</small>
       </span>
     </button>
   </Transition>
@@ -45,7 +43,7 @@ function acknowledgeCurrentVersion() {
   <Dialog
     v-if="dialogVisible"
     :title="$t('version_reminder.title')"
-    :desc="$t('version_reminder.current_version', { version })"
+    :desc="$t('version_reminder.current_version', { version: SAFARI_VERSION })"
     width="480px"
     max-width="calc(100vw - 32px)"
     content-max-height="calc(100vh - 180px)"
@@ -60,7 +58,7 @@ function acknowledgeCurrentVersion() {
 
       <div class="version-reminder-dialog__links">
         <a
-          :href="GITHUB_RELEASES_URL"
+          :href="SAFARI_RELEASES_URL"
           target="_blank"
           rel="noopener noreferrer"
           class="version-reminder-dialog__link"

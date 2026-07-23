@@ -21,6 +21,18 @@ export const CONTENT_SCRIPT_EXCLUDE_MATCHES = [
 export const CONTENT_SCRIPT_PING = 'bewly-cat:content-script:ping'
 export const CONTENT_SCRIPT_PONG = 'bewly-cat:content-script:ready'
 
+export interface ContentScriptInitializationTarget {
+  __BEWLYCAT_CONTENT_SCRIPT_INITIALIZED__?: boolean
+}
+
+export function claimContentScriptInitialization(target: ContentScriptInitializationTarget): boolean {
+  if (target.__BEWLYCAT_CONTENT_SCRIPT_INITIALIZED__)
+    return false
+
+  target.__BEWLYCAT_CONTENT_SCRIPT_INITIALIZED__ = true
+  return true
+}
+
 const CONTENT_SCRIPT_HOST_SET = new Set<string>(CONTENT_SCRIPT_HOSTS)
 
 export function isContentScriptTargetUrl(value?: string): boolean {

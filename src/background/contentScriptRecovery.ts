@@ -14,6 +14,12 @@ export interface ContentScriptRecoveryBrowser {
 }
 
 export type ContentScriptRecoveryResult = 'ineligible' | 'already-injected' | 'injected'
+export type ContentScriptRecoveryPlatform = 'safari' | 'standard'
+
+function getRecoveryPlatform(): ContentScriptRecoveryPlatform {
+  // eslint-disable-next-line node/prefer-global/process
+  return process.env.SAFARI ? 'safari' : 'standard'
+}
 
 async function isEligibleActiveTab(tabId: number, extensionApi: ContentScriptRecoveryBrowser): Promise<boolean> {
   try {
@@ -46,6 +52,7 @@ async function pingContentScript(tabId: number, extensionApi: ContentScriptRecov
 export async function recoverContentScript(
   tabId: number,
   extensionApi: ContentScriptRecoveryBrowser = browser,
+  platform: ContentScriptRecoveryPlatform = getRecoveryPlatform(),
 ): Promise<ContentScriptRecoveryResult> {
   if (!await isEligibleActiveTab(tabId, extensionApi))
     return 'ineligible'
@@ -64,24 +71,37 @@ export async function recoverContentScript(
   if (await pingContentScript(tabId, extensionApi))
     return 'already-injected'
 
-  const target: Scripting.InjectionTarget = { tabId, frameIds: [0] }
+  // Safari 不支持 scripting API 的 frameIds、injectImmediately 与 world 参数。
+  // 恢复 isolated content script 后，由它通过现有 script-tag bridge 注入页面脚本。
+  const target: Scripting.InjectionTarget = platform === 'safari'
+    ? { tabId }
+    : { tabId, frameIds: [0] }
 
   await extensionApi.scripting.insertCSS({
     target,
     files: [CONTENT_SCRIPT_CSS],
   })
-  await extensionApi.scripting.executeScript({
-    target,
-    files: [CONTENT_SCRIPT_JS],
-    world: 'ISOLATED',
-    injectImmediately: true,
-  })
-  await extensionApi.scripting.executeScript({
-    target,
-    files: [PAGE_SCRIPT_JS],
-    world: 'MAIN',
-    injectImmediately: true,
-  })
+
+  if (platform === 'safari') {
+    await extensionApi.scripting.executeScript({
+      target,
+      files: [CONTENT_SCRIPT_JS],
+    })
+  }
+  else {
+    await extensionApi.scripting.executeScript({
+      target,
+      files: [CONTENT_SCRIPT_JS],
+      world: 'ISOLATED',
+      injectImmediately: true,
+    })
+    await extensionApi.scripting.executeScript({
+      target,
+      files: [PAGE_SCRIPT_JS],
+      world: 'MAIN',
+      injectImmediately: true,
+    })
+  }
 
   return 'injected'
 }
@@ -120,8 +140,13 @@ let recoveryListenersInitialized = false
 
 export function setupContentScriptRecovery(): void {
   // eslint-disable-next-line node/prefer-global/process
-  if (recoveryListenersInitialized || process.env.FIREFOX || process.env.SAFARI)
+  if (recoveryListenersInitialized || process.env.FIREFOX)
     return
+
+  if (!browser.scripting?.insertCSS || !browser.scripting?.executeScript) {
+    console.warn('[BewlyCat] Content script recovery is unavailable because the scripting API is missing.')
+    return
+  }
 
   recoveryListenersInitialized = true
 

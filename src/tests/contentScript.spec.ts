@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { CONTENT_SCRIPT_MATCHES, isContentScriptTargetUrl } from '~/constants/contentScript'
+import { claimContentScriptInitialization, CONTENT_SCRIPT_MATCHES, isContentScriptTargetUrl } from '~/constants/contentScript'
 
 describe('content script configuration', () => {
   it('keeps the generated manifest matches aligned with supported hosts', () => {
@@ -31,5 +31,15 @@ describe('content script configuration', () => {
     expect(isContentScriptTargetUrl('https://www.bilibili.com.example.com/')).toBe(false)
     expect(isContentScriptTargetUrl('ftp://www.bilibili.com/')).toBe(false)
     expect(isContentScriptTargetUrl('not a url')).toBe(false)
+  })
+
+  it('claims a page context only once to prevent duplicate initialization', () => {
+    const target = {}
+
+    expect(claimContentScriptInitialization(target)).toBe(true)
+    expect(claimContentScriptInitialization(target)).toBe(false)
+    expect(target).toEqual({
+      __BEWLYCAT_CONTENT_SCRIPT_INITIALIZED__: true,
+    })
   })
 })

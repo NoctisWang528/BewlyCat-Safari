@@ -1,5 +1,4 @@
 import './common'
-import './shadowDom'
 import './thirdParties'
 
 import { settings } from '~/logic/storage'

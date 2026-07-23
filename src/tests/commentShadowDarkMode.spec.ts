@@ -16,25 +16,53 @@ function createTargetWindow() {
   }
 }
 
-function defineCommentElement(
+function setBewlyTheme(target: CommentTestWindow, theme: 'dark' | 'light') {
+  target.document.documentElement.classList.add('bewly-design')
+  target.document.documentElement.classList.toggle('dark', theme === 'dark')
+}
+
+function defineCommentRoot(
   target: CommentTestWindow,
-  name: string,
-  html = '<div id="contents">comment <a class="bili-rich-text-link">link</a></div>',
+  options: {
+    resetThemeDuringUpdate?: boolean
+    withLegacyStyles?: boolean
+  } = {},
 ) {
-  class TestCommentElement extends target.HTMLElement {
+  class TestCommentRoot extends target.HTMLElement {
+    theme = 'light'
+    updateCount = 0
+
     update() {
+      this.updateCount++
+      if (options.resetThemeDuringUpdate)
+        this.theme = 'light'
+
       const root = this.shadowRoot || this.attachShadow({ mode: 'open' })
-      root.innerHTML = html
+      if (options.withLegacyStyles) {
+        root.innerHTML = `
+          <style id="${COMMENT_SHADOW_DARK_STYLE_ID}">:host { color: #18191c; }</style>
+          <bili-rich-text></bili-rich-text>
+        `
+        const richText = root.querySelector('bili-rich-text')!
+        const nestedRoot = richText.attachShadow({ mode: 'open' })
+        nestedRoot.innerHTML = `<style id="${COMMENT_SHADOW_DARK_STYLE_ID}">:host { color: #18191c; }</style>`
+      }
       return 'updated'
     }
   }
 
-  target.customElements.define(name, TestCommentElement as CustomElementConstructor)
-  return TestCommentElement
+  target.customElements.define('bili-comments', TestCommentRoot as CustomElementConstructor)
+  return TestCommentRoot
+}
+
+async function flushCommentThemeSync() {
+  await new Promise<void>(resolve => queueMicrotask(resolve))
+  await new Promise<void>(resolve => queueMicrotask(resolve))
 }
 
 async function waitForMutationObserver() {
   await new Promise(resolve => setTimeout(resolve, 0))
+  await flushCommentThemeSync()
 }
 
 describe('comment shadow dark mode', () => {
@@ -43,76 +71,174 @@ describe('comment shadow dark mode', () => {
     vi.restoreAllMocks()
   })
 
-  it('patches comment elements that are defined after installation', () => {
+  it('synchronizes an already-rendered comment root to the initial dark theme', async () => {
     const { target } = createTargetWindow()
+    setBewlyTheme(target, 'dark')
+    const CommentRoot = defineCommentRoot(target)
+    const root = new CommentRoot()
+    target.document.body.appendChild(root)
+    root.update()
 
     installCommentShadowDarkMode(target)
-    defineCommentElement(target, 'bili-rich-text')
+    await flushCommentThemeSync()
 
-    const element = target.document.createElement('bili-rich-text') as any
-    target.document.body.appendChild(element)
-    expect(element.update()).toBe('updated')
-
-    const style = element.shadowRoot.querySelector(`#${COMMENT_SHADOW_DARK_STYLE_ID}`) as HTMLStyleElement
-    expect(style).toBeTruthy()
-    expect(style.textContent).toContain('color: var(--bew-text-1')
-    expect(style.textContent).toContain('--bili-rich-text-link-color: var(--bew-theme-color')
-    expect(style.textContent).toContain('.bili-rich-text-link')
+    expect(root.theme).toBe('dark')
+    expect(root.getAttribute('data-bewly-comment-lit-theme')).toBe('dark')
   })
 
-  it('patches comment elements that are already defined', () => {
+  it('patches a late-defined root, preserves update results and coalesces theme repair', async () => {
     const { target } = createTargetWindow()
-
-    defineCommentElement(target, 'bili-comment-renderer', '<div id="body"><span class="content">comment</span></div>')
+    setBewlyTheme(target, 'dark')
     installCommentShadowDarkMode(target)
 
-    const element = target.document.createElement('bili-comment-renderer') as any
-    target.document.body.appendChild(element)
-    element.update()
+    const CommentRoot = defineCommentRoot(target, { resetThemeDuringUpdate: true })
+    await flushCommentThemeSync()
 
-    const style = element.shadowRoot.querySelector(`#${COMMENT_SHADOW_DARK_STYLE_ID}`) as HTMLStyleElement
-    expect(style?.textContent).toContain('#body')
-    expect(style?.textContent).toContain('.content')
+    const root = new CommentRoot()
+    target.document.body.appendChild(root)
+    expect(root.update()).toBe('updated')
+    expect(root.update()).toBe('updated')
+    expect(root.theme).toBe('light')
+
+    await flushCommentThemeSync()
+
+    expect(root.updateCount).toBe(2)
+    expect(root.theme).toBe('dark')
   })
 
-  it('does not inject duplicate shadow styles on repeated updates', () => {
+  it('applies the current theme to comment roots added after initialization', async () => {
     const { target } = createTargetWindow()
-
+    setBewlyTheme(target, 'dark')
+    const CommentRoot = defineCommentRoot(target)
     installCommentShadowDarkMode(target)
-    defineCommentElement(target, 'bili-comment-user-info', '<div id="user-name"><a>user</a></div>')
+    await flushCommentThemeSync()
 
-    const element = target.document.createElement('bili-comment-user-info') as any
-    target.document.body.appendChild(element)
-    element.update()
-    element.update()
+    const firstRoot = new CommentRoot()
+    target.document.body.appendChild(firstRoot)
+    firstRoot.update()
+    await flushCommentThemeSync()
 
-    expect(element.shadowRoot.querySelectorAll(`#${COMMENT_SHADOW_DARK_STYLE_ID}`)).toHaveLength(1)
-  })
-
-  it('keeps the vote card text color fix inside the shared shadow style', () => {
-    const { target } = createTargetWindow()
-
-    installCommentShadowDarkMode(target)
-    defineCommentElement(target, 'bili-comments-vote-card')
-
-    const element = target.document.createElement('bili-comments-vote-card') as any
-    target.document.body.appendChild(element)
-    element.update()
-
-    const style = element.shadowRoot.querySelector(`#${COMMENT_SHADOW_DARK_STYLE_ID}`) as HTMLStyleElement
-    expect(style.textContent).toContain('--option-color: var(--bew-text-1')
-  })
-
-  it('dispatches page-world theme changes when html dark state changes', async () => {
-    const { target } = createTargetWindow()
-    const listener = vi.fn()
-    target.addEventListener('global.themeChange', listener)
-
-    installCommentShadowDarkMode(target)
-    target.document.documentElement.classList.add('dark')
+    const replacementRoot = new CommentRoot()
+    firstRoot.replaceWith(replacementRoot)
+    replacementRoot.update()
     await waitForMutationObserver()
 
-    expect(listener).toHaveBeenCalledOnce()
-    expect((listener.mock.calls[0][0] as CustomEvent).detail).toBe('dark')
+    expect(firstRoot.theme).toBe('dark')
+    expect(replacementRoot.theme).toBe('dark')
+  })
+
+  it('tracks dark and light class changes without DOM theme events', async () => {
+    const { target } = createTargetWindow()
+    setBewlyTheme(target, 'light')
+    const CommentRoot = defineCommentRoot(target)
+    const root = new CommentRoot()
+    target.document.body.appendChild(root)
+    root.update()
+    const globalThemeListener = vi.fn()
+    target.addEventListener('global.themeChange', globalThemeListener)
+
+    installCommentShadowDarkMode(target)
+    await flushCommentThemeSync()
+    expect(root.theme).toBe('light')
+
+    target.document.documentElement.classList.add('dark')
+    await waitForMutationObserver()
+    expect(root.theme).toBe('dark')
+
+    target.document.documentElement.classList.remove('dark')
+    await waitForMutationObserver()
+    expect(root.theme).toBe('light')
+    expect(globalThemeListener).not.toHaveBeenCalled()
+  })
+
+  it('removes legacy recursive styles from existing open shadow roots', async () => {
+    const { target } = createTargetWindow()
+    setBewlyTheme(target, 'dark')
+    const CommentRoot = defineCommentRoot(target, { withLegacyStyles: true })
+    const root = new CommentRoot()
+    target.document.body.appendChild(root)
+    root.update()
+
+    expect(root.shadowRoot!.querySelector(`#${COMMENT_SHADOW_DARK_STYLE_ID}`)).toBeTruthy()
+    expect(root.shadowRoot!.querySelector('bili-rich-text')!.shadowRoot!
+      .querySelector(`#${COMMENT_SHADOW_DARK_STYLE_ID}`)).toBeTruthy()
+
+    installCommentShadowDarkMode(target)
+    await flushCommentThemeSync()
+
+    expect(root.shadowRoot!.querySelector(`#${COMMENT_SHADOW_DARK_STYLE_ID}`)).toBeNull()
+    expect(root.shadowRoot!.querySelector('bili-rich-text')!.shadowRoot!
+      .querySelector(`#${COMMENT_SHADOW_DARK_STYLE_ID}`)).toBeNull()
+  })
+
+  it('releases theme control when BewlyCat styling is disabled', async () => {
+    const { target } = createTargetWindow()
+    setBewlyTheme(target, 'dark')
+    const CommentRoot = defineCommentRoot(target)
+    const root = new CommentRoot()
+    target.document.body.appendChild(root)
+    root.update()
+
+    installCommentShadowDarkMode(target)
+    await flushCommentThemeSync()
+    expect(root.theme).toBe('dark')
+
+    target.document.documentElement.classList.remove('bewly-design')
+    await waitForMutationObserver()
+
+    expect(root.theme).toBe('light')
+    expect(root.hasAttribute('data-bewly-comment-lit-theme')).toBe(false)
+  })
+
+  it('does not override an independently dark Bilibili page when control is released', async () => {
+    const { target } = createTargetWindow()
+    setBewlyTheme(target, 'dark')
+    const CommentRoot = defineCommentRoot(target)
+    const root = new CommentRoot()
+    target.document.body.appendChild(root)
+    root.update()
+
+    installCommentShadowDarkMode(target)
+    await flushCommentThemeSync()
+    target.document.documentElement.classList.add('bili_dark')
+    target.document.documentElement.classList.remove('bewly-design')
+    await waitForMutationObserver()
+
+    expect(root.theme).toBe('dark')
+    expect(root.hasAttribute('data-bewly-comment-lit-theme')).toBe(false)
+  })
+
+  it('isolates theme synchronization failures from Bilibili updates', async () => {
+    const { target } = createTargetWindow()
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    setBewlyTheme(target, 'dark')
+
+    class FailingCommentRoot extends target.HTMLElement {
+      get theme() {
+        return 'light'
+      }
+
+      set theme(_value: string) {
+        throw new Error('theme assignment failed')
+      }
+
+      update() {
+        return 'updated'
+      }
+    }
+
+    target.customElements.define('bili-comments', FailingCommentRoot as CustomElementConstructor)
+    installCommentShadowDarkMode(target)
+    await flushCommentThemeSync()
+    const root = new FailingCommentRoot()
+    target.document.body.appendChild(root)
+
+    expect(root.update()).toBe('updated')
+    await flushCommentThemeSync()
+
+    expect(warning).toHaveBeenCalledWith(
+      '[BewlyCat] Failed to synchronize the Bilibili comment theme.',
+      expect.any(Error),
+    )
   })
 })

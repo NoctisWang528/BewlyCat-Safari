@@ -12,11 +12,14 @@ const DEVELOPER_DIR = `${XCODE_BETA_PATH}/Contents/Developer`
 const EXT_DIR = path.join(root, 'extension-safari')
 const OUTPUT_DIR = path.join(root, 'extension-safari-macos')
 const MANIFEST_PATH = path.join(EXT_DIR, 'manifest.json')
+const PACKAGE_PATH = path.join(root, 'package.json')
 
 const APP_NAME = 'BewlyCat Safari'
 const BUNDLE_ID = 'com.noctiswang528.bewlycat.safari'
+const EXTENSION_BUNDLE_ID = `${BUNDLE_ID}.Extension`
 const LANGUAGE = 'Swift'
 const PLATFORM = 'macOS'
+const { safariRevision, version } = JSON.parse(fs.readFileSync(PACKAGE_PATH, 'utf8'))
 
 let failures = 0
 
@@ -171,6 +174,37 @@ if (!fs.existsSync(xcodeprojPath)) {
   fail(`Generated .xcodeproj not found at ${xcodeprojPath}`)
   console.error(`\n${failures} check(s) failed.`)
   process.exit(1)
+}
+
+// Xcode 27's packager derives the containing app identifier from APP_NAME,
+// while using BUNDLE_ID directly for the extension. Normalize both targets so
+// the extension identifier is prefixed by its containing app identifier.
+const projectFilePath = path.join(xcodeprojPath, 'project.pbxproj')
+let projectFile = fs.readFileSync(projectFilePath, 'utf8')
+projectFile = projectFile
+  .replace(
+    /PRODUCT_BUNDLE_IDENTIFIER = "?([^";]+)"?;/g,
+    (_match, generatedBundleId) =>
+      `PRODUCT_BUNDLE_IDENTIFIER = ${generatedBundleId.endsWith('.Extension') ? EXTENSION_BUNDLE_ID : BUNDLE_ID};`,
+  )
+  .replace(/MARKETING_VERSION = [^;]+;/g, `MARKETING_VERSION = ${version};`)
+  .replace(/CURRENT_PROJECT_VERSION = [^;]+;/g, `CURRENT_PROJECT_VERSION = ${safariRevision};`)
+fs.writeFileSync(projectFilePath, projectFile)
+
+const generatedBundleIds = [...projectFile.matchAll(/PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);/g)]
+  .map(match => match[1])
+if (!generatedBundleIds.includes(BUNDLE_ID) || !generatedBundleIds.includes(EXTENSION_BUNDLE_ID)) {
+  fail('Generated Xcode project does not contain the expected app and extension bundle identifiers')
+}
+
+// File Provider metadata on generated folders is rejected by codesign as
+// Finder information. The generated project is disposable, so remove it.
+const xattrResult = spawnSync('/usr/bin/xattr', ['-cr', OUTPUT_DIR], {
+  cwd: root,
+  encoding: 'utf8',
+})
+if (xattrResult.status !== 0) {
+  fail(`Failed to remove extended attributes from generated Xcode output: ${xattrResult.stderr}`)
 }
 
 // Verify extension manifest in generated project

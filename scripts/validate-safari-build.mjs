@@ -113,6 +113,10 @@ assert(
   permissions.includes('alarms'),
   'Safari manifest should include alarms permission',
 )
+assert(
+  permissions.includes('scripting'),
+  'Safari manifest should include scripting permission for content script recovery',
+)
 
 // 14. Safari modifyHeaders rules require the host-access DNR permission
 assert(
@@ -135,6 +139,14 @@ const hasMatchAboutBlank = cs.some(item => item.match_about_blank === true)
 assert(
   !hasMatchAboutBlank,
   'Safari manifest content_scripts should not use match_about_blank (unsupported)',
+)
+const isolatedContentScript = cs.find(item =>
+  item.js?.includes('./dist/contentScripts/index.global.js'),
+)
+assert(
+  isolatedContentScript?.exclude_matches?.includes('*://www.bilibili.com/match/game*')
+  && isolatedContentScript.exclude_matches.includes('*://www.bilibili.com/toy*'),
+  'Safari manifest content script should preserve upstream excluded pages',
 )
 
 // 16. Safari content bundle should contain the script-tag injection guard

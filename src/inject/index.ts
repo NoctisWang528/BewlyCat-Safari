@@ -4,7 +4,7 @@ import { BEWLY_PAGE_WORLD_GLOBAL_KEY } from '~/constants/pageWorld'
 import type { Settings } from '~/logic/storage'
 import { isElectron } from '~/utils/main'
 
-import { dispatchBewlyCommentThemeChange, installCommentShadowDarkMode } from './commentShadowDarkMode'
+import { installCommentShadowDarkMode } from './commentShadowDarkMode'
 import { installPageWatchLaterBridge } from './pageWatchLater'
 import type { BewlyPageWorldState } from './pageWorldLifecycle'
 import {
@@ -83,6 +83,54 @@ else {
             }
           },
         }
+      }
+
+      const COMMENT_COMPONENT_PATCHED = Symbol('bewly-comment-component-patched')
+      const pendingCommentEnhancements = new WeakSet<object>()
+
+      function patchCommentComponentUpdate(
+        name: string,
+        classConstructor: any,
+        enhance: (component: any) => void,
+      ) {
+        const prototype = classConstructor?.prototype
+        const originalUpdate = prototype?.update
+        if (!prototype || typeof originalUpdate !== 'function') {
+          console.warn(`[BewlyCat] Skip patching ${name}: update() is unavailable.`)
+          return
+        }
+
+        if (prototype[COMMENT_COMPONENT_PATCHED])
+          return
+
+        const patchedUpdate = function (this: object, ...updateArgs: any[]) {
+          const result = Reflect.apply(originalUpdate, this, updateArgs)
+
+          if (!pendingCommentEnhancements.has(this)) {
+            pendingCommentEnhancements.add(this)
+            queueMicrotask(() => {
+              pendingCommentEnhancements.delete(this)
+              try {
+                enhance(this)
+              }
+              catch (error) {
+                console.warn(`[BewlyCat] Failed to enhance ${name}.`, error)
+              }
+            })
+          }
+
+          return result
+        }
+
+        Object.defineProperty(prototype, 'update', {
+          configurable: true,
+          writable: true,
+          value: patchedUpdate,
+        })
+        Object.defineProperty(prototype, COMMENT_COMPONENT_PATCHED, {
+          configurable: true,
+          value: true,
+        })
       }
 
       injectFunction(
@@ -311,103 +359,69 @@ else {
 
             // 处理评论区图片组件
             if (name === 'bili-comment-pictures-renderer') {
-              const originalUpdate = classConstructor.prototype.update
-              classConstructor.prototype.update = function (...updateArgs: any[]) {
-                const result = originalUpdate.apply(this, updateArgs)
-                const root = this.shadowRoot
-                if (!root)
-                  return result
+              try {
+                patchCommentComponentUpdate(name, classConstructor, (component) => {
+                  const root = component.shadowRoot
+                  if (!root)
+                    return
 
-                // 根据设置决定是否修复图片长宽比问题
-                if (currentSettings?.adjustCommentImageHeight) {
-                // 非1:1图片（非flex布局）保持宽度，高度按实际比例自适应
-                  const content = root.querySelector('#content')
-                  if (content && !content.classList.contains('flex')) {
-                    const images = content.querySelectorAll('img')
-                    images.forEach((img: HTMLImageElement) => {
-                    // 移除固定的 height 属性，让图片按实际比例显示
-                      img.removeAttribute('height')
-                      img.style.height = 'auto'
-                    })
+                  // 根据设置决定是否修复图片长宽比问题
+                  if (currentSettings?.adjustCommentImageHeight) {
+                  // 非1:1图片（非flex布局）保持宽度，高度按实际比例自适应
+                    const content = root.querySelector('#content')
+                    if (content && !content.classList.contains('flex')) {
+                      const images = content.querySelectorAll('img')
+                      images.forEach((img: HTMLImageElement) => {
+                      // 移除固定的 height 属性，让图片按实际比例显示
+                        img.removeAttribute('height')
+                        img.style.height = 'auto'
+                      })
+                    }
                   }
-                }
-
-                return result
+                })
+              }
+              catch (error) {
+                console.warn(`[BewlyCat] Failed to patch ${name}.`, error)
               }
               return Reflect.apply(target, thisArg, args)
             }
 
             // 处理评论用户信息组件
             if (name === 'bili-comment-user-info') {
-              const originalUpdate = classConstructor.prototype.update
-              classConstructor.prototype.update = function (...updateArgs: any[]) {
-                const result = originalUpdate.apply(this, updateArgs)
-                const root = this.shadowRoot
-                if (!root)
-                  return result
+              try {
+                patchCommentComponentUpdate(name, classConstructor, (component) => {
+                  const root = component.shadowRoot
+                  if (!root)
+                    return
 
-                // 找到用户名元素
-                const userNameEl = root.querySelector('#user-name')
-                if (userNameEl) {
-                  cacheRootReplyAuthor(this.data)
+                  // 找到用户名元素
+                  const userNameEl = root.querySelector('#user-name')
+                  if (!userNameEl)
+                    return
 
                   // 显示性别
-                  const sexString = getSexString(this.data)
+                  cacheRootReplyAuthor(component.data)
+                  const sexString = getSexString(component.data)
                   const shouldShowSex = Boolean(currentSettings?.showSex && sexString)
                   const sexEl = updateInfoElement(root, 'sex', shouldShowSex, sexString, userNameEl)
 
                   // 在楼中楼里给最外层楼主的回复添加标识
                   const shouldShowHostTag = Boolean(
                     currentSettings?.showCommentHostTag
-                    && isSubReplyByRootAuthor(this.data),
+                    && isSubReplyByRootAuthor(component.data),
                   )
                   const hostAnchor = sexEl ?? userNameEl
                   const hostEl = updateInfoElement(root, 'host-tag', shouldShowHostTag, getHostTagText(), hostAnchor)
 
                   // 显示IP地理位置
-                  const locationString = getLocationString(this.data)
+                  const locationString = getLocationString(component.data)
                   const shouldShowLocation = Boolean(currentSettings?.showIPLocation && locationString)
                   const locationAnchor = hostEl ?? sexEl ?? userNameEl
                   updateInfoElement(root, 'location', shouldShowLocation, locationString, locationAnchor)
-                }
-
-                return result
+                })
               }
-              return Reflect.apply(target, thisArg, args)
-            }
-
-            // 处理评论操作按钮组件
-            if (name === 'bili-comment-action-buttons-renderer') {
-              const originalUpdate = classConstructor.prototype.update
-              classConstructor.prototype.update = function (...updateArgs: any[]) {
-                const result = originalUpdate.apply(this, updateArgs)
-                return result
-              }
-              return Reflect.apply(target, thisArg, args)
-            }
-
-            // 处理评论投票卡片组件（修复深色模式下的文字颜色）
-            if (name === 'bili-comments-vote-card') {
-              const originalUpdate = classConstructor.prototype.update
-              classConstructor.prototype.update = function (...updateArgs: any[]) {
-                const result = originalUpdate.apply(this, updateArgs)
-                const root = this.shadowRoot
-                if (!root)
-                  return result
-
-                // 检查是否已经注入过样式
-                if (!root.querySelector('#bewly-vote-card-style')) {
-                  const style = document.createElement('style')
-                  style.id = 'bewly-vote-card-style'
-                  style.textContent = `
-              :host {
-                --option-color: var(--bew-text-1, #18191c) !important;
-              }
-            `
-                  root.appendChild(style)
-                }
-
-                return result
+              catch (error) {
+                console.warn(`[BewlyCat] Failed to patch ${name}.`, error)
               }
               return Reflect.apply(target, thisArg, args)
             }
@@ -434,8 +448,6 @@ else {
             settingsReady = true
             resolveSettingsReady?.()
             resolveSettingsReady = null
-            dispatchBewlyCommentThemeChange(window)
-
             // 只在首次启用时输出日志
             if (isFirstTime && data.enableVolumeNormalization) {
               console.log('[AudioInterceptor] 音量均衡已启用')
