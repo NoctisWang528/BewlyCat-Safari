@@ -210,3 +210,17 @@ Before editing, inspect `git status` and preserve unrelated work. Keep changes
 small enough to attribute failures to one compatibility decision. Use the
 repository's Conventional Commit-style prefixes (`feat`, `fix`, `docs`,
 `refactor`, `test`, `chore`, `perf`, or `ci`) if asked to commit.
+
+## Development Notes
+
+- Uses Vue 3 with Composition API and TypeScript
+- Vite for build tooling with multiple config files for different targets
+- UnoCSS for utility-first styling
+- Auto-imports for Vue and webextension-polyfill
+- Extensive use of Shadow DOM for style isolation
+- Platform-specific builds with conditional manifest generation
+
+## 语言规范
+
+- 新增或修改的代码注释统一使用中文。
+- Pull Request 的标题和正文统一使用中文。

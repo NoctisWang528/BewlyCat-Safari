@@ -19,6 +19,7 @@ interface Props {
   horizontal?: boolean
   removed: boolean
   isHover: boolean
+  previewEnabled: boolean
   shouldHideOverlayElements: boolean
   previewVideoUrl: string
   videoElement: HTMLVideoElement | null
@@ -51,16 +52,27 @@ const emit = defineEmits<{
   toggleWatchLater: []
   undo: []
   imageLoaded: []
+  previewFullscreenChange: [isFullscreen: boolean]
 }>()
 
 const videoRef = ref<HTMLVideoElement | null>(null)
 const isLoadingStream = ref<boolean>(false)
 const isPreviewFullscreen = ref<boolean>(false)
+const isPreviewPlaying = ref<boolean>(false)
 const showVideoControls = ref<boolean>(false)
 const shouldEnableVideoControls = computed(() => settings.value.enableVideoCtrlBarOnVideoCard && !props.video?.roomid)
 let hls: Hls | null = null
 let flvPlayer: flvjs.Player | null = null
 let controlsHideTimeout: number | null = null
+
+const shouldShowWatchLater = computed(() =>
+  props.previewEnabled ? isPreviewPlaying.value : props.isHover,
+)
+
+function handlePreviewPlaying() {
+  if (props.isHover && props.previewVideoUrl)
+    isPreviewPlaying.value = true
+}
 
 function clearControlsHideTimeout() {
   if (controlsHideTimeout !== null) {
@@ -127,6 +139,7 @@ function syncPreviewFullscreenState() {
     return
 
   isPreviewFullscreen.value = isFullscreen
+  emit('previewFullscreenChange', isFullscreen)
 
   if (isFullscreen) {
     clearControlsHideTimeout()
@@ -308,6 +321,8 @@ async function setupPreviewVideo(url: string, videoEl: HTMLVideoElement) {
 
 // Watch for preview URL and videoRef changes
 watch([() => props.previewVideoUrl, () => props.isHover, videoRef], ([url, isHover, videoEl]) => {
+  isPreviewPlaying.value = false
+
   if (!videoEl)
     return
 
@@ -405,16 +420,16 @@ onBeforeUnmount(() => {
       <!-- Video preview -->
       <Transition v-if="!removed && settings.enableVideoPreview" name="fade">
         <div
-          v-if="previewVideoUrl && isHover"
+          v-if="previewVideoUrl && (isHover || isPreviewFullscreen)"
           pos="absolute top-0 left-0" w-full aspect-video rounded="$bew-radius" bg-black
-          @mousemove="handlePreviewMouseMove"
+          @pointermove.capture="handlePreviewMouseMove"
         >
           <video
             ref="videoRef"
             autoplay muted
             :controls="showVideoControls"
-            :style="{ pointerEvents: showVideoControls ? 'auto' : 'none' }"
             w-full h-full
+            @playing="handlePreviewPlaying"
           />
 
           <!-- Loading indicator -->
@@ -511,9 +526,9 @@ onBeforeUnmount(() => {
           {{ video?.badge?.text }}
         </div>
 
-        <!-- Watcher later button: mount only when needed so resting cards do not carry Tooltip/Icon/i18n cost. -->
+        <!-- Watch later appears after preview playback starts, or after the non-preview hover delay. -->
         <div
-          v-if="showWatcherLater && (isHover || isInWatchLater)"
+          v-if="showWatcherLater && shouldShowWatchLater"
           role="button"
           tabindex="0"
           :aria-label="isInWatchLater ? $t('common.added') : $t('common.save_to_watch_later')"

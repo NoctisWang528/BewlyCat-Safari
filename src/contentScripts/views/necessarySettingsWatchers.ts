@@ -4,7 +4,7 @@ import { IFRAME_TOP_BAR_CHANGE } from '~/constants/globalEvents'
 import { setUselessFeedCardBlockerEnabled } from '~/contentScripts/features/blockUselessFeedCards'
 import { LanguageType } from '~/enums/appEnums'
 import { appAuthTokens, FROSTED_GLASS_BLUR_MAX_PX, FROSTED_GLASS_BLUR_MIN_PX, localSettings, originalSettings, settings } from '~/logic'
-import { resetBilibiliTopBarInlineStyles } from '~/utils/bilibiliTopBar'
+import { resetBilibiliTopBarInlineStyles, setOriginalBilibiliTopBarScrolled } from '~/utils/bilibiliTopBar'
 import { cleanBilibiliShareText, getUserID, injectCSS, isHomePage, isInIframe, isVideoPlaybackPage } from '~/utils/main'
 
 function isFestivalPage(): boolean {
@@ -26,6 +26,12 @@ export function setupNecessarySettingsWatchers() {
     return Math.min(FROSTED_GLASS_BLUR_MAX_PX, Math.max(FROSTED_GLASS_BLUR_MIN_PX, value))
   }
 
+  // Chromium routes videos through a different compositor path when a page uses
+  // backdrop filters. In compatibility mode, avoid that path on playback pages
+  // so NVIDIA RTX Video Enhancement can process the video.
+  const isFrostedGlassActive = () => settings.value.enableFrostedGlass
+    && !(settings.value.nvidiaRtxVideoEnhancementCompatibility && isVideoPlaybackPage())
+
   const applyFrostedGlassBlur = (rawValue: number) => {
     const clampedValue = clampFrostedGlassBlur(rawValue)
     const bewlyElement = document.querySelector('#bewly') as HTMLElement | null
@@ -34,7 +40,7 @@ export function setupNecessarySettingsWatchers() {
     if (bewlyElement)
       targets.push(bewlyElement)
 
-    if (!settings.value.enableFrostedGlass) {
+    if (!isFrostedGlassActive()) {
       targets.forEach((element) => {
         element.style.removeProperty('--bew-filter-glass-1')
         element.style.removeProperty('--bew-filter-glass-2')
@@ -56,6 +62,15 @@ export function setupNecessarySettingsWatchers() {
         element.style.setProperty('--bew-filter-glass-2', blur2Value)
       }
     })
+  }
+
+  const applyFrostedGlassState = () => {
+    const bewlyElement = document.querySelector('#bewly') as HTMLElement | null
+    const shouldDisable = !isFrostedGlassActive()
+
+    bewlyElement?.classList.toggle('disable-frosted-glass', shouldDisable)
+    document.documentElement.classList.toggle('disable-frosted-glass', shouldDisable)
+    applyFrostedGlassBlur(settings.value.frostedGlassBlurIntensity)
   }
 
   watch(
@@ -171,24 +186,11 @@ export function setupNecessarySettingsWatchers() {
   )
 
   watch(
-    () => settings.value.enableFrostedGlass,
-    () => {
-      const bewlyElement = document.querySelector('#bewly') as HTMLElement | null
-      if (settings.value.enableFrostedGlass) {
-        if (bewlyElement)
-          bewlyElement.classList.remove('disable-frosted-glass')
-
-        document.documentElement.classList.remove('disable-frosted-glass')
-      }
-      else {
-        if (bewlyElement)
-          bewlyElement.classList.add('disable-frosted-glass')
-
-        document.documentElement.classList.add('disable-frosted-glass')
-      }
-
-      applyFrostedGlassBlur(settings.value.frostedGlassBlurIntensity)
-    },
+    [
+      () => settings.value.enableFrostedGlass,
+      () => settings.value.nvidiaRtxVideoEnhancementCompatibility,
+    ],
+    applyFrostedGlassState,
     { immediate: true },
   )
 
@@ -424,6 +426,7 @@ export function setupNecessarySettingsWatchers() {
 
     lastBewlyDesignHref = location.href
     applyBewlyDesignClasses()
+    applyFrostedGlassState()
   }
 
   window.addEventListener('popstate', refreshBewlyDesignOnRouteChange)
@@ -512,6 +515,14 @@ export function setupNecessarySettingsWatchers() {
 
       if (settings.value.useOriginalBilibiliTopBar && !shouldHideOuterBiliTopBar)
         resetBilibiliTopBarInlineStyles(document)
+
+      if (settings.value.useOriginalBilibiliTopBar && !shouldHideOuterBiliTopBar) {
+        const scrollTop = document.getElementById('bewly')
+          ?.shadowRoot
+          ?.querySelector<HTMLElement>('.bewly-scroll-viewport')
+          ?.scrollTop ?? 0
+        setOriginalBilibiliTopBarScrolled(document, scrollTop > 0)
+      }
     }
     else {
       // Handle non-homepage pages

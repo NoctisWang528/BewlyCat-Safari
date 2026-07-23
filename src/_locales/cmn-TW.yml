@@ -24,6 +24,9 @@ common:
   please_log_in_first: 請先登入
   login: 登入
   save_to_watch_later: 稍後觀看
+  add_to_watch_later: 加入稍後觀看
+  added_to_watch_later: 已加入稍後觀看
+  remove_from_watch_later: 從稍後觀看中移除
   added: 已新增
   watch_later_login_required: 無法取得登入憑證，請確認已登入 Bilibili 並允許 Safari 擴充功能存取此網站
   watch_later_invalid_video_id: 無法識別影片 ID，稍後觀看操作失敗
@@ -65,6 +68,11 @@ iframe_drawer:
   open_in_new_tab: 在新索引標籤開啟連結
   close: 關閉
   press_esc_again_to_close: 再次按下 Esc 關閉
+player_screenshot:
+  capture: 擷取目前影片畫面
+  saved: 截圖已儲存
+  failed: 截圖失敗
+  video_unavailable: 目前影片畫面無法使用
 settings:
   title: 設定
   menu_plugin_components_and_pages: BewlyCat 介面
@@ -82,6 +90,7 @@ settings:
     topbar: 頂欄
     dock_and_sidebar: Dock
     home: 首頁
+    favorites: 收藏
     search: 搜尋頁
     volume_balance: 音訊均衡
 
@@ -123,9 +132,11 @@ settings:
   group_recommendation_filters_desc: |
     限制的數值不要設太大，不然載入時間可能會增加！頻繁請求可能會導致B站對IP的封禁!
   group_following: 正在跟隨
+  group_favorites: 收藏
   group_search_page_mode: 搜尋頁模式
   group_home_tabs: 首頁標籤欄
   group_home_layout: 首頁版面
+  group_version_reminder: 版本提醒
   btn:
     authorize: 授權
     revoke: 解除授權
@@ -228,6 +239,13 @@ settings:
   video_danmaku_default_state_desc: 開啟影片時自動調整彈幕開關，也可以保持原樣。
   video_danmaku_default_state_opt:
     system: 不調整
+    on: 預設開啟
+    off: 預設關閉
+  video_caption_default_state: 影片預設字幕狀態
+  video_caption_default_state_desc: 開啟影片時自動調整字幕開關，或記住上次狀態。
+  video_caption_default_state_opt:
+    system: 不啟用
+    remember: 記住上次狀態
     on: 預設開啟
     off: 預設關閉
   video_player_mode:
@@ -342,6 +360,8 @@ settings:
   show_hot_search_in_search_page_desc: 在搜尋頁面顯示熱門搜尋排行榜
   show_search_recommendation: 顯示搜尋推薦
   show_search_recommendation_desc: 在搜尋框中顯示推薦的搜尋詞作為佔位符，空白輸入時按回車將搜尋該推薦詞
+  enable_search_history: 啟用搜尋歷史
+  enable_search_history_desc: 啟用後，搜尋欄將記錄和顯示您的搜尋歷史記錄。關閉後將清除所有歷史記錄
   depersonalize_search_results: 去除個人化搜尋
   depersonalize_search_results_desc: 啟用後，搜尋結果請求不攜帶登入 Cookie。
   individually_set_search_page_wallpaper: 單獨設定搜尋頁背景
@@ -410,6 +430,10 @@ settings:
   following_filter_dynamic_videos_desc: 啟用後，在「正在跟隨」頁面中將隱藏標記為動態影片的內容
   use_following_new_layout: 使用正在跟隨新版面
   use_following_new_layout_desc: 左側顯示關注的 UP 主列表，右側顯示影片流
+  use_favorites_new_layout: 使用新版收藏頁
+  use_favorites_new_layout_desc: 關閉後使用舊版收藏頁；舊版不顯示收藏合集。
+  enable_version_reminder: 新版本提醒
+  enable_version_reminder_desc: 在外掛首頁提醒尚未確認的新版本；每個版本只提醒一次。
   enable_following_inactive_blacklist: 啟用不活躍名單
   enable_following_inactive_blacklist_desc: 當UP主超過指定天數未更新或無投稿時，將自動移至不活躍名單。在ALL視圖中出現更新或點擊該UP主時會自動移出不活躍名單。
   following_inactive_days: UP 主不活躍天數
@@ -431,6 +455,8 @@ settings:
   use_original_bilibili_topbar: 使用原版 Bilibili 頂欄
   adapt_to_other_page_styles: 適應其他頁面風格
   adapt_to_other_page_styles_desc: 適應一些常見頁面，以配合 BewlyBewly 主題。
+  nvidia_rtx_video_enhancement_compatibility: NVIDIA RTX 影片增強功能相容
+  nvidia_rtx_video_enhancement_compatibility_desc: 啟用後，將在影片播放頁自動停用毛玻璃效果，避免 NVIDIA RTX 影片增強功能異常。
   follow_bilibili_evolved_color: 使用 Bilibili Evolved 主題色
   follow_bilibili_evolved_color_desc: 每次變更 Bilibili Evolved 主題色後，記得重新選取此選項以更新配置。
   links: 連結
@@ -600,7 +626,7 @@ settings:
   enlarge_favorite_dialog: 放大收藏彈窗
   enlarge_favorite_dialog_desc: 啟用後，影片頁收藏彈窗將以更大的尺寸顯示，方便查看和管理收藏夾。
   external_watch_later_button: 稍後再看按鈕外置
-  external_watch_later_button_desc: 啟用後，影片頁將在工具欄顯示獨立的稍後再看按鈕，方便快速添加影片到稍後再看。
+  external_watch_later_button_desc: 啟用後，影片頁工具欄會顯示獨立的稍後觀看按鈕；按鈕會顯示目前影片狀態，可點擊加入或移除。
   volume_normalization:
     title: 音量均衡
     enable: 啟用音量均衡
@@ -792,6 +818,8 @@ video_card:
     warning: 拉黑後，你將無法看到該用戶發佈的所有內容。
   group_contribution: '{firstAuthor} 等 {num} 人共同創作'
   video_removed: 影片已移除
+  watched: 已觀看
+  visited_recently: 近一個月內瀏覽過
 home:
   tell_us_why: 為什麼這樣做...
   not_interested_desc: >
@@ -874,6 +902,17 @@ favorites:
   search_all_folders: 全部
   search_current_folder: 目前
   search_placeholder: 搜尋目前收藏夾
+version_reminder:
+  trigger: 新版本說明
+  title: BewlyCat 已更新
+  current_version: 目前版本 v{version}
+  description: 查看此版本的更新記錄與最新動態。確認後，此版本將不再顯示提醒。
+  github_releases: GitHub Releases
+  github_releases_desc: 查看完整版本記錄與下載資訊
+  bilibili_dynamic: B站動態
+  bilibili_dynamic_desc: 查看開發者發佈的更新動態
+  acknowledge: 已知曉，此版本不再提示
+  settings_hint: 可在「設定 → BewlyCat 介面 → 首頁」中關閉「新版本提醒」。
 watch_later:
   title: 稍後觀看
   clear_all: 清空稍後觀看

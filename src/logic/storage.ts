@@ -280,6 +280,9 @@ export interface Settings {
   // 搜索推荐功能设置
   showSearchRecommendation: boolean
 
+  // 搜索历史功能设置
+  enableSearchHistory: boolean
+
   // 搜索结果页设置
   usePluginSearchResultsPage: boolean
   depersonalizeSearchResults: boolean
@@ -308,12 +311,15 @@ export interface Settings {
   followingFilterChargingVideos: boolean // 过滤充电专属视频
   followingFilterDynamicVideos: boolean // 过滤动态视频
   useFollowingNewLayout: boolean
+  useFavoritesNewLayout: boolean
   enableFollowingInactiveBlacklist: boolean // 启用不活跃名单
   followingInactiveDays: number // UP主超过N天未更新则移至不活跃名单
 
   homePageTabVisibilityList: { page: HomeSubPage, visible: boolean }[]
   alwaysShowTabsOnHomePage: boolean
   fixedHomeTabsOnHomePage: boolean
+  enableVersionReminder: boolean
+  lastAcknowledgedVersion: string
   // Title font size for cards (px); when auto is enabled, this is ignored
   homeAdaptiveTitleFontSize: number
   // Auto adjust title font size based on grid width
@@ -338,11 +344,14 @@ export interface Settings {
   showTopBar: boolean
   useOriginalBilibiliTopBar: boolean
   useOriginalBilibiliHomepage: boolean
+  nvidiaRtxVideoEnhancementCompatibility: boolean
 
   // Video Player
   defaultVideoPlayerMode: DefaultVideoPlayerMode
   bewlyWidescreenSidebarPosition: BewlyWidescreenSidebarPosition
   defaultDanmakuState: 'system' | 'on' | 'off'
+  defaultCaptionState: 'system' | 'remember' | 'on' | 'off'
+  lastCaptionState: boolean
   keepCollectionVideoDefaultMode: boolean // 合集视频保持默认模式
   autoExitFullscreenOnEnd: boolean // 全屏播放完毕后自动退出
   autoExitFullscreenExcludeAutoPlay: boolean // 全屏自动退出时排除自动连播
@@ -395,7 +404,7 @@ export const originalSettings: Settings = {
   showCommentHostTag: true, // 默认启用楼主标识显示
   adjustCommentImageHeight: true, // 默认启用评论图片高度调整
   enlargeFavoriteDialog: false, // 默认关闭收藏夹放大样式
-  externalWatchLaterButton: false, // 默认关闭稍后再看按钮外置
+  externalWatchLaterButton: true, // 默认开启稍后再看按钮外置
 
   // Grid 相关默认设置
   gridColumns: { ...defaultGridColumns },
@@ -504,6 +513,9 @@ export const originalSettings: Settings = {
   // 搜索推荐功能设置
   showSearchRecommendation: false,
 
+  // 搜索历史功能设置
+  enableSearchHistory: true,
+
   // 搜索结果页设置
   usePluginSearchResultsPage: true,
   depersonalizeSearchResults: false,
@@ -532,12 +544,15 @@ export const originalSettings: Settings = {
   followingFilterChargingVideos: false, // 默认不过滤充电视频
   followingFilterDynamicVideos: false, // 默认不过滤动态视频
   useFollowingNewLayout: false, // 默认使用旧布局
+  useFavoritesNewLayout: true, // 默认使用新版收藏页
   enableFollowingInactiveBlacklist: true, // 默认启用不活跃名单
   followingInactiveDays: 100, // 默认100天
 
   homePageTabVisibilityList: [],
   alwaysShowTabsOnHomePage: false,
   fixedHomeTabsOnHomePage: false,
+  enableVersionReminder: true,
+  lastAcknowledgedVersion: '',
   homeAdaptiveTitleFontSize: 16,
   homeAdaptiveTitleAutoSize: true,
   videoCardTitleFontSize: 'base',
@@ -559,11 +574,14 @@ export const originalSettings: Settings = {
   showTopBar: true,
   useOriginalBilibiliTopBar: false,
   useOriginalBilibiliHomepage: false,
+  nvidiaRtxVideoEnhancementCompatibility: false,
 
   // Video Player
   defaultVideoPlayerMode: 'default',
   bewlyWidescreenSidebarPosition: 'right',
   defaultDanmakuState: 'system',
+  defaultCaptionState: 'off',
+  lastCaptionState: false,
   keepCollectionVideoDefaultMode: false, // 合集视频保持默认模式，默认关闭
   autoExitFullscreenOnEnd: false, // 全屏播放完毕后自动退出，默认关闭
   autoExitFullscreenExcludeAutoPlay: false, // 全屏自动退出时排除自动连播，默认关闭

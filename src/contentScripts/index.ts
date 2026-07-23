@@ -4,6 +4,7 @@ import 'uno.css'
 import { createApp } from 'vue'
 
 import { useDark } from '~/composables/useDark'
+import { CONTENT_SCRIPT_PING, CONTENT_SCRIPT_PONG } from '~/constants/contentScript'
 import { BEWLY_MOUNTED, IFRAME_DARK_MODE_CHANGE, IFRAME_TOP_BAR_CHANGE } from '~/constants/globalEvents'
 import { localSettings, settings, settingsReady } from '~/logic'
 import { setupApp } from '~/logic/common-setup'
@@ -15,20 +16,38 @@ import { captureOriginalBilibiliTopBar, ensureOriginalBilibiliTopBarAppended, re
 import { initFavoriteDialogEnhancement } from '~/utils/favoriteDialog'
 import { runWhenIdle } from '~/utils/lazyLoad'
 import { getLocalWallpaper, hasLocalWallpaper, isLocalWallpaperUrl } from '~/utils/localWallpaper'
-import { compareVersions, injectCSS, isElectron, isHomePage, isInIframe, isNotificationPage, isVideoOrBangumiPage, isVideoPlaybackPage } from '~/utils/main'
-import { applyAutoPlayByVideoType, applyDefaultDanmakuState, defaultMode, handleVideoPageNavigation, isCollectionVideo, isPlayerDisplayModeReady, isVideoPage, startAutoExitFullscreenMonitoring, startAutoPlayUserChangeMonitoring, webFullscreen, widescreen } from '~/utils/player'
+import { compareVersions, getCookie, injectCSS, isElectron, isHomePage, isInIframe, isNotificationPage, isVideoOrBangumiPage, isVideoPlaybackPage } from '~/utils/main'
+import { applyAutoPlayByVideoType, applyDefaultCaptionState, applyDefaultDanmakuState, defaultMode, handleVideoPageNavigation, isCollectionVideo, isPlayerDisplayModeReady, isVideoPage, startAutoExitFullscreenMonitoring, startAutoPlayUserChangeMonitoring, webFullscreen, widescreen } from '~/utils/player'
 import { initRandomPlay, resetRandomPlayInitialization } from '~/utils/randomPlay'
+import { getPluginSearchResultsUrl } from '~/utils/searchNavigation'
 import { setupShortcutHandlers } from '~/utils/shortcuts'
 import { SVG_ICONS } from '~/utils/svgIcons'
 import { openLinkInBackground } from '~/utils/tabs'
 import { initVerticalVideoZoom, resetVerticalVideoZoom } from '~/utils/verticalVideoZoom'
+import { recordVideoVisitFromUrl } from '~/utils/videoVisitHistory'
 
 import { version } from '../../package.json'
 import { initAudioInterceptor, setupSettingsWatcher } from './audioInterceptor'
 import { setupIframePhotoViewerDetector } from './features/iframePhotoViewerDetector'
 import { ensureMainWorldInjected } from './pageWorldInjection'
+import { initVideoScreenshotControl } from './videoScreenshotControl'
 import App from './views/App.vue'
 import { initVolumeNormalizationControl } from './volumeNormalizationControl'
+
+const contentScriptGlobal = globalThis as typeof globalThis & {
+  __BEWLYCAT_CONTENT_SCRIPT_INITIALIZED__?: boolean
+}
+const shouldInitializeContentScript = !contentScriptGlobal.__BEWLYCAT_CONTENT_SCRIPT_INITIALIZED__
+
+if (shouldInitializeContentScript) {
+  contentScriptGlobal.__BEWLYCAT_CONTENT_SCRIPT_INITIALIZED__ = true
+  browser.runtime.onMessage.addListener((message: unknown) => {
+    if (typeof message === 'object' && message !== null && 'type' in message && message.type === CONTENT_SCRIPT_PING)
+      return Promise.resolve(CONTENT_SCRIPT_PONG)
+
+    return false
+  })
+}
 
 const isFirefox: boolean = /Firefox/i.test(navigator.userAgent)
 const isElectronEnv = isElectron()
@@ -137,7 +156,7 @@ export function isSupportedIframePages(): boolean {
 if (isElectronEnv) {
   console.warn('[BewlyCat] Detected Electron environment, extension disabled.')
 }
-else {
+else if (shouldInitializeContentScript) {
   // Safari injects the page-world bundle through a web-accessible script tag.
   // The idempotency guard inside inject.global.js protects all platforms.
   // eslint-disable-next-line node/prefer-global/process
@@ -161,6 +180,29 @@ else {
   let hasAppliedPlayerMode = false // 添加标志变量
   let playerModeRetryTimer: ReturnType<typeof setTimeout> | undefined
   let watchLaterButtonAdded = false // 标记稍后再看按钮是否已添加
+
+  recordVideoVisitFromUrl(lastUrl)
+
+  function setupPluginSearchLinkNavigation() {
+    document.addEventListener('click', (event) => {
+      if (!settings.value.usePluginSearchResultsPage || !getCookie('DedeUserID'))
+        return
+
+      const target = event.target
+      if (!(target instanceof Element))
+        return
+
+      const anchor = target.closest('a[href]')
+      if (!(anchor instanceof HTMLAnchorElement))
+        return
+
+      const pluginSearchResultsUrl = getPluginSearchResultsUrl(anchor.href)
+      if (pluginSearchResultsUrl)
+        anchor.href = pluginSearchResultsUrl
+    }, true)
+  }
+
+  void settingsReady.then(() => setupPluginSearchLinkNavigation())
 
   function shouldApplyBewlyDesign() {
     if (settings.value.adaptToOtherPageStyles)
@@ -260,6 +302,8 @@ else {
 
     // 如果播放器已经在全屏状态，跳过应用模式（避免互动视频退出全屏）
     if (isInFullscreen || isInWebFullscreen) {
+      applyDefaultDanmakuState()
+      applyDefaultCaptionState()
       hasAppliedPlayerMode = true // 标记已应用，避免重复检查
       return
     }
@@ -302,6 +346,7 @@ else {
     }
     setupShortcutHandlers()
     applyDefaultDanmakuState()
+    applyDefaultCaptionState()
     initVerticalVideoZoom()
     // 应用自动连播设置，延迟更长时间确保播放器完全初始化
     setTimeout(() => {
@@ -347,8 +392,9 @@ else {
     setTimeout(() => {
       if (!watchLaterButtonAdded && settings.value.externalWatchLaterButton) {
         import('~/utils/watchLaterButton').then(({ addWatchLaterButton }) => {
-          addWatchLaterButton()
-          watchLaterButtonAdded = true
+          if (!settings.value.externalWatchLaterButton)
+            return
+          watchLaterButtonAdded = addWatchLaterButton()
         }).catch(err => console.error('添加稍后再看按钮失败:', err))
       }
     }, 5000) // 5秒后添加，确保页面已完全稳定
@@ -400,6 +446,7 @@ else {
 
       lastUrl = location.href
       lastVideoNavigationKey = currentVideoNavigationKey
+      recordVideoVisitFromUrl(lastUrl)
       applyBewlyDesignClasses()
 
       if (isVideoOrBangumiPage()) {
@@ -411,6 +458,7 @@ else {
         exitBewlyWidescreen()
         resetVerticalVideoZoom()
         hasAppliedPlayerMode = false // URL变化时重置标志
+        document.querySelector('.bewly-watch-later-btn')?.remove()
         watchLaterButtonAdded = false // URL变化时重置稍后再看按钮标志
         // 不再重置用户手动修改标志，保持用户的自动播放偏好设置
 
@@ -521,6 +569,17 @@ else {
   const removeOriginalTopBar = injectCSS(`.bili-header, #biliMainHeader { visibility: hidden !important; }`)
 
   async function onDOMLoaded() {
+    const pluginSearchResultsUrl = !isInIframe() && getPluginSearchResultsUrl(location.href)
+
+    if (pluginSearchResultsUrl) {
+      await settingsReady
+
+      if (settings.value.usePluginSearchResultsPage && getCookie('DedeUserID')) {
+        location.replace(pluginSearchResultsUrl)
+        return
+      }
+    }
+
     const changeHomePage = !isInIframe() && !settings.value.useOriginalBilibiliHomepage && isHomePage()
 
     // Remove the original Bilibili homepage if in Bilibili homepage & useOriginalBilibiliHomepage is enabled
@@ -604,6 +663,7 @@ else {
     if (settings.value.enableVolumeNormalization)
       initAudioInterceptor()
     initVolumeNormalizationControl()
+    initVideoScreenshotControl()
 
     // Initialize Favorite Dialog Enhancement (for video pages)
     if (isVideoOrBangumiPage()) {
@@ -611,10 +671,14 @@ else {
     }
   }
 
-  if (document.readyState !== 'loading')
-    onDOMLoaded()
-  else
-    document.addEventListener('DOMContentLoaded', () => onDOMLoaded())
+  if (document.readyState !== 'loading') {
+    void onDOMLoaded()
+  }
+  else {
+    document.addEventListener('DOMContentLoaded', () => {
+      void onDOMLoaded()
+    })
+  }
 
   function injectAppWhenIdle() {
     return new Promise<void>((resolve) => {
@@ -752,10 +816,8 @@ else {
         else {
         // 移除稍后再看按钮
           const existingButton = document.querySelector('.bewly-watch-later-btn')
-          if (existingButton) {
-            existingButton.remove()
-            watchLaterButtonAdded = false
-          }
+          existingButton?.remove()
+          watchLaterButtonAdded = false
         }
       }
     }

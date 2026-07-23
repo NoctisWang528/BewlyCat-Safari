@@ -24,6 +24,9 @@ common:
   please_log_in_first: 唔該登入先
   login: 登入
   save_to_watch_later: 陣間至睇
+  add_to_watch_later: 加到陣間至睇
+  added_to_watch_later: 已加到陣間至睇
+  remove_from_watch_later: 由陣間至睇剷走
   added: 已添加
   watch_later_login_required: 攞唔到登入憑證，請確認已登入 Bilibili，同埋已允許 Safari 擴充功能存取呢個網站
   watch_later_invalid_video_id: 認唔到影片 ID，陣間至睇操作失敗
@@ -65,6 +68,11 @@ iframe_drawer:
   open_in_new_tab: 喺新嘅分頁度打開連結
   close: 關閉
   press_esc_again_to_close: 撳多次 Esc 關閉
+player_screenshot:
+  capture: 擷取而家嘅影片畫面
+  saved: 截圖已儲存
+  failed: 截圖失敗
+  video_unavailable: 而家嘅影片畫面用唔到
 settings:
   title: 設定
   menu_plugin_components_and_pages: BewlyCat界面
@@ -82,6 +90,7 @@ settings:
     topbar: 頂欄
     dock_and_sidebar: Dock
     home: 主頁
+    favorites: 收藏
     search: 搵嘢頁
     volume_balance: 音量均衡
 
@@ -123,9 +132,11 @@ settings:
   group_recommendation_filters_desc: |
     限制嘅數值唔好設太大，唔係嘅話會影響載入時間！頻繁請求可能會導致B站對IP嘅封禁!
   group_following: 跟緊啲人
+  group_favorites: 收藏
   group_search_page_mode: 搵嘢頁模式
   group_home_tabs: 主頁分頁欄
   group_home_layout: 主頁版面
+  group_version_reminder: 版本提醒
   btn:
     authorize: 授權
     revoke: 解除授權
@@ -319,6 +330,8 @@ settings:
   show_hot_search_in_search_page_desc: 喺搵嘢頁面顯示熱搜排行榜
   show_search_recommendation: 顯示搜尋推介
   show_search_recommendation_desc: 喺搜尋框度顯示推介嘅搜尋詞做佔位符,空白輸入時撳回車會搜尋呢個推介詞
+  enable_search_history: 啓用搜尋歷史
+  enable_search_history_desc: 啓用後，搜尋欄會記同顯示你嘅搜尋歷史。關咗之後會剷晒所有歷史
   use_plugin_search_results_page: 使用插件搜尋結果頁
   use_plugin_search_results_page_desc: 開啟後，搜尋會使用插件內置嘅搜尋結果頁，支援分類篩選等功能
   depersonalize_search_results: 去個人化搜尋
@@ -391,6 +404,10 @@ settings:
   following_filter_dynamic_videos_desc: 啟用後，喺「跟緊啲人」頁面入邊會隱藏標記為動態影片嘅內容
   use_following_new_layout: 用跟緊啲人新版面
   use_following_new_layout_desc: 左邊顯示關注嘅UP主名單，右邊顯示影片流
+  use_favorites_new_layout: 使用新版收藏頁
+  use_favorites_new_layout_desc: 關閉之後會使用舊版收藏頁；舊版唔會顯示收藏合集。
+  enable_version_reminder: 新版本提醒
+  enable_version_reminder_desc: 喺外掛主頁提醒未確認嘅新版本；每個版本只會提醒一次。
   enable_following_inactive_blacklist: 啟用唔活躍名單
   enable_following_inactive_blacklist_desc: 閂咗之後唔會因為超過唔活躍日數或者冇投稿就自動入唔活躍名單；已經有嘅唔活躍名單同 ALL 視圖／撳 UP 移出規則唔變。
   following_inactive_days: UP主唔活躍天數
@@ -412,6 +429,8 @@ settings:
   use_original_bilibili_topbar: 用返原本嘅 Bilibili 頂欄
   adapt_to_other_page_styles: 適應其他版面風格
   adapt_to_other_page_styles_desc: 執執啲常用嘅版面，襯返 BewlyBewly 主題風格。
+  nvidia_rtx_video_enhancement_compatibility: NVIDIA RTX 影片增強功能相容
+  nvidia_rtx_video_enhancement_compatibility_desc: 啓用之後，會喺影片播放頁自動停用毛玻璃效果，避免 NVIDIA RTX 影片增強功能異常。
   follow_bilibili_evolved_color: 跟返 Bilibili Evolved 主題色
   follow_bilibili_evolved_color_desc: 每次換完 Bilibili Evolved 主題色嗰陣，記得揀多一次呢個選項愛嚟更新佈置。
   links: 拎
@@ -565,6 +584,13 @@ settings:
     system: 唔調整
     on: 預設開啟
     off: 預設關閉
+  video_caption_default_state: 影片預設字幕狀態
+  video_caption_default_state_desc: 開片時自動幫你調整字幕開關，或記住上次狀態。
+  video_caption_default_state_opt:
+    system: 唔啟用
+    remember: 記住上次狀態
+    on: 預設開啟
+    off: 預設關閉
   video_player_mode:
     default: 預設
     web_fullscreen: 網頁全螢幕
@@ -585,7 +611,7 @@ settings:
   enlarge_favorite_dialog: 放大收藏彈窗
   enlarge_favorite_dialog_desc: 啓用後，影片頁收藏彈窗會用更大嘅尺寸顯示，方便睇同管理收藏夾。
   external_watch_later_button: 稍後再睇按鈕外置
-  external_watch_later_button_desc: 啓用後，影片頁會喺工具欄顯示獨立嘅稍後再睇按鈕，方便快速添加影片到稍後再睇。
+  external_watch_later_button_desc: 啓用後，影片頁工具欄會顯示獨立嘅陣間至睇按鈕；按鈕會顯示目前影片狀態，可以撳一下加入或者剷走。
   group_fonts: ''
   group_visual_effects: ''
 auth:
@@ -730,6 +756,8 @@ video_card:
     warning: 拉黑咗之後，你就睇唔到該用戶發佈嘅所有內容。
   group_contribution: '{firstAuthor} 等 {num} 人一齊創作'
   video_removed: 經已鏟咗條片
+  watched: 睇過
+  visited_recently: 近一個月內睇過
 home:
   tell_us_why: 點解噉做...
   not_interested_desc: >
@@ -807,6 +835,17 @@ favorites:
   batch_unfavorite_confirm: |-
     係咪要剷走已揀嘅 {count} 條片呀？
     噉做冇得返轉頭噃，你確定要剷走呢啲片？
+version_reminder:
+  trigger: 新版本說明
+  title: BewlyCat 已更新
+  current_version: 而家版本 v{version}
+  description: 睇吓呢個版本嘅更新記錄同最新動態。確認之後，呢個版本就唔會再顯示提醒。
+  github_releases: GitHub Releases
+  github_releases_desc: 睇完整版本記錄同下載資料
+  bilibili_dynamic: B站動態
+  bilibili_dynamic_desc: 睇開發者發佈嘅更新動態
+  acknowledge: 知道喇，呢個版本唔再提示
+  settings_hint: 可以去「設定 → BewlyCat界面 → 主頁」閂咗「新版本提醒」。
 watch_later:
   title: 陣間至睇
   clear_all: 剷曬陣間至睇啲片

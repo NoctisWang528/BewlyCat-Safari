@@ -68,6 +68,7 @@ export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps
   const isInWatchLater = ref<boolean>(false)
   const isTogglingWatchLater = ref(false)
   const isHover = ref<boolean>(false)
+  const isPreviewFullscreen = ref<boolean>(false)
   const mouseEnterTimeOut = ref<number | null>(null)
   const mouseLeaveTimeOut = ref<number | null>(null)
   const previewVideoUrl = ref<string>('')
@@ -344,7 +345,10 @@ export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps
     contentVisibility.value = 'visible'
     if (mouseEnterTimeOut.value)
       clearTimeout(mouseEnterTimeOut.value)
-    const delay = settings.value.hoverVideoCardDelayed ? 1200 : 500
+    const previewEnabled = props.value.showPreview && settings.value.enableVideoPreview
+    const delay = previewEnabled
+      ? (settings.value.hoverVideoCardDelayed ? 1200 : 500)
+      : 1000
     mouseEnterTimeOut.value = window.setTimeout(() => {
       mouseEnterTimeOut.value = null
       isHover.value = true
@@ -364,9 +368,36 @@ export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps
 
     mouseLeaveTimeOut.value = window.setTimeout(() => {
       mouseLeaveTimeOut.value = null
+
+      // Entering native fullscreen moves the video into the browser's top layer,
+      // which makes the card receive mouseleave even though the preview is still active.
+      if (isPreviewFullscreen.value)
+        return
+
       contentVisibility.value = 'auto'
       isHover.value = false
     }, 100) // Short delay to debounce boundary hover
+  }
+
+  function handlePreviewFullscreenChange(isFullscreen: boolean) {
+    isPreviewFullscreen.value = isFullscreen
+
+    if (isFullscreen) {
+      if (mouseLeaveTimeOut.value) {
+        clearTimeout(mouseLeaveTimeOut.value)
+        mouseLeaveTimeOut.value = null
+      }
+      contentVisibility.value = 'visible'
+      isHover.value = true
+      return
+    }
+
+    // A suppressed mouseleave is not fired again after fullscreen exits. Reconcile
+    // the actual pointer position so an off-card preview can release its resources.
+    if (!cardRootRef.value?.matches(':hover')) {
+      contentVisibility.value = 'auto'
+      isHover.value = false
+    }
   }
 
   function handleClick(event: MouseEvent) {
@@ -448,6 +479,7 @@ export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps
     videoCurrentTime,
     isInWatchLater,
     isHover,
+    isPreviewFullscreen,
     previewVideoUrl,
     contentVisibility,
     videoElement,
@@ -462,6 +494,7 @@ export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps
     toggleWatchLater,
     handleMouseEnter,
     handelMouseLeave,
+    handlePreviewFullscreenChange,
     handleClick,
     handleMoreBtnClick,
     handleUndo,

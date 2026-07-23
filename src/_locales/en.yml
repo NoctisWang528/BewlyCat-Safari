@@ -24,6 +24,9 @@ common:
   please_log_in_first: Please log in first
   login: Login
   save_to_watch_later: Save to Watch later
+  add_to_watch_later: Add to Watch later
+  added_to_watch_later: Added to Watch later
+  remove_from_watch_later: Remove from Watch later
   added: Added
   watch_later_login_required: Unable to get login credentials. Make sure you are logged in to Bilibili and Safari has granted this extension access to the site.
   watch_later_invalid_video_id: Unable to identify the video. The Watch later operation failed.
@@ -65,6 +68,11 @@ iframe_drawer:
   open_in_new_tab: Open in new tab
   close: Close
   press_esc_again_to_close: Press Esc again to close
+player_screenshot:
+  capture: Capture current video frame
+  saved: Screenshot saved
+  failed: Failed to capture screenshot
+  video_unavailable: The current video frame is unavailable
 settings:
   title: Settings
   menu_plugin_components_and_pages: BewlyCat Interface
@@ -82,6 +90,7 @@ settings:
     topbar: Top Bar
     dock_and_sidebar: Dock
     home: Home
+    favorites: Favorites
     search: Search
     volume_balance: Volume Normalization
 
@@ -127,9 +136,11 @@ settings:
     Do not set the restricted value too large, as this may increase loading
     time! Frequent requests may result in IP blocking by Bilibili!
   group_following: Following
+  group_favorites: Favorites
   group_search_page_mode: Search Page Mode
   group_home_tabs: Home Tabs
   group_home_layout: Home Layout
+  group_version_reminder: Version reminders
   btn:
     authorize: Authorize
     revoke: Revoke
@@ -206,6 +217,13 @@ settings:
   video_danmaku_default_state_desc: Automatically toggle danmaku when a video loads, or leave it unchanged.
   video_danmaku_default_state_opt:
     system: Do not adjust
+    on: Always enable
+    off: Always disable
+  video_caption_default_state: Default caption state
+  video_caption_default_state_desc: Automatically toggle captions when a video loads, or remember last state.
+  video_caption_default_state_opt:
+    system: Do not enable
+    remember: Remember last state
     on: Always enable
     off: Always disable
   video_player_mode:
@@ -375,6 +393,8 @@ settings:
   show_hot_search_in_search_page_desc: Display hot search ranking on the search page
   show_search_recommendation: Show search recommendation
   show_search_recommendation_desc: Display recommended search terms as placeholder in the search box, and search for them when pressing Enter with an empty input
+  enable_search_history: Enable search history
+  enable_search_history_desc: When enabled, the search bar will record and display your search history. Disabling this will clear all history
   use_plugin_search_results_page: Use plugin search results page
   use_plugin_search_results_page_desc: When enabled, searches will use the plugin's built-in search results page with category filtering and more features
   depersonalize_search_results: Depersonalized search
@@ -461,6 +481,10 @@ settings:
   following_filter_dynamic_videos_desc: When enabled, videos marked as dynamic videos will be hidden in the "Following" page
   use_following_new_layout: Use new layout for Following tab
   use_following_new_layout_desc: Display followed UPs list on the left and video feed on the right
+  use_favorites_new_layout: Use the new Favorites page
+  use_favorites_new_layout_desc: Turn this off to use the legacy Favorites page, which does not show collected series.
+  enable_version_reminder: New version reminders
+  enable_version_reminder_desc: Show unacknowledged version updates on the extension home page; each version is shown only once.
   enable_following_inactive_blacklist: Enable Inactive List
   enable_following_inactive_blacklist_desc: When a UP has not posted for the specified number of days or has no videos, they will be automatically moved to the Inactive List. They will be removed from the Inactive List when appearing in ALL view or when clicked
   following_inactive_days: UP inactive days
@@ -486,6 +510,8 @@ settings:
   use_original_bilibili_topbar: Use the original Bilibili top bar
   adapt_to_other_page_styles: Adapt to other page styles
   adapt_to_other_page_styles_desc: Adapt to some common pages to match with the BewlyBewly theme.
+  nvidia_rtx_video_enhancement_compatibility: NVIDIA RTX Video Enhancement compatibility
+  nvidia_rtx_video_enhancement_compatibility_desc: When enabled, frosted glass is automatically disabled on video playback pages to prevent NVIDIA RTX Video Enhancement issues.
   follow_bilibili_evolved_color: Follow the Bilibili Evolved theme color
   follow_bilibili_evolved_color_desc: >-
     After changing the theme color in Bilibili Evolved, you will need to
@@ -676,7 +702,7 @@ settings:
   enlarge_favorite_dialog: Enlarge favorite dialog
   enlarge_favorite_dialog_desc: When enabled, the favorite dialog on video pages will be displayed in a larger size for easier viewing and management.
   external_watch_later_button: External watch later button
-  external_watch_later_button_desc: When enabled, a standalone watch later button will be displayed on the video page toolbar for quick access.
+  external_watch_later_button_desc: Show a standalone Watch later button in the video toolbar. It displays the current state and can add or remove the video.
   volume_normalization:
     title: Volume Normalization
     enable: Enable volume normalization
@@ -852,6 +878,8 @@ video_card:
     warning: After blocking, you will not be able to see any content published by this user.
   group_contribution: '{firstAuthor} and {num} others contributed'
   video_removed: Video removed
+  watched: Watched
+  visited_recently: Visited within the past month
 home:
   tell_us_why: Choose a reason why
   not_interested_desc: >-
@@ -937,6 +965,17 @@ favorites:
   search_all_folders: all
   search_current_folder: current
   search_placeholder: Search for current favorites
+version_reminder:
+  trigger: What's new
+  title: BewlyCat has been updated
+  current_version: Current version v{version}
+  description: View the release notes and latest updates for this version. After confirmation, this version will not be shown again.
+  github_releases: GitHub Releases
+  github_releases_desc: View the full release history and downloads
+  bilibili_dynamic: Bilibili posts
+  bilibili_dynamic_desc: View update posts from the developer
+  acknowledge: Got it, don't show this version again
+  settings_hint: You can turn off “New version reminders” under Settings → BewlyCat Interface → Home.
 watch_later:
   title: Watch Later
   clear_all: Clear all watch later

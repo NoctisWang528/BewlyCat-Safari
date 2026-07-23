@@ -7,6 +7,7 @@ import { useVideoCardShadowStyle } from '~/composables/useVideoCardShadowStyle'
 import { OVERLAY_SCROLL_BAR_SCROLL } from '~/constants/globalEvents'
 import type { GridLayoutType } from '~/logic'
 import { settings } from '~/logic'
+import { getListLayoutColumnCount } from '~/utils/gridLayout'
 import emitter from '~/utils/mitt'
 
 import SmoothLoading from './SmoothLoading.vue'
@@ -62,6 +63,11 @@ interface VideoCardGridProps<T = any> {
    * 是否显示更多按钮
    */
   moreBtn?: boolean
+
+  /**
+   * 是否隐藏作者信息
+   */
+  hideAuthor?: boolean
 
   /**
    * 数据转换函数：将原始数据转换为 VideoCard 所需的格式
@@ -647,7 +653,7 @@ function getCurrentColumnCount(layout: GridLayoutType, width: number): number {
   if (layout === 'twoColumns')
     return 2
   if (layout === 'oneColumn')
-    return 1
+    return getListLayoutColumnCount(width)
   return getAdaptiveGridColumns(width)
 }
 
@@ -880,6 +886,7 @@ function getUniqueKey(item: T, index: number): string | number {
         :show-watcher-later="showWatchLater"
         :horizontal="isHorizontal"
         :more-btn="moreBtn"
+        :hide-author="hideAuthor"
         :is-following-page="props.isFollowingPage"
         :custom-click-handler="props.cardClickHandler ? (event: MouseEvent) => props.cardClickHandler?.(renderItem.item, event) : undefined"
         :cover-top-left-always-visible="props.coverTopLeftAlwaysVisible"
@@ -901,7 +908,11 @@ function getUniqueKey(item: T, index: number): string | number {
     />
 
     <!-- 无更多内容提示（仅在有数据时显示，避免与空列表提示重复） -->
-    <Empty v-if="noMoreContent && !needToLoginFirst && items.length > 0" class="pb-4" :description="$t('common.no_more_content')" />
+    <Empty v-if="noMoreContent && !needToLoginFirst && items.length > 0" class="pb-4" :description="$t('common.no_more_content')">
+      <Button type="primary" @click="handleRefresh">
+        {{ refreshButtonText || $t('common.operation.refresh') }}
+      </Button>
+    </Empty>
   </div>
 </template>
 
@@ -999,7 +1010,7 @@ function getUniqueKey(item: T, index: number): string | number {
 
 .grid-one-column {
   display: grid;
-  grid-template-columns: repeat(1, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 500px), 1fr));
   gap: 16px;
   contain: layout style;
   align-items: stretch;

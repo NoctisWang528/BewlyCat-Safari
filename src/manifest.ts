@@ -3,19 +3,7 @@ import type { Manifest } from 'webextension-polyfill'
 
 import type PkgType from '../package.json'
 import { isDev, isFirefox, isSafari, port, r } from '../scripts/utils'
-
-const BILIBILI_MATCHES = [
-  '*://www.bilibili.com/*',
-  '*://search.bilibili.com/*',
-  '*://t.bilibili.com/*',
-  '*://space.bilibili.com/*',
-  '*://message.bilibili.com/*',
-  '*://member.bilibili.com/*',
-  '*://account.bilibili.com/*',
-  '*://www.hdslb.com/*',
-  '*://passport.bilibili.com/*',
-  '*://music.bilibili.com/*',
-]
+import { CONTENT_SCRIPT_EXCLUDE_MATCHES, CONTENT_SCRIPT_MATCHES } from './constants/contentScript'
 
 export async function getManifest() {
   const pkg = await fs.readJSON(r('package.json')) as typeof PkgType
@@ -53,6 +41,7 @@ export async function getManifest() {
       isSafari
         ? 'declarativeNetRequestWithHostAccess'
         : 'declarativeNetRequest',
+      ...!isFirefox ? ['scripting'] : [],
       ...isFirefox
         ? ['webRequest', 'webRequestBlocking', 'cookies']
         : [],
@@ -66,7 +55,8 @@ export async function getManifest() {
     ],
     content_scripts: [
       {
-        matches: BILIBILI_MATCHES,
+        matches: [...CONTENT_SCRIPT_MATCHES],
+        exclude_matches: [...CONTENT_SCRIPT_EXCLUDE_MATCHES],
         js: ['./dist/contentScripts/index.global.js'],
         css: ['./dist/contentScripts/style.css'],
         run_at: 'document_start',
@@ -77,7 +67,8 @@ export async function getManifest() {
       ...isSafari
         ? []
         : [{
-            matches: BILIBILI_MATCHES,
+            matches: [...CONTENT_SCRIPT_MATCHES],
+            exclude_matches: [...CONTENT_SCRIPT_EXCLUDE_MATCHES],
             js: ['./dist/contentScripts/inject.global.js'],
             run_at: 'document_start' as const,
             match_about_blank: true,
@@ -88,7 +79,7 @@ export async function getManifest() {
     web_accessible_resources: [
       {
         resources: ['dist/contentScripts/style.css', 'dist/contentScripts/inject.global.js', 'assets/*'],
-        matches: BILIBILI_MATCHES,
+        matches: [...CONTENT_SCRIPT_MATCHES],
       },
     ],
     content_security_policy: isFirefox
