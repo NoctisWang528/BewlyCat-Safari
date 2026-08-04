@@ -62,6 +62,8 @@ function mountAbout() {
     messages: {
       en: {
         settings: {
+          contributors_image_failed: 'Failed to load contributors',
+          current_contributors: 'Current contributors',
           contributors: 'Contributors',
           export_settings: 'Export Settings',
           export_settings_desc: 'Export settings',

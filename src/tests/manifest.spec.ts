@@ -10,7 +10,7 @@ vi.mock('fs-extra', () => ({
       homepage: 'https://github.com/NoctisWang528/BewlyCat-Safari',
       name: 'bewly-cat',
       safariRevision: 1,
-      version: '1.6.9',
+      version: '1.7.3',
     }),
   },
 }))
@@ -28,7 +28,7 @@ describe('safari manifest', () => {
     const manifest = await getManifest()
     const serialized = JSON.stringify(manifest)
 
-    expect(manifest.version).toBe('1.6.9.1')
+    expect(manifest.version).toBe('1.7.3.1')
     expect(manifest.background).toEqual({
       scripts: ['./dist/background/index.js'],
     })
@@ -50,6 +50,14 @@ describe('safari manifest', () => {
       ],
       js: ['./dist/contentScripts/index.global.js'],
     })
+    const webAccessibleResource = manifest.web_accessible_resources?.[0]
+    const webAccessibleFiles = typeof webAccessibleResource === 'object'
+      ? webAccessibleResource.resources
+      : []
+    expect(webAccessibleFiles).toEqual(expect.arrayContaining([
+      'dist/audioWorklets/volume-normalization.js',
+      'dist/contentScripts/inject.global.js',
+    ]))
     expect(serialized).not.toContain('"persistent"')
     expect(serialized).not.toContain('"world"')
     expect(serialized).not.toContain('"match_about_blank"')

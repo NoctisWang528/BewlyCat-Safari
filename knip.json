@@ -18,7 +18,6 @@
     "web-ext",
     "wxt"
   ],
-  "ignoreBinaries": ["gh"],
   "rules": {
     "types": "off",
     "enumMembers": "off",
