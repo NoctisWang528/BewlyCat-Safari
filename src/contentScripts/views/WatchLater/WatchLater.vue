@@ -3,6 +3,7 @@ import { useDateFormat } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 
 import { useBewlyApp } from '~/composables/useAppProvider'
+import { useConfirmDialog } from '~/composables/useConfirmDialog'
 import { settings } from '~/logic'
 import type { List as VideoItem, WatchLaterResult } from '~/models/video/watchLater'
 import api from '~/utils/api'
@@ -11,6 +12,7 @@ import { getCSRF, openLinkToNewTab, removeHttpFromUrl } from '~/utils/main'
 import { openLinkInBackground } from '~/utils/tabs'
 
 const { t } = useI18n()
+const { confirm: showConfirmDialog } = useConfirmDialog()
 const { openIframeDrawer } = useBewlyApp()
 
 const isLoading = ref<boolean>()
@@ -115,8 +117,8 @@ function deleteWatchLaterItem(index: number, aid: number) {
     })
 }
 
-function handleClearAllWatchLater() {
-  const result = confirm(
+async function handleClearAllWatchLater() {
+  const result = await showConfirmDialog(
     t('watch_later.clear_all_confirm'),
   )
   if (result) {
@@ -132,8 +134,8 @@ function handleClearAllWatchLater() {
   }
 }
 
-function handleRemoveWatchedVideos() {
-  const result = confirm(
+async function handleRemoveWatchedVideos() {
+  const result = await showConfirmDialog(
     t('watch_later.remove_watched_videos_confirm'),
   )
   if (result) {
@@ -196,7 +198,7 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
 <template>
   <div v-if="getCSRF()" flex="~ col md:row lg:row" gap-4>
     <main w="full md:60% lg:70% xl:75%" order="2 md:1 lg:1" mb-6>
-      <h3 text="3xl $bew-text-1" font-bold mb-6>
+      <h3 class="bew-page-heading" text="$bew-text-1" mb-6>
         {{ t('watch_later.title') }} ({{ watchLaterCount }})
       </h3>
       <Empty v-if="watchLaterCount === 0 && !isLoading" />
@@ -244,7 +246,7 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
                   m="2"
                   p="x-2 y-1"
                   text="white xs"
-                  rounded-8
+                  rounded="$bew-radius-half"
                 >
                   {{ calcCurrentTime(item.duration) }}
                 </div> -->
@@ -255,7 +257,7 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
                   m="2"
                   p="x-2 y-1"
                   text="white xs"
-                  rounded-8
+                  rounded="$bew-radius-half"
                 >
                   <!--  When progress = -1 means that the user watched the full video -->
                   {{
@@ -324,7 +326,7 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
                 <div flex items-center gap-1>
                   <Tooltip :content="t('watch_later.play_video')" placement="top">
                     <button
-                      text="2xl $bew-text-3"
+                      text="size-$bew-icon-size-lg $bew-text-3"
                       hover:color="$bew-theme-color"
                       opacity-0 group-hover:opacity-100
                       p-2
@@ -336,7 +338,7 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
                   </Tooltip>
                   <Tooltip :content="t('watch_later.play_in_watch_later')" placement="top">
                     <button
-                      text="2xl $bew-text-3"
+                      text="size-$bew-icon-size-lg $bew-text-3"
                       hover:color="$bew-theme-color"
                       opacity-0 group-hover:opacity-100
                       p-2
@@ -348,7 +350,7 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
                   </Tooltip>
                   <Tooltip :content="t('watch_later.remove_from_watch_later')" placement="top">
                     <button
-                      text="2xl $bew-text-3"
+                      text="size-$bew-icon-size-lg $bew-text-3"
                       hover:color="$bew-theme-color"
                       opacity-0 group-hover:opacity-100
                       p-2
@@ -417,12 +419,12 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
             >
           </picture>
 
-          <h3 text="3xl white" fw-600 style="text-shadow: 0 0 12px rgba(0,0,0,.3)">
+          <h3 class="bew-page-heading" text="white" style="text-shadow: 0 0 12px rgba(0,0,0,.3)">
             {{ t('watch_later.title') }} ({{ watchLaterCount }})
           </h3>
-          <p v-if="watchLaterCount > 0" flex="~ col" gap-4>
+          <div v-if="watchLaterCount > 0" flex="~ col" gap-2 w-full>
             <Button
-              color="rgba(255,255,255,.35)" block text-color="white" strong flex-1
+              color="rgba(255,255,255,.35)" block text-color="white" strong
               @click="handlePlayAll"
             >
               <template #left>
@@ -431,7 +433,7 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
               {{ t('common.play_all') }}
             </Button>
             <Button
-              color="rgba(255,255,255,.35)" block text-color="white" strong flex-1
+              color="rgba(255,255,255,.35)" block text-color="white" strong
               @click="handleClearAllWatchLater"
             >
               <template #left>
@@ -440,7 +442,7 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
               {{ t('watch_later.clear_all') }}
             </Button>
             <Button
-              color="rgba(255,255,255,.35)" block text-color="white" strong flex-1
+              color="rgba(255,255,255,.35)" block text-color="white" strong
               @click="handleRemoveWatchedVideos"
             >
               <template #left>
@@ -448,7 +450,7 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
               </template>
               {{ t('watch_later.remove_watched_videos') }}
             </Button>
-          </p>
+          </div>
         </main>
       </div>
     </aside>

@@ -10,6 +10,7 @@ import api from '~/utils/api'
 import { getTvSign, TVAppKey } from '~/utils/authProvider'
 import { calcCurrentTime, numFormatter, parseStatNumber } from '~/utils/dataFormatter'
 import { getCSRF, removeHttpFromUrl } from '~/utils/main'
+import { resolvePgcEpisodeVideoIds } from '~/utils/pgcEpisode'
 import { openLinkInBackground } from '~/utils/tabs'
 
 import type { Video } from '../types'
@@ -67,6 +68,7 @@ export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps
   const videoCurrentTime = ref<number | null>(null)
   const isInWatchLater = ref<boolean>(false)
   const isTogglingWatchLater = ref(false)
+  const resolvedWatchLaterAid = ref<number>()
   const isHover = ref<boolean>(false)
   const isPreviewFullscreen = ref<boolean>(false)
   const mouseEnterTimeOut = ref<number | null>(null)
@@ -267,10 +269,7 @@ export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps
 
   // Methods
   async function toggleWatchLater() {
-    if (!props.value.video)
-      return
-
-    if (isTogglingWatchLater.value)
+    if (!props.value.video || isTogglingWatchLater.value)
       return
 
     const csrf = getCSRF()
@@ -278,56 +277,60 @@ export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps
       return
 
     const video = props.value.video
-    const aid = Number(video.aid || video.id || 0)
-    const hasValidAid = Number.isFinite(aid) && aid > 0
-    const bvid = typeof video.bvid === 'string' && video.bvid.trim()
-      ? video.bvid.trim()
-      : undefined
-
-    if (!hasValidAid && !bvid)
-      return
-
     isTogglingWatchLater.value = true
 
     try {
-      if (!isInWatchLater.value) {
-        const params: { aid?: number, bvid?: string, csrf: string } = { csrf }
+      if (video.epid && !video.aid && !video.bvid) {
+        const ids = await resolvePgcEpisodeVideoIds(video.epid)
+        if (!ids)
+          return
+        resolvedWatchLaterAid.value = ids.aid
+      }
 
-        if (hasValidAid)
+      let aid = Number(video.aid || resolvedWatchLaterAid.value || video.id || 0)
+      if (!Number.isSafeInteger(aid) || aid <= 0)
+        aid = 0
+      const bvid = typeof video.bvid === 'string' && video.bvid.trim() ? video.bvid.trim() : undefined
+
+      if (!aid && !bvid)
+        return
+
+      if (!isInWatchLater.value) {
+        const params: { bvid?: string, aid?: number, csrf: string } = { csrf }
+        if (aid)
           params.aid = aid
         if (bvid)
           params.bvid = bvid
 
         const res = await api.watchlater.saveToWatchLater(params)
-
         if (res?.code === 0) {
           isInWatchLater.value = true
-          // 延时1秒后获取稍后再看列表（add成功后居然不是立即生效的）
           setTimeout(() => {
-            topBarStore.getAllWatchLaterList()
+            void topBarStore.syncWatchLaterState(true)
           }, 1000)
         }
+        return
       }
-      else {
-        if (!hasValidAid)
+
+      if (!aid && bvid) {
+        const info = await api.video.getVideoInfo({ bvid })
+        const resolvedAid = Number(info?.data?.aid)
+        if (!Number.isSafeInteger(resolvedAid) || resolvedAid <= 0)
           return
+        aid = resolvedAid
+        resolvedWatchLaterAid.value = resolvedAid
+      }
 
-        const res = await api.watchlater.removeFromWatchLater({
-          aid,
-          csrf,
-        })
-
-        if (res?.code === 0) {
-          isInWatchLater.value = false
-          // 延时1秒后获取稍后再看列表（add成功后居然不是立即生效的）
-          setTimeout(() => {
-            topBarStore.getAllWatchLaterList()
-          }, 1000)
-        }
+      const res = await api.watchlater.removeFromWatchLater({ aid, csrf })
+      if (res?.code === 0) {
+        isInWatchLater.value = false
+        setTimeout(() => {
+          void topBarStore.syncWatchLaterState(true)
+        }, 1000)
       }
     }
     catch (error) {
-      console.error('[BewlyCat] toggle watch later failed:', error)
+      console.error('[BewlyCat] toggle video watch later failed:', error)
     }
     finally {
       isTogglingWatchLater.value = false

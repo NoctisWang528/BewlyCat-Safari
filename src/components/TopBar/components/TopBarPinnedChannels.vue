@@ -175,8 +175,11 @@ function arraysEqual<T>(a: T[], b: T[]): boolean {
   <div
     v-if="validPinnedKeys.length"
     ref="containerRef"
-    class="pinned-channels"
-    :class="{ 'white-theme': props.forceWhiteIcon }"
+    class="pinned-channels bew-segment-control bew-segment-control--surface"
+    :class="{
+      'white-theme': props.forceWhiteIcon,
+      'bew-segment-control--solid': !settings.enableFrostedGlass,
+    }"
   >
     <div ref="listRef" class="pinned-channels__list">
       <ALink
@@ -184,8 +187,7 @@ function arraysEqual<T>(a: T[], b: T[]): boolean {
         :key="channel.key"
         :href="channel.href"
         type="topBar"
-        class="pinned-channels__item"
-        :class="{ 'white-icon': props.forceWhiteIcon }"
+        class="pinned-channels__item bew-segment-control__item bew-segment-control__item--icon"
         :title="channel.name"
       >
         <div v-if="channel.icon.startsWith('#')" class="pinned-channels__icon">
@@ -214,96 +216,79 @@ function arraysEqual<T>(a: T[], b: T[]): boolean {
 
 <style scoped lang="scss">
 .pinned-channels {
-  display: flex;
-  align-items: center;
-  gap: 2px;
+  --bew-segment-item-color: var(--bew-text-1);
+
   min-width: 0;
   flex: 0 1 auto;
-  padding: 2px;
-  border-radius: 28px;
-  background: color-mix(in oklab, var(--bew-elevated), transparent 55%);
-  border: 1px solid color-mix(in oklab, var(--bew-border-color), transparent 50%);
 
   &__list {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--bew-control-gap);
     overflow: hidden;
     min-width: 0;
   }
 
-  &__item {
-    display: grid;
-    place-items: center;
-    width: 30px;
-    height: 30px;
-    border-radius: 999px;
-    color: var(--bew-text-1);
-    background: transparent;
-    transition:
-      background-color 0.3s ease,
-      color 0.3s ease;
-
-    &:hover {
-      background: var(--bew-fill-2);
-    }
-
-    &.white-icon {
-      color: white;
-
-      &:hover {
-        background: rgba(255, 255, 255, 0.2);
-      }
-    }
-  }
-
   &__icon {
-    width: 20px;
-    height: 20px;
+    width: var(--bew-control-icon-size);
+    height: var(--bew-control-icon-size);
     display: grid;
     place-items: center;
 
     svg {
-      width: 20px;
-      height: 20px;
+      width: var(--bew-control-icon-size);
+      height: var(--bew-control-icon-size);
       fill: currentColor;
     }
 
     i {
-      font-size: 20px;
+      font-size: var(--bew-control-icon-size);
     }
   }
 
   &__more {
     display: grid;
     place-items: center;
-    height: 34px;
-    min-width: 34px;
-    padding: 0 10px;
-    border-radius: 40px;
-    background: var(--bew-fill-1);
+    height: var(--bew-control-item-height);
+    min-width: var(--bew-control-item-height);
+    padding: 0 8px;
+    border-radius: var(--bew-control-item-radius);
+    background: transparent;
     color: var(--bew-text-2);
-    font-size: 14px;
-    filter: drop-shadow(0 0 4px var(--bew-bg));
-    transition: background-color 0.3s ease;
+    font-size: var(--bew-control-label-size);
+    font-weight: var(--bew-control-brand-label-weight);
+    line-height: var(--bew-control-label-line-height);
+    transition:
+      background-color var(--bew-duration-normal, 200ms) ease,
+      color var(--bew-duration-normal, 200ms) ease;
 
     &:hover {
-      background: var(--bew-fill-2);
+      color: var(--bew-segment-item-hover-color);
+      background: var(--bew-segment-item-hover-bg);
     }
 
     &.white-icon {
       color: white;
-      background: rgba(255, 255, 255, 0.12);
+      background: transparent;
 
       &:hover {
-        background: rgba(255, 255, 255, 0.2);
+        background: var(--bew-segment-item-hover-bg-white);
       }
     }
   }
 
-  &.white-theme {
-    background: rgba(255, 255, 255, 0.12);
-    border-color: rgba(255, 255, 255, 0.3);
+  &.white-theme:not(.bew-segment-control--solid) {
+    --bew-segment-surface-background: var(--bew-control-background-white);
+    --bew-segment-surface-shadow: none;
+    --bew-segment-item-color: white;
+    --bew-segment-item-hover-current-color: white;
+    --bew-segment-item-hover-current-bg: var(--bew-segment-item-hover-bg-white);
+  }
+}
+
+@media (max-width: 1279px) {
+  .pinned-channels {
+    display: none;
   }
 }
 </style>

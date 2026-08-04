@@ -1,3 +1,4 @@
+import { settings } from '~/logic'
 import type { List as WatchLaterItem, WatchLaterResult } from '~/models/video/watchLater'
 import { useTopBarStore } from '~/stores/topBarStore'
 import api from '~/utils/api'
@@ -5,8 +6,7 @@ import { i18n } from '~/utils/i18n'
 import { getCSRF } from '~/utils/main'
 
 const BUTTON_CLASS = 'bewly-watch-later-btn'
-const INACTIVE_ICON_CLASS = 'i-mingcute:carplay-line'
-const ACTIVE_ICON_CLASS = 'i-mingcute:check-line'
+const WATCH_LATER_ICON_CLASS = 'i-mingcute:carplay-line'
 
 export interface VideoIds {
   bvid?: string
@@ -70,14 +70,12 @@ function findWatchLaterItem(list: WatchLaterItem[] | undefined, { bvid, aid }: V
 }
 
 function translate(key: string): string {
-  return String(i18n.global.t(key))
+  return String(i18n.global.t(key, settings.value.language))
 }
 
 function updateButtonState(button: HTMLButtonElement, isInWatchLater: boolean) {
   const icon = button.querySelector<HTMLElement>('.bewly-watch-later-btn__icon')
-  const label = button.querySelector<HTMLElement>('.bewly-watch-later-btn__label')
   const addLabel = translate('common.add_to_watch_later')
-  const addedLabel = translate('common.added_to_watch_later')
   const actionLabel = isInWatchLater
     ? translate('common.remove_from_watch_later')
     : addLabel
@@ -100,11 +98,7 @@ function updateButtonState(button: HTMLButtonElement, isInWatchLater: boolean) {
   }
 
   if (icon)
-    icon.className = `${ACTIVE_ICON_CLASS} bewly-watch-later-btn__icon`
-  if (icon && !isInWatchLater)
-    icon.className = `${INACTIVE_ICON_CLASS} bewly-watch-later-btn__icon`
-  if (label)
-    label.textContent = isInWatchLater ? addedLabel : addLabel
+    icon.className = `${WATCH_LATER_ICON_CLASS} bewly-watch-later-btn__icon`
 }
 
 function setButtonBusy(button: HTMLButtonElement, isBusy: boolean) {
@@ -125,7 +119,7 @@ function animateButton(button: HTMLButtonElement) {
 function scheduleTopBarRefresh() {
   window.setTimeout(() => {
     try {
-      void useTopBarStore().getAllWatchLaterList()
+      void useTopBarStore().syncWatchLaterState(true)
     }
     catch (error) {
       console.error('刷新稍后再看列表失败:', error)
@@ -235,30 +229,25 @@ function createButton(ids: VideoIds): HTMLButtonElement {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
     box-sizing: border-box;
-    width: auto;
-    min-width: max-content;
+    width: 32px;
+    min-width: 32px;
     height: 32px;
     margin: 0 4px;
-    padding: 0 10px;
+    padding: 0;
     border: 0;
     border-radius: 6px;
     background: transparent;
     font: inherit;
-    font-size: 14px;
-    line-height: 20px;
-    white-space: nowrap;
     transition: color 0.2s ease, background-color 0.2s ease, transform 0.15s ease, opacity 0.2s ease;
   `
   button.innerHTML = `
-    <i class="${INACTIVE_ICON_CLASS} bewly-watch-later-btn__icon" style="
+    <i class="${WATCH_LATER_ICON_CLASS} bewly-watch-later-btn__icon" style="
       flex: none;
       color: inherit;
       font-size: 18px;
       line-height: 1;
     "></i>
-    <span class="bewly-watch-later-btn__label" style="color: inherit; white-space: nowrap;"></span>
   `
 
   updateButtonState(button, false)

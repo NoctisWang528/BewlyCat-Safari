@@ -44,15 +44,15 @@ useOptimizedScroll(
 )
 
 onMounted(async () => {
-  topBarStore.getAllWatchLaterList()
+  await topBarStore.syncWatchLaterState(true)
 })
 
-/**
- * 单条点击进入普通视频页（合集可保留侧栏与上下集）
- * 「播放全部」仍走 /list/watchlater 队列连播
- */
 function getVideoPageUrl(bvid: string): string {
   return `https://www.bilibili.com/video/${bvid}/`
+}
+
+function getWatchLaterVideoUrl(bvid: string): string {
+  return `https://www.bilibili.com/list/watchlater?bvid=${bvid}`
 }
 
 function openVideoPage(url: string) {
@@ -169,7 +169,7 @@ function handleOpenVideoPageAndRemove(index: number, aid: number, bvid: string) 
         <ALink
           v-for="(item, index) in watchLaterList"
           :key="item.aid"
-          :href="getVideoPageUrl(item.bvid)"
+          :href="getWatchLaterVideoUrl(item.bvid)"
           class="group"
           type="topBar"
           m="last:b-4" p="2"
@@ -304,7 +304,7 @@ function handleOpenVideoPageAndRemove(index: number, aid: number, bvid: string) 
 
   &::after {
     --uno: "absolute bottom-0 left-0 w-full h-12px bg-$bew-theme-color opacity-0 transform scale-x-0 -z-1";
-    --uno: "transition-all duration-300";
+    --uno: "transition-colors duration-200";
     content: "";
   }
 }

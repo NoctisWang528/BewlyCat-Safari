@@ -72,7 +72,7 @@ function changeSearchBarFocusCharacter(url: string) {
 
       <SettingsItem :title="$t('settings.bg_blurs_when_the_search_bar_is_focused')" right-width="auto">
         <template #desc>
-          <span color="$bew-warning-color">{{ $t('common.performance_impact_warn') }}</span>
+          <span class="bew-warning-text">{{ $t('common.performance_impact_warn') }}</span>
         </template>
 
         <Radio v-model="settings.searchPageBlurredOnSearchFocus" />
@@ -88,7 +88,7 @@ function changeSearchBarFocusCharacter(url: string) {
               :class="{ 'selected-wallpaper': settings.searchPageSearchBarFocusCharacter === '' }"
               @click="changeSearchBarFocusCharacter('')"
             >
-              <div i-tabler:photo-off text="3xl $bew-text-3" />
+              <div i-tabler:photo-off text="size-$bew-icon-size-xl $bew-text-3" />
             </picture>
             <Tooltip v-for="item in SEARCH_BAR_CHARACTERS" :key="item.url" placement="top" :content="item.name" aspect-square>
               <picture

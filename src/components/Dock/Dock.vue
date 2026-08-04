@@ -188,14 +188,22 @@ function computeDockItem(): DockItem[] {
     const missingItems = mainStore.dockItems.filter(dock => !settings.value.dockItemsConfig.some(item => item.page === dock.page))
     settings.value.dockItemsConfig = [
       ...settings.value.dockItemsConfig,
-      ...missingItems.map(dock => ({ page: dock.page, visible: true, openInNewTab: false, useOriginalBiliPage: false })),
+      ...missingItems.map(dock => ({
+        page: dock.page,
+        visible: true,
+        openInNewTab: false,
+        useOriginalBiliPage: dock.useOriginalBiliPage,
+      })),
     ]
   }
   // if dockItemsConfig not fresh, set it to default
   else if (!Array.isArray(settings.value.dockItemsConfig) || settings.value.dockItemsConfig.length !== mainStore.dockItems.length) {
-    settings.value.dockItemsConfig = mainStore.dockItems.map(dock =>
-      ({ page: dock.page, visible: true, openInNewTab: false, useOriginalBiliPage: false }),
-    )
+    settings.value.dockItemsConfig = mainStore.dockItems.map(dock => ({
+      page: dock.page,
+      visible: true,
+      openInNewTab: false,
+      useOriginalBiliPage: dock.useOriginalBiliPage,
+    }))
   }
 
   const targetDockItems: DockItem[] = []
@@ -583,7 +591,7 @@ onUnmounted(() => {
                 ? 'none'
                 : 'group-hover:[-8px_4px_160px_20px_hsla(226deg,85%,77%,1),-8px_4px_100px_12px_hsla(226deg,85%,77%,0.8),-8px_4px_60px_10px_hsla(226deg,85%,77%,0.6),-8px_4px_20px_4px_hsla(226deg,85%,77%,0.4),-4px_2px_8px_0_hsla(226deg,85%,77%,0.8)]'"
             opacity-0 group-hover:opacity-100
-            duration-600
+            duration-300
           />
 
           <button
@@ -618,7 +626,7 @@ onUnmounted(() => {
             }"
             @click="emit('settingsVisibilityChange')"
           >
-            <div i-mingcute:settings-3-line text-xl group-hover:rotate-180 transition="all 2000 ease-out" />
+            <div i-mingcute:settings-3-line text-xl group-hover:rotate-180 transition="transform duration-400 ease-out" />
           </button>
         </Tooltip>
       </div>
@@ -646,12 +654,12 @@ onUnmounted(() => {
                 <Icon
                   v-if="key === 1"
                   icon="line-md:rotate-270"
-                  shrink-0 rotate-90 absolute text-2xl
+                  shrink-0 rotate-90 absolute text="size-$bew-icon-size-lg"
                 />
                 <Icon
                   v-else
                   icon="line-md:arrow-small-up"
-                  shrink-0 absolute text-2xl
+                  shrink-0 absolute text="size-$bew-icon-size-lg"
                 />
               </button>
             </Transition>
@@ -669,12 +677,12 @@ onUnmounted(() => {
               <Icon
                 v-if="reachTop && canRefreshCurrentPage"
                 icon="line-md:rotate-270"
-                shrink-0 rotate-90 absolute text-2xl
+                shrink-0 rotate-90 absolute text="size-$bew-icon-size-lg"
               />
               <Icon
                 v-else
                 icon="line-md:arrow-small-up"
-                shrink-0 absolute text-2xl
+                shrink-0 absolute text="size-$bew-icon-size-lg"
               />
             </Transition>
           </button>
@@ -692,12 +700,12 @@ onUnmounted(() => {
             <Icon
               v-if="showUndo"
               icon="mdi:undo-variant"
-              shrink-0 absolute text-2xl
+              shrink-0 absolute text="size-$bew-icon-size-lg"
             />
             <Icon
               v-else-if="showForward"
               icon="mdi:redo-variant"
-              shrink-0 absolute text-2xl
+              shrink-0 absolute text="size-$bew-icon-size-lg"
             />
           </button>
         </Transition>
@@ -720,7 +728,7 @@ onUnmounted(() => {
         >
           <Icon
             icon="line-md:rotate-270"
-            shrink-0 rotate-90 absolute text-2xl
+            shrink-0 rotate-90 absolute text="size-$bew-icon-size-lg"
           />
         </button>
       </Transition>
@@ -732,7 +740,7 @@ onUnmounted(() => {
         >
           <Icon
             icon="line-md:arrow-small-up"
-            shrink-0 absolute text-2xl
+            shrink-0 absolute text="size-$bew-icon-size-lg"
           />
         </button>
       </Transition>
@@ -745,12 +753,12 @@ onUnmounted(() => {
           <Icon
             v-if="showUndo"
             icon="mdi:undo-variant"
-            shrink-0 absolute text-2xl
+            shrink-0 absolute text="size-$bew-icon-size-lg"
           />
           <Icon
             v-else-if="showForward"
             icon="mdi:redo-variant"
-            shrink-0 absolute text-2xl
+            shrink-0 absolute text="size-$bew-icon-size-lg"
           />
         </button>
       </Transition>
@@ -790,19 +798,20 @@ onUnmounted(() => {
 
   .back-to-top-or-refresh-btn {
     --uno: "transform active:important-scale-90 hover:scale-110";
-    --uno: "lg:w-45px w-35px lg:h-45px h-35px";
     --uno: "grid place-items-center";
     --uno: "filter-$bew-filter-glass-1";
     --uno: "bg-$bew-elevated hover:bg-$bew-content-hover";
     --uno: "rounded-full shadow-$bew-shadow-2 border-1 border-$bew-border-color";
 
+    width: var(--bew-dock-item-size);
+    height: var(--bew-dock-item-size);
     backdrop-filter: var(--bew-filter-glass-1);
     transition:
-      transform 300ms cubic-bezier(0.34, 2, 0.6, 1),
+      transform 300ms var(--bew-ease-emphasized, cubic-bezier(0.34, 1.3, 0.64, 1)),
       background 300ms ease,
       color 300ms ease,
       box-shadow 300ms ease,
-      opacity 600ms ease;
+      opacity 300ms ease;
     box-shadow: var(--bew-shadow-edge-glow-1), var(--bew-shadow-2);
   }
 }
@@ -841,7 +850,7 @@ onUnmounted(() => {
   }
 
   .divider {
-    --uno: "my-1 mx-3 h-3px bg-$bew-border-color rounded-4";
+    --uno: "my-1 mx-3 h-3px bg-$bew-border-color rounded-full";
   }
 
   &.bottom .divider {
@@ -863,19 +872,20 @@ onUnmounted(() => {
 
   .back-to-top-or-refresh-btn {
     --uno: "transform active:important-scale-90 hover:scale-110";
-    --uno: "lg:w-45px w-35px lg:h-45px h-35px";
     --uno: "grid place-items-center";
     --uno: "filter-$bew-filter-glass-1";
     --uno: "bg-$bew-elevated hover:bg-$bew-content-hover";
     --uno: "rounded-full shadow-$bew-shadow-2 border-1 border-$bew-border-color";
 
+    width: var(--bew-dock-item-size);
+    height: var(--bew-dock-item-size);
     backdrop-filter: var(--bew-filter-glass-1);
     transition:
-      transform 300ms cubic-bezier(0.34, 2, 0.6, 1),
+      transform 300ms var(--bew-ease-emphasized, cubic-bezier(0.34, 1.3, 0.64, 1)),
       background 300ms ease,
       color 300ms ease,
       box-shadow 300ms ease,
-      opacity 600ms ease;
+      opacity 300ms ease;
     box-shadow: var(--bew-shadow-edge-glow-1), var(--bew-shadow-2);
 
     &.active {
@@ -901,22 +911,22 @@ onUnmounted(() => {
   --shadow-active-active: 0 4px 20px var(--bew-theme-color-80);
 
   --uno: "relative transform active:important-scale-90 hover:scale-110";
-  --uno: "lg:w-45px w-35px";
-  --uno: "lg:lh-45px lh-35px";
   --uno: "p-0 flex items-center justify-center";
   --uno: "aspect-square relative";
   --uno: "leading-0";
-  --uno: "rounded-60px antialiased";
+  --uno: "rounded-full antialiased";
   --uno: "bg-$bew-fill-alt hover:bg-$bew-fill-2 cursor-pointer";
   --uno: "dark:bg-$bew-fill-1 dark-hover:bg-$bew-fill-4";
 
+  width: var(--bew-dock-item-size);
+  height: var(--bew-dock-item-size);
   box-shadow: var(--bew-shadow-edge-glow-1), var(--bew-shadow-1);
   transition:
-    transform 300ms cubic-bezier(0.34, 2, 0.6, 1),
+    transform 300ms var(--bew-ease-emphasized, cubic-bezier(0.34, 1.3, 0.64, 1)),
     background 300ms ease,
     color 300ms ease,
-    box-shadow 600ms ease,
-    opacity 600ms ease;
+    box-shadow 300ms ease,
+    opacity 300ms ease;
 
   &:hover {
     box-shadow:

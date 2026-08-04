@@ -141,13 +141,19 @@ function goToNextPage() {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--bew-border-color);
-  border-radius: var(--bew-radius);
+  border-radius: var(--bew-interactive-radius);
   background-color: var(--bew-elevated-1);
   color: var(--bew-text-1);
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: var(--bew-font-size-body);
+  font-weight: var(--bew-font-weight-medium);
+  line-height: var(--bew-line-height-body);
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease,
+    border-color 0.3s ease,
+    box-shadow 0.3s ease,
+    transform 0.3s ease;
 
   &:hover:not(:disabled):not(.active) {
     background-color: var(--bew-elevated-2);
@@ -190,6 +196,6 @@ function goToNextPage() {
   min-width: 2.5rem;
   height: 2.5rem;
   color: var(--bew-text-2);
-  font-size: 0.875rem;
+  font-size: var(--bew-font-size-body);
 }
 </style>

@@ -80,7 +80,7 @@ defineExpose({ refreshAnimeTimeTable })
               "
             />
             <h3 :text="item.is_today ? '$bew-text-1' : '$bew-text-3'">
-              <span text="2xl" font-bold>{{
+              <span class="anime-timetable__day">{{
                 daysOfTheWeekList[item.day_of_week - 1]
               }}</span>
               <span
@@ -94,7 +94,7 @@ defineExpose({ refreshAnimeTimeTable })
             w-full
             h-4px
             :bg="item.is_today ? '$bew-theme-color' : '$bew-fill-3'"
-            rounded-8
+            rounded-full
           />
           <ul
             grid
@@ -109,7 +109,7 @@ defineExpose({ refreshAnimeTimeTable })
                 p="x-2 y-1"
                 w="[fit-content]"
                 mb-2
-                rounded-4
+                rounded="$bew-radius-half"
                 :color="item.is_today ? '$bew-theme-color' : '$bew-text-3'"
                 :bg="item.is_today ? '$bew-theme-color-10' : '$bew-fill-1'"
                 relative
@@ -120,7 +120,7 @@ defineExpose({ refreshAnimeTimeTable })
                   pos="absolute left--3"
                   w-2
                   h-2
-                  rounded-6
+                  rounded-full
                   :bg="item.is_today ? '$bew-theme-color' : '$bew-fill-3'"
                   transform="~ translate-x-[calc(-0.25rem-1px)]"
                 />
@@ -160,3 +160,11 @@ defineExpose({ refreshAnimeTimeTable })
     </HorizontalScrollView>
   </div>
 </template>
+
+<style scoped lang="scss">
+.anime-timetable__day {
+  font-size: var(--bew-font-size-display);
+  font-weight: var(--bew-font-weight-bold);
+  line-height: var(--bew-line-height-data);
+}
+</style>

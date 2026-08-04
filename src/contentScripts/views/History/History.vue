@@ -3,6 +3,7 @@ import { useDateFormat } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 
 import { useBewlyApp } from '~/composables/useAppProvider'
+import { useConfirmDialog } from '~/composables/useConfirmDialog'
 import type { HistoryResult, List as HistoryItem } from '~/models/history/history'
 import { Business } from '~/models/history/history'
 import type { HistorySearchResult, List as HistorySearchItem } from '~/models/video/historySearch'
@@ -11,6 +12,7 @@ import { calcCurrentTime } from '~/utils/dataFormatter'
 import { getCSRF, removeHttpFromUrl } from '~/utils/main'
 
 const { t } = useI18n()
+const { confirm: showConfirmDialog } = useConfirmDialog()
 
 const isLoading = ref<boolean>()
 const noMoreContent = ref<boolean>(false)
@@ -206,24 +208,24 @@ function clearAllHistory() {
     })
 }
 
-function handleClearAllWatchHistory() {
-  const result = confirm(
+async function handleClearAllWatchHistory() {
+  const result = await showConfirmDialog(
     t('history.clear_all_watch_history_confirm'),
   )
   if (result)
     clearAllHistory()
 }
 
-function handlePauseWatchHistory() {
-  const result = confirm(
+async function handlePauseWatchHistory() {
+  const result = await showConfirmDialog(
     t('history.pause_watch_history_confirm'),
   )
   if (result)
     setHistoryPauseStatus(true)
 }
 
-function handleTurnOnWatchHistory() {
-  const result = confirm(
+async function handleTurnOnWatchHistory() {
+  const result = await showConfirmDialog(
     t('history.turn_on_watch_history_confirm'),
   )
   if (result)
@@ -238,7 +240,7 @@ function jumpToLoginPage() {
 <template>
   <div v-if="getCSRF()" flex="~ col md:row lg:row" gap-4>
     <main w="full md:60% lg:70% xl:75%" order="2 md:1 lg:1" mb-6>
-      <h3 text="3xl $bew-text-1" font-bold mb-6>
+      <h3 class="bew-page-heading" text="$bew-text-1" mb-6>
         {{ $t('history.title') }}
       </h3>
       <!-- historyList -->
@@ -282,7 +284,7 @@ function jumpToLoginPage() {
               bg="$bew-fill-1"
               group-hover:bg="$bew-theme-color-20"
               p="x-3 y-1"
-              rounded-8
+              rounded="$bew-radius-half"
               duration-300
             >
               {{
@@ -350,7 +352,7 @@ function jumpToLoginPage() {
                 m="2"
                 p="x-2 y-1"
                 text="white xs"
-                rounded-8
+                rounded="$bew-radius-half"
               >
                 <!--  When progress = -1 means that the user watched the full video -->
                 {{
@@ -459,7 +461,7 @@ function jumpToLoginPage() {
               </div>
 
               <button
-                text="2xl $bew-text-3"
+                text="size-$bew-icon-size-lg $bew-text-3"
                 hover:color="$bew-theme-color"
                 opacity-0 group-hover:opacity-100
                 p-2

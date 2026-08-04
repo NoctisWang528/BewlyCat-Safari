@@ -5,7 +5,7 @@ import { storeToRefs } from 'pinia'
 import ALink from '~/components/ALink.vue'
 import { settings } from '~/logic'
 import { useTopBarStore } from '~/stores/topBarStore'
-import { getUserID, removeHttpFromUrl } from '~/utils/main'
+import { getUserID, isInIframe, removeHttpFromUrl } from '~/utils/main'
 import { isComponentVisible, shouldShowBadge, shouldShowDotBadge, shouldShowNumberBadge } from '~/utils/topBarBadge'
 
 import { useTopBarInteraction } from '../composables/useTopBarInteraction'
@@ -36,7 +36,13 @@ const {
   hasBCoinToReceive,
 } = storeToRefs(topBarStore)
 
-const { getUnreadMessageCount, getTopBarNewMomentsCount, checkBCoinReceiveStatus } = topBarStore
+const { invalidateUnreadMessageState, syncMomentsState, syncSharedData, syncUnreadMessageState } = topBarStore
+
+function refreshUnreadMessageSharedState() {
+  syncUnreadMessageState().catch((error) => {
+    console.error('同步未读消息共享状态失败:', error)
+  })
+}
 
 // 将 DOM 引用移到组件内部
 const avatarImg = ref<HTMLElement | null>(null)
@@ -101,7 +107,7 @@ if (isComponentVisible('notifications')) {
         return
 
       if (!newVal)
-        getUnreadMessageCount()
+        refreshUnreadMessageSharedState()
     },
     { immediate: true },
   )
@@ -113,18 +119,25 @@ if (isComponentVisible('notifications')) {
         return
 
       if (!newVal)
-        getUnreadMessageCount()
+        refreshUnreadMessageSharedState()
     },
   )
 }
 
 const focused = useWindowFocus()
 watch(() => focused.value, (newVal, _) => {
-  if (newVal && isLogin.value) {
-    getUnreadMessageCount()
-    getTopBarNewMomentsCount('video')
-    checkBCoinReceiveStatus()
+  if (!isLogin.value)
+    return
+
+  if (!newVal) {
+    if (MESSAGE_URL.test(location.href) && !isInIframe())
+      refreshUnreadMessageSharedState()
+    return
   }
+
+  syncSharedData().catch((error) => {
+    console.error('同步顶栏共享状态失败:', error)
+  })
 })
 
 watch(
@@ -139,7 +152,7 @@ watch(
     // 弹窗关闭时更新
     if (isLogin.value) {
       if (!newVal) {
-        await getTopBarNewMomentsCount('video')
+        await syncMomentsState('video')
       }
       else {
         nextTick(() => {
@@ -172,23 +185,23 @@ watch(
 
 // 修改通知点击处理
 function handleNotificationsClick(item: { name: string, url: string, unreadCount: number, icon: string }) {
+  invalidateUnreadMessageState().catch((error) => {
+    console.error('标记未读消息缓存失效失败:', error)
+  })
   emit('notificationsClick', item)
 }
 
-// 判断分割线是否应该显示
+// 判断分割线是否应该显示：左右两组至少各有一个可见时才显示
 const shouldShowDivider = computed(() => {
-  // 分割线左边的组件：moments、favorites、history、watchLater、creatorCenter
   const leftSideVisible = isComponentVisible('moments')
     || isComponentVisible('favorites')
     || isComponentVisible('history')
     || isComponentVisible('watchLater')
     || isComponentVisible('creatorCenter')
 
-  // 分割线右边的组件：upload、notifications
   const rightSideVisible = isComponentVisible('upload')
     || isComponentVisible('notifications')
 
-  // 只有当左右两边都至少有一边显示时才显示分割线
   return leftSideVisible && rightSideVisible
 })
 </script>
@@ -200,8 +213,9 @@ const shouldShowDivider = computed(() => {
   >
     <div
       class="others"
-      flex="~ items-center gap-1" h-46px px-5px
+      flex="~ items-center gap-1" px-5px
       text="$bew-text-1"
+      :style="{ height: 'var(--bew-control-height)' }"
     >
       <div
         v-if="!isLogin"
@@ -241,6 +255,8 @@ const shouldShowDivider = computed(() => {
               href="https://t.bilibili.com"
               :title="$t('topbar.moments')"
               type="topBar"
+              :custom-click-event="!settings.touchScreenOptimization && settings.openTopBarItemsInBewly"
+              @click="(event: MouseEvent) => handleClickTopBarItem(event, 'moments')"
             >
               <div i-tabler:windmill />
             </ALink>
@@ -268,6 +284,8 @@ const shouldShowDivider = computed(() => {
               :href="`https://space.bilibili.com/${mid}/favlist`"
               :title="$t('topbar.favorites')"
               type="topBar"
+              :custom-click-event="!settings.touchScreenOptimization && settings.openTopBarItemsInBewly"
+              @click="(event: MouseEvent) => handleClickTopBarItem(event, 'favorites')"
             >
               <div i-mingcute:star-line />
             </ALink>
@@ -297,6 +315,8 @@ const shouldShowDivider = computed(() => {
               href="https://www.bilibili.com/history"
               :title="$t('topbar.history')"
               type="topBar"
+              :custom-click-event="!settings.touchScreenOptimization && settings.openTopBarItemsInBewly"
+              @click="(event: MouseEvent) => handleClickTopBarItem(event, 'history')"
             >
               <div i-mingcute:time-line />
             </ALink>
@@ -336,6 +356,8 @@ const shouldShowDivider = computed(() => {
               href="https://www.bilibili.com/watchlater/list"
               :title="$t('topbar.watch_later')"
               type="topBar"
+              :custom-click-event="!settings.touchScreenOptimization && settings.openTopBarItemsInBewly"
+              @click="(event: MouseEvent) => handleClickTopBarItem(event, 'watchLater')"
             >
               <div i-mingcute:carplay-line />
             </ALink>
@@ -383,6 +405,7 @@ const shouldShowDivider = computed(() => {
               ref="morePopRef"
               class="bew-popover"
               @click.stop="() => {}"
+              @bewly-page-click="(event: MouseEvent, key: string) => handleClickTopBarItem(event, key)"
             />
           </Transition>
         </div>
@@ -393,7 +416,7 @@ const shouldShowDivider = computed(() => {
             v-if="shouldShowDivider"
             :class="{ 'white-icon': forceWhiteIcon }"
             w-2px h-16px bg="$bew-border-color" mx-1
-            rounded-4px
+            rounded="$bew-radius-sm"
           />
 
           <!-- Upload -->
@@ -486,7 +509,6 @@ const shouldShowDivider = computed(() => {
           v-if="hasBCoinToReceive && settings.showBCoinReceiveReminder"
           class="unread-dot avatar-dot"
           :class="{ hover: popupVisible?.userPanel }"
-          style="z-index: 10; right: 6px; top: 6px;"
         />
 
         <ALink

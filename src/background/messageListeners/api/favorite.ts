@@ -58,6 +58,22 @@ const API_FAVORITE = {
     },
     afterHandle: AHS.J_D,
   },
+  // 图文收藏列表（官方收藏页同源）
+  // 参见 polymer 空间图文：docs/opus/space.md，收藏态路径为 opus/feed/fav
+  getFavoriteArticles: {
+    url: 'https://api.bilibili.com/x/polymer/web-dynamic/v1/opus/feed/fav',
+    _fetch: {
+      method: 'get',
+    },
+    params: {
+      page: 1,
+      page_size: 20,
+      offset: '',
+      timezone_offset: -480,
+      web_location: '333.1387',
+    },
+    afterHandle: AHS.J_D,
+  },
   // https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/docs/fav/action.md#%E6%89%B9%E9%87%8F%E5%88%A0%E9%99%A4%E5%86%85%E5%AE%B9
   patchDelFavoriteResources: {
     url: 'https://api.bilibili.com/x/v3/fav/resource/batch-del',
@@ -107,6 +123,58 @@ const API_FAVORITE = {
         src_media_id: 0,
         tar_media_id: 0,
         mid: '',
+        platform: 'web',
+        csrf: '',
+      },
+    },
+    params: {},
+    afterHandle: AHS.J_D,
+  },
+  // https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/docs/fav/action.md#%E4%BF%AE%E6%94%B9%E6%94%B6%E8%97%8F%E5%A4%B9
+  editFavoriteFolder: {
+    url: 'https://api.bilibili.com/x/v3/fav/folder/edit',
+    _fetch: {
+      method: 'post',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: {
+        media_id: 0,
+        title: '',
+        platform: 'web',
+        csrf: '',
+      },
+    },
+    params: {},
+    afterHandle: AHS.J_D,
+  },
+  // 删除收藏夹，media_ids 支持逗号拼接批量删除
+  delFavoriteFolder: {
+    url: 'https://api.bilibili.com/x/v3/fav/folder/del',
+    _fetch: {
+      method: 'post',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: {
+        media_ids: '',
+        platform: 'web',
+        csrf: '',
+      },
+    },
+    params: {},
+    afterHandle: AHS.J_D,
+  },
+  // 取消收藏合集（他人合集只能整体取消收藏）
+  unfavFavoriteSeason: {
+    url: 'https://api.bilibili.com/x/v3/fav/season/unfav',
+    _fetch: {
+      method: 'post',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: {
+        season_id: 0,
         platform: 'web',
         csrf: '',
       },

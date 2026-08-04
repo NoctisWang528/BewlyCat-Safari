@@ -1,6 +1,8 @@
 .top-bar-enter-active,
 .top-bar-leave-active {
-  transition: all 0.5s ease;
+  transition:
+    opacity var(--bew-duration-moderate, 300ms) var(--bew-ease-standard, ease),
+    transform var(--bew-duration-moderate, 300ms) var(--bew-ease-standard, ease);
 }
 
 .top-bar-enter-from,
@@ -10,7 +12,11 @@
 
 .slide-in-enter-active,
 .slide-in-leave-active {
-  --uno: "transition-all duration-250 pointer-events-none";
+  transition:
+    opacity 250ms var(--bew-ease-standard, ease),
+    transform 250ms var(--bew-ease-standard, ease),
+    margin-top 250ms var(--bew-ease-standard, ease);
+  pointer-events: none;
 }
 
 .slide-in-leave-to,
@@ -20,7 +26,10 @@
 
 .slide-out-enter-active,
 .slide-out-leave-active {
-  --uno: "transition-all duration-300 pointer-events-none";
+  transition:
+    opacity var(--bew-duration-moderate, 300ms) var(--bew-ease-standard, ease),
+    transform var(--bew-duration-moderate, 300ms) var(--bew-ease-standard, ease);
+  pointer-events: none;
 }
 
 .slide-out-leave-to,
@@ -30,7 +39,7 @@
 
 .fade-enter-active,
 .fade-leave-active {
-  --uno: "transition-all duration-600";
+  --uno: "transition-opacity duration-300";
 }
 
 .fade-leave-to,
@@ -55,6 +64,7 @@
   --uno: "after:opacity-100 after:w-full after:h-100px";
   --uno: "after:absolute after:top--30px after:left-1/2 after:-z-1";
   --uno: "after:transform after:-translate-x-1/2";
+  border-radius: var(--bew-popover-radius);
 }
 
 .logo.activated {
@@ -67,7 +77,10 @@
 
 .right-side {
   .avatar {
-    --uno: "flex justify-center items-center relative z-1 rounded-1/2 w-46px h-46px";
+    --uno: "flex justify-center items-center relative z-1";
+    width: var(--bew-control-height);
+    height: var(--bew-control-height);
+    border-radius: var(--bew-control-radius);
 
     &:hover::after,
     &.hover::after {
@@ -76,10 +89,13 @@
 
     .avatar-img,
     .avatar-shadow {
-      --uno: "shrink-0 duration-300 rounded-1/2 w-34px h-34px bg-cover bg-center";
+      --uno: "shrink-0 duration-300 bg-cover bg-center";
+      width: var(--bew-control-height);
+      height: var(--bew-control-height);
+      border-radius: var(--bew-control-radius);
 
       &.hover {
-        --uno: "transform scale-230 translate-y-50px translate-x--36px";
+        --uno: "transform scale-195 translate-y-50px translate-x--36px";
       }
     }
 
@@ -102,6 +118,8 @@
     }
 
     .avatar-dot {
+      --uno: "top-0 right-0 z-10";
+
       &.hover {
         --uno: "transform scale-180 translate-y-35px translate-x--20px";
       }
@@ -109,7 +127,8 @@
   }
 
   .unread-num-dot {
-    --uno: "absolute top--2px right--4px";
+    // The controls grew from 34px to 36px; keep the badge on the same visual edge.
+    --uno: "absolute top--2px right--2px";
     --uno: "important:px-1 rounded-full";
     --uno: "text-xs leading-none z-6 min-w-14px h-14px";
     --uno: "grid place-items-center";
@@ -125,8 +144,11 @@
 
     &:not(.avatar) a,
     & .notifications {
-      --uno: "text-lg grid place-items-center rounded-40px duration-300 relative z-5";
-      --uno: "h-34px w-34px";
+      --uno: "grid place-items-center duration-300 relative z-5";
+      width: var(--bew-control-height);
+      height: var(--bew-control-height);
+      border-radius: var(--bew-control-radius);
+      font-size: var(--bew-control-icon-size);
       filter: drop-shadow(0 0 4px var(--bew-bg));
     }
 

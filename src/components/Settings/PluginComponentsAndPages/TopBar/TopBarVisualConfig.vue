@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { useI18n } from 'vue-i18n'
 
+import bilibiliBrandLogoUrl from '~/assets/branding/bilibili-brand-logo.png'
 import Button from '~/components/Button.vue'
 import Radio from '~/components/Radio.vue'
 import Select from '~/components/Select.vue'
@@ -10,11 +11,19 @@ import { settings } from '~/logic'
 import { allChannelConfigs } from '../../../TopBar/constants/channels'
 import SettingsItem from '../../components/SettingsItem.vue'
 import SettingsItemGroup from '../../components/SettingsItemGroup.vue'
+import { topBarElementStorageKey } from '../../searchCatalog'
 
 const { t } = useI18n()
 
 // 当前选中的顶栏元素
-const selectedElement = ref<string>('switchers')
+const selectedElement = ref<string>(sessionStorage.getItem(topBarElementStorageKey) ?? 'switchers')
+
+watch(selectedElement, (element) => {
+  if (element)
+    sessionStorage.setItem(topBarElementStorageKey, element)
+  else
+    sessionStorage.removeItem(topBarElementStorageKey)
+})
 
 // 顶栏元素类型定义
 interface TopBarElement {
@@ -217,8 +226,18 @@ function toggleChannel(value: string) {
 
 <template>
   <SettingsItemGroup :title="$t('settings.group_topbar')">
-    <SettingsItem>
-      <template #bottom>
+    <div class="topbar-visual-config">
+      <div>
+        <SettingsItem
+          v-if="!settings.touchScreenOptimization"
+          :title="$t('settings.open_top_bar_items_in_bewly')"
+          :desc="$t('settings.open_top_bar_items_in_bewly_desc')"
+          right-width="auto"
+          mb-4
+        >
+          <Radio v-model="settings.openTopBarItemsInBewly" />
+        </SettingsItem>
+
         <!-- 提示文字 -->
         <div class="topbar-config-hint" mb-3>
           <div class="topbar-config-hint__icon" i-mingcute:cursor-click-line />
@@ -314,11 +333,14 @@ function toggleChannel(value: string) {
 
         <!-- 元素配置区域 -->
         <Transition name="fade" mode="out-in">
-          <div v-if="selectedElement" class="element-config" bg="$bew-fill-2" rounded="$bew-radius" p-4>
+          <div v-if="selectedElement" class="element-config" rounded="$bew-radius" p-4>
             <!-- Logo + 固定分区配置 -->
             <div v-if="selectedElement === 'logoAndChannels'" flex="~ col gap-4">
               <div flex="~ items-center justify-between">
-                <div text-lg font-semibold>
+                <div
+                  :data-settings-title="$t('settings.topbar_pinned_channels_title')"
+                  text-lg font-semibold
+                >
                   Logo & {{ $t('settings.topbar_pinned_channels_title') }}
                 </div>
                 <Button
@@ -333,6 +355,48 @@ function toggleChannel(value: string) {
                   {{ $t('common.operation.reset') }}
                 </Button>
               </div>
+
+              <SettingsItem
+                :title="$t('settings.top_bar_logo_style')"
+                :desc="$t('settings.top_bar_logo_style_desc')"
+                right-width="auto"
+              >
+                <div
+                  class="logo-style-picker bew-segment-control bew-segment-control--surface bew-segment-control--static"
+                  role="radiogroup"
+                  :aria-label="$t('settings.top_bar_logo_style')"
+                >
+                  <button
+                    type="button"
+                    class="bew-segment-control__item bew-segment-control__item--icon"
+                    :data-active="settings.topBarLogoStyle === 'icon'"
+                    role="radio"
+                    :aria-checked="settings.topBarLogoStyle === 'icon'"
+                    :title="$t('settings.top_bar_logo_style_opt.icon')"
+                    @click="settings.topBarLogoStyle = 'icon'"
+                  >
+                    <span class="bew-segment-control__icon i-tabler:brand-bilibili" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    class="logo-style-picker__brand-option bew-segment-control__item"
+                    :data-active="settings.topBarLogoStyle === 'brand'"
+                    role="radio"
+                    :aria-checked="settings.topBarLogoStyle === 'brand'"
+                    :title="$t('settings.top_bar_logo_style_opt.brand')"
+                    @click="settings.topBarLogoStyle = 'brand'"
+                  >
+                    <span
+                      class="logo-style-picker__brand"
+                      :style="{
+                        maskImage: `url(${bilibiliBrandLogoUrl})`,
+                        WebkitMaskImage: `url(${bilibiliBrandLogoUrl})`,
+                      }"
+                      aria-hidden="true"
+                    />
+                  </button>
+                </div>
+              </SettingsItem>
 
               <!-- Home 按钮设置（仅在触屏优化开启时显示） -->
               <div v-if="settings.touchScreenOptimization" bg="$bew-fill-1" rounded="$bew-radius" p-3>
@@ -407,7 +471,10 @@ function toggleChannel(value: string) {
 
             <!-- 搜索框配置 -->
             <div v-else-if="selectedElement === 'search'" flex="~ col">
-              <div text-lg font-semibold>
+              <div
+                :data-settings-title="$t('settings.group_search_bar')"
+                text-lg font-semibold
+              >
                 {{ $t('settings.group_search_bar') }}
               </div>
               <SettingsItem :title="$t('settings.show_hot_search_in_top_bar')" :desc="$t('settings.show_hot_search_in_top_bar_desc')" right-width="auto">
@@ -459,8 +526,8 @@ function toggleChannel(value: string) {
               <!-- 动态特殊设置 -->
               <SettingsItem
                 v-if="selectedElement === 'moments'"
-                title="过滤专栏"
-                desc="在动态列表中过滤掉专栏内容，仅显示视频"
+                :title="$t('settings.filter_articles_in_moments')"
+                :desc="$t('settings.filter_articles_in_moments_desc')"
                 right-width="auto"
               >
                 <Radio v-model="settings.filterArticlesInMoments" />
@@ -521,12 +588,16 @@ function toggleChannel(value: string) {
             </div>
           </div>
         </div>
-      </template>
-    </SettingsItem>
+      </div>
+    </div>
   </SettingsItemGroup>
 </template>
 
 <style lang="scss" scoped>
+.topbar-visual-config {
+  padding: 16px 0;
+}
+
 .topbar-preview {
   position: relative;
 }
@@ -534,10 +605,10 @@ function toggleChannel(value: string) {
 .topbar-config-hint {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: var(--bew-space-3);
+  padding: var(--bew-space-3);
   border: 1px solid var(--bew-theme-color-30);
-  border-radius: var(--bew-radius);
+  border-radius: var(--bew-panel-radius);
   background: color-mix(in oklab, var(--bew-theme-color-20), transparent 25%);
   color: var(--bew-text-1);
 
@@ -545,7 +616,7 @@ function toggleChannel(value: string) {
     flex: 0 0 auto;
     margin-top: 2px;
     color: var(--bew-theme-color);
-    font-size: 18px;
+    font-size: var(--bew-icon-size-md);
   }
 
   &__content {
@@ -556,15 +627,15 @@ function toggleChannel(value: string) {
   }
 
   &__title {
-    font-size: 14px;
-    font-weight: 600;
-    line-height: 1.4;
+    font-size: var(--bew-font-size-body);
+    font-weight: var(--bew-font-weight-semibold);
+    line-height: var(--bew-line-height-body);
   }
 
   &__desc {
     color: var(--bew-text-2);
-    font-size: 12px;
-    line-height: 1.4;
+    font-size: var(--bew-font-size-control);
+    line-height: var(--bew-line-height-control);
   }
 }
 
@@ -574,9 +645,14 @@ function toggleChannel(value: string) {
   justify-content: center;
   padding: 0.5rem;
   border: 1px solid transparent;
-  border-radius: var(--bew-radius);
+  border-radius: var(--bew-interactive-radius);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    color var(--bew-duration-normal) var(--bew-ease-standard),
+    background-color var(--bew-duration-normal) var(--bew-ease-standard),
+    border-color var(--bew-duration-normal) var(--bew-ease-standard),
+    box-shadow var(--bew-duration-normal) var(--bew-ease-standard),
+    transform var(--bew-duration-normal) var(--bew-ease-emphasized);
   color: var(--bew-text-2);
   position: relative;
 
@@ -635,11 +711,12 @@ function toggleChannel(value: string) {
     min-width: 16px;
     height: 16px;
     padding: 0 4px;
-    border-radius: 8px;
+    border-radius: var(--bew-badge-radius);
     background: var(--bew-theme-color);
     color: white;
-    font-size: 10px;
-    font-weight: 600;
+    font-size: var(--bew-font-size-caption);
+    font-weight: var(--bew-font-weight-semibold);
+    line-height: var(--bew-line-height-caption);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -647,7 +724,32 @@ function toggleChannel(value: string) {
 }
 
 .element-config {
+  background: var(--bew-elevated);
   animation: fadeIn 0.2s ease;
+}
+
+.logo-style-picker {
+  --bew-segment-item-active-bg: var(--bew-theme-color-20);
+  --bew-segment-item-active-color: var(--bew-theme-color);
+  --bew-segment-item-active-shadow: inset 0 0 0 1px var(--bew-theme-color-30);
+
+  &__brand-option {
+    padding-inline: var(--bew-space-3);
+  }
+
+  &__brand {
+    width: calc(var(--bew-control-icon-size) * 4);
+    height: var(--bew-control-icon-size);
+    display: block;
+    flex: none;
+    background: currentColor;
+    mask-position: center;
+    mask-repeat: no-repeat;
+    mask-size: contain;
+    -webkit-mask-position: center;
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-size: contain;
+  }
 }
 
 @keyframes fadeIn {
@@ -679,19 +781,26 @@ function toggleChannel(value: string) {
 }
 
 .channel-grid {
+  // 32px icon + 12px gap + 24px horizontal padding + 2px border + four CJK glyphs.
+  --channel-grid-min-item-width: calc(
+    var(--bew-icon-size-xl) + var(--bew-space-3) + var(--bew-space-6) + var(--bew-space-0-5) + 4em
+  );
+
   display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--bew-space-3);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--channel-grid-min-item-width)), 1fr));
   width: 100%;
   grid-auto-flow: row dense;
+  font-size: var(--bew-font-size-control);
 
   &__item {
     position: relative;
+    box-sizing: border-box;
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 14px;
-    border-radius: var(--bew-radius);
+    padding: var(--bew-space-3);
+    border-radius: var(--bew-interactive-radius);
     background: var(--bew-fill-1);
     color: var(--bew-text-1);
     transition:
@@ -721,7 +830,7 @@ function toggleChannel(value: string) {
     height: 32px;
     display: grid;
     place-items: center;
-    border-radius: 12px;
+    border-radius: var(--bew-interactive-radius);
     background: color-mix(in oklab, white, transparent 20%);
     border: 1px solid color-mix(in oklab, var(--bew-border-color), transparent 30%);
 
@@ -731,14 +840,20 @@ function toggleChannel(value: string) {
     }
 
     i {
-      font-size: 22px;
+      font-size: var(--bew-icon-size-lg);
     }
   }
 
   &__label {
+    min-width: 0;
     flex: 1;
+    overflow: hidden;
     text-align: left;
-    font-size: 14px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--bew-font-size-control);
+    font-weight: var(--bew-font-weight-medium);
+    line-height: var(--bew-line-height-control);
   }
 
   &__overlay {
@@ -751,8 +866,8 @@ function toggleChannel(value: string) {
     display: grid;
     place-items: center;
     pointer-events: none;
-    font-size: 12px;
-    font-weight: 600;
+    font-size: var(--bew-font-size-control);
+    font-weight: var(--bew-font-weight-semibold);
     color: white;
     background: var(--bew-theme-color);
   }

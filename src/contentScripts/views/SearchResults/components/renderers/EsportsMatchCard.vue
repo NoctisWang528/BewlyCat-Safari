@@ -87,7 +87,7 @@ const awayScore = computed(() => {
     target="_blank"
     class="esports-match-card"
     :style="cardStyle"
-    rounded="$bew-radius"
+    rounded="$bew-card-radius"
     block
     cursor="pointer"
     duration-300
@@ -159,7 +159,12 @@ const awayScore = computed(() => {
 <style scoped lang="scss">
 .esports-match-card {
   background: var(--bew-elevated);
-  transition: all 0.3s ease;
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease,
+    border-color 0.3s ease,
+    box-shadow 0.3s ease,
+    transform 0.3s ease;
   aspect-ratio: 5 / 3; // 固定宽高比 5:3
   overflow: hidden;
 
@@ -193,7 +198,10 @@ const awayScore = computed(() => {
 
 .status-badge {
   padding: 0.125rem 0.5rem;
-  border-radius: 0.25rem;
+  border-radius: var(--bew-radius-sm);
+  font-size: var(--bew-font-size-control);
+  font-weight: var(--bew-font-weight-medium);
+  line-height: var(--bew-line-height-control);
   white-space: nowrap;
   flex-shrink: 0;
   line-height: 1.2;
@@ -251,7 +259,7 @@ const awayScore = computed(() => {
   width: 100%;
   max-width: 4rem;
   aspect-ratio: 1;
-  border-radius: var(--bew-radius);
+  border-radius: var(--bew-media-radius);
   object-fit: cover;
   margin-bottom: 0.375rem;
 }
@@ -272,25 +280,25 @@ const awayScore = computed(() => {
 }
 
 .score {
-  font-size: 1.75rem;
-  font-weight: bold;
+  font-size: var(--bew-font-size-data-emphasis);
+  font-weight: var(--bew-font-weight-bold);
   color: var(--bew-text-1);
-  line-height: 1;
+  line-height: var(--bew-line-height-data);
   min-width: 1.5rem;
   text-align: center;
 }
 
 .score-divider {
-  font-size: 1.25rem;
+  font-size: var(--bew-font-size-heading);
   color: var(--bew-text-3);
   line-height: 1;
 }
 
 .vs-text {
-  font-size: 1.5rem;
-  font-weight: bold;
+  font-size: var(--bew-font-size-data);
+  font-weight: var(--bew-font-weight-bold);
   color: var(--bew-text-2);
-  line-height: 1;
+  line-height: var(--bew-line-height-data);
 }
 
 .footer-container {
@@ -301,11 +309,11 @@ const awayScore = computed(() => {
 }
 
 .game-stage {
-  font-size: 0.75rem;
+  font-size: var(--bew-font-size-control);
   color: var(--bew-text-3);
   padding: 0.25rem 0.5rem;
   background: var(--bew-fill-2);
-  border-radius: var(--bew-radius);
+  border-radius: var(--bew-badge-radius);
   text-align: center;
 }
 </style>

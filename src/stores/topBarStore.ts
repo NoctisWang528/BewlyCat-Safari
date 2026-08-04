@@ -15,20 +15,24 @@ import {
 } from '~/components/TopBar/constants/urls'
 import { updateInterval } from '~/components/TopBar/notify'
 import type { PrivilegeInfo, UnReadDm, UnReadMessage, UserInfo } from '~/components/TopBar/types'
+import type {
+  TopBarRefreshClaim,
+  TopBarSharedState,
+  TopBarStateClaim,
+  TopBarStateInvalidate,
+  TopBarStatePublish,
+  TopBarStateRelease,
+} from '~/constants/topBarState'
+import {
+  TOP_BAR_STATE_MESSAGE,
+} from '~/constants/topBarState'
 import { settings } from '~/logic'
 import type { List as VideoItem } from '~/models/video/watchLater'
 import api from '~/utils/api'
 import { getCSRF, isHomePage } from '~/utils/main'
+import { isExtensionContextInvalidatedError, onMessage, sendMessage } from '~/utils/messaging'
 import type { TopBarMomentItem } from '~/utils/momentVideoIdentifier'
 import { extractMomentVideoIdentifier } from '~/utils/momentVideoIdentifier'
-
-function isApiResponse(res: unknown): res is { code: number, data?: any, message?: string } {
-  return !!res && typeof res === 'object' && typeof (res as any).code === 'number'
-}
-
-function isApiSuccess(res: unknown): res is { code: 0, data: any, message?: string } {
-  return isApiResponse(res) && res.code === 0
-}
 
 export const useTopBarStore = defineStore('topBar', () => {
   const toast = useToast()
@@ -163,10 +167,6 @@ export const useTopBarStore = defineStore('topBar', () => {
     try {
       const res = await api.user.getUserInfo()
 
-      if (!isApiResponse(res)) {
-        throw new Error('Invalid getUserInfo response')
-      }
-
       if (res.code === 0) {
         const wasLoggedIn = isLogin.value
         const previousMid = userInfo.mid
@@ -192,10 +192,8 @@ export const useTopBarStore = defineStore('topBar', () => {
         // 其他错误码
         // 对于非未登录的错误，如果还有重试机会，则重试
         if (retryCount < maxRetries) {
-          setTimeout(() => {
-            getUserInfo(retryCount + 1)
-          }, retryDelay)
-          return
+          await new Promise(resolve => setTimeout(resolve, retryDelay))
+          return getUserInfo(retryCount + 1)
         }
 
         isLogin.value = false
@@ -207,10 +205,8 @@ export const useTopBarStore = defineStore('topBar', () => {
     catch {
       // 如果还有重试机会，则重试
       if (retryCount < maxRetries) {
-        setTimeout(() => {
-          getUserInfo(retryCount + 1)
-        }, retryDelay)
-        return
+        await new Promise(resolve => setTimeout(resolve, retryDelay))
+        return getUserInfo(retryCount + 1)
       }
 
       // 重试次数用尽，标记为未登录
@@ -228,12 +224,12 @@ export const useTopBarStore = defineStore('topBar', () => {
 
     try {
       let res = await api.notification.getUnreadMsg()
-      if (isApiSuccess(res)) {
+      if (res.code === 0) {
         Object.assign(unReadMessage, res.data)
       }
 
       res = await api.notification.getUnreadDm()
-      if (isApiSuccess(res)) {
+      if (res.code === 0) {
         Object.assign(unReadDm, res.data)
       }
     }
@@ -254,7 +250,7 @@ export const useTopBarStore = defineStore('topBar', () => {
 
     try {
       const res = await api.user.getPrivilegeInfo()
-      if (isApiSuccess(res)) {
+      if (res.code === 0) {
         Object.assign(privilegeInfo, res.data)
         if (privilegeInfo.vip_type < 2) {
           return
@@ -300,14 +296,14 @@ export const useTopBarStore = defineStore('topBar', () => {
         csrf: getCSRF(),
       })
 
-      if (isApiSuccess(res)) {
+      if (res.code === 0) {
         // 领取成功，更新状态
         bCoinAlreadyReceived.value = true
         hasBCoinToReceive.value = false
         toast.success('B币券自动领取成功')
       }
       else {
-        toast.error(`B币券自动领取失败: ${(res as any)?.message ?? 'unknown'}`)
+        toast.error(`B币券自动领取失败: ${res.message}`)
       }
     }
     catch {
@@ -331,12 +327,12 @@ export const useTopBarStore = defineStore('topBar', () => {
         csrf: getCSRF(),
       })
 
-      if (isApiSuccess(res)) {
+      if (res.code === 0) {
         // 领取成功，更新状态并显示消息
         vipExpAlreadyReceived.value = true
         toast.success('大会员经验自动领取成功', { timeout: 1500 })
       }
-      else if (isApiResponse(res) && res.code === 69198) {
+      else if (res.code === 69198) {
         // 经验已领取，静默更新状态
         vipExpAlreadyReceived.value = true
       }
@@ -360,7 +356,7 @@ export const useTopBarStore = defineStore('topBar', () => {
         update_baseline: '0',
       })
 
-      if (isApiSuccess(res) && res.data) {
+      if (res.code === 0 && res.data) {
         newMomentsCount.value = res.data.update_num
       }
     }
@@ -382,9 +378,8 @@ export const useTopBarStore = defineStore('topBar', () => {
         pn: 1,
         ps: 10,
       })
-      if (isApiSuccess(res)) {
+      if (res.code === 0) {
         watchLaterCount.value = res.data.count
-        Object.assign(watchLaterList, res.data.list)
       }
     }
     catch (error) {
@@ -404,7 +399,7 @@ export const useTopBarStore = defineStore('topBar', () => {
         pn: 1,
         ps: 10,
       })
-      if (isApiSuccess(res)) {
+      if (res.code === 0) {
         watchLaterCount.value = res.data.count
         Object.assign(watchLaterList, res.data.list)
       }
@@ -435,7 +430,7 @@ export const useTopBarStore = defineStore('topBar', () => {
         pn: currentPage,
         ps: 10,
       })
-      if (isApiSuccess(res)) {
+      if (res.code === 0) {
         watchLaterList.push(...res.data.list)
       }
     }
@@ -454,9 +449,9 @@ export const useTopBarStore = defineStore('topBar', () => {
         aid,
         csrf: getCSRF(),
       })
-      if (isApiSuccess(res)) {
+      if (res.code === 0) {
         watchLaterList.splice(index, 1)
-        watchLaterCount.value = watchLaterList.length
+        await syncWatchLaterState()
       }
     }
     catch (error) {
@@ -497,99 +492,100 @@ export const useTopBarStore = defineStore('topBar', () => {
       offset: momentOffset.value || undefined,
     })
       .then((res: any) => {
-        if (!isApiSuccess(res))
-          return
+        if (res.code === 0) {
+          const { has_more, items, offset, update_baseline } = res.data
 
-        const { has_more, items, offset, update_baseline } = res.data
-
-        if (!has_more) {
-          noMoreMomentsContent.value = true
-          return
-        }
-
-        // 更新状态
-        // newMomentsCount.value = update_num
-        momentUpdateBaseline.value = update_baseline
-        momentOffset.value = offset
-
-        // 添加新内容
-        if (items?.length) {
-          // 根据 selectedType 和设置过滤数据
-          // type: 8 是视频，type: 64 是专栏
-          let filteredItems = items
-
-          // 如果是视频类型，根据设置决定是否过滤专栏
-          if (selectedType === 'video') {
-            if (settings.value.filterArticlesInMoments) {
-              // 开启过滤专栏：只保留视频（type: 8）
-              filteredItems = items.filter((item: any) => item.type === 8)
-            }
-            else {
-              // 关闭过滤专栏：保留视频和专栏（type: 8 或 64）
-              filteredItems = items.filter((item: any) => item.type === 8 || item.type === 64)
-            }
+          if (!has_more) {
+            noMoreMomentsContent.value = true
+            return
           }
 
-          // 合并联合投稿视频 - 只对视频类型进行合并
-          let processedItems = filteredItems
-          if (selectedType === 'video') {
-            // 只合并视频，不合并专栏
-            const videos = filteredItems.filter((item: any) => item.type === 8)
-            const articles = filteredItems.filter((item: any) => item.type === 64)
-            const mergedVideos = mergeCollaborativeVideos(videos)
-            // 将合并后的视频和专栏合并到一起
-            processedItems = [...mergedVideos, ...articles]
-          }
+          // 更新状态
+          // newMomentsCount.value = update_num
+          momentUpdateBaseline.value = update_baseline
+          momentOffset.value = offset
 
-          // 如果是第一次加载（offset为空），需要根据过滤和合并后的实际数量调整 newMomentsCount
-          // 因为过滤专栏和合并联合投稿会导致显示的条目数量少于原始的 update_num
-          if (!momentOffset.value && selectedType === 'video') {
-            // 计算过滤前有多少新内容
-            const originalNewCount = newMomentsCount.value
-            // 计算过滤和合并后的实际条目数
-            const actualNewCount = Math.min(originalNewCount, processedItems.length)
-            // 更新为实际的新内容数量
-            newMomentsCount.value = actualNewCount
-          }
+          // 添加新内容
+          if (items?.length) {
+            // 根据 selectedType 和设置过滤数据
+            // type: 8 是视频，type: 64 是专栏
+            let filteredItems = items
 
-          processedItems.forEach((item: any) => {
-            const { aid, bvid } = extractMomentVideoIdentifier(item)
-            const isVideo = item.type === 8 && Boolean(aid || bvid)
-
-            const momentItem: TopBarMomentItem = {
-              type: selectedType,
-              title: item.title,
-              author: item.authors ? item.authors.map((a: any) => a.name).join(' / ') : item.author.name,
-              authorFace: item.author.face,
-              authorJumpUrl: item.author.jump_url,
-              pubTime: item.pub_time,
-              cover: item.cover,
-              link: item.jump_url,
-              rid: aid,
-              aid,
-              bvid,
-              isVideo,
-              isCollaborative: !!item.authors,
-              authors: item.authors,
+            // 如果是视频类型，根据设置决定是否过滤专栏
+            if (selectedType === 'video') {
+              if (settings.value.filterArticlesInMoments) {
+                // 开启过滤专栏：只保留视频（type: 8）
+                filteredItems = items.filter((item: any) => item.type === 8)
+              }
+              else {
+                // 关闭过滤专栏：保留视频和专栏（type: 8 或 64）
+                filteredItems = items.filter((item: any) => item.type === 8 || item.type === 64)
+              }
             }
 
-            moments.push(momentItem)
-
-            if (selectedType === 'video' && item.type === 8) {
-              const videoId = extractMomentVideoIdentifier(item)
-              if (!videoId.bvid)
-                return
-              const entry = collaborativeVideoMap.get(videoId.bvid)
-              if (!entry)
-                return
-              entry.moment = momentItem
-              updateMomentCollaborative(momentItem, entry.item)
+            // 合并联合投稿视频 - 只对视频类型进行合并
+            let processedItems = filteredItems
+            if (selectedType === 'video') {
+              // 只合并视频，不合并专栏
+              const videos = filteredItems.filter((item: any) => item.type === 8)
+              const articles = filteredItems.filter((item: any) => item.type === 64)
+              const mergedVideos = mergeCollaborativeVideos(videos)
+              // 将合并后的视频和专栏合并到一起
+              processedItems = [...mergedVideos, ...articles]
             }
-          })
+
+            // 如果是第一次加载（offset为空），需要根据过滤和合并后的实际数量调整 newMomentsCount
+            // 因为过滤专栏和合并联合投稿会导致显示的条目数量少于原始的 update_num
+            if (!momentOffset.value && selectedType === 'video') {
+              // 计算过滤前有多少新内容
+              const originalNewCount = newMomentsCount.value
+              // 计算过滤和合并后的实际条目数
+              const actualNewCount = Math.min(originalNewCount, processedItems.length)
+              // 更新为实际的新内容数量
+              newMomentsCount.value = actualNewCount
+            }
+
+            processedItems.forEach((item: any) => {
+              const { aid, bvid } = extractMomentVideoIdentifier(item)
+              const momentItem: TopBarMomentItem = {
+                type: selectedType,
+                title: item.title,
+                author: item.authors ? item.authors.map((a: any) => a.name).join(' / ') : item.author.name,
+                authorFace: item.author.face,
+                authorJumpUrl: item.author.jump_url,
+                pubTime: item.pub_time,
+                cover: item.cover,
+                link: item.jump_url,
+                rid: aid,
+                aid,
+                bvid,
+                isVideo: item.type === 8 && Boolean(aid || bvid),
+                isCollaborative: !!item.authors,
+                authors: item.authors,
+              }
+
+              moments.push(momentItem)
+
+              if (selectedType === 'video' && item.type === 8) {
+                const bvid = extractBvid(item)
+                if (!bvid)
+                  return
+                const entry = collaborativeVideoMap.get(bvid)
+                if (!entry)
+                  return
+                entry.moment = momentItem
+                updateMomentCollaborative(momentItem, entry.item)
+              }
+            })
+          }
         }
       })
       .catch(error => console.error(error))
       .finally(() => isLoadingMoments.value = false)
+  }
+
+  function extractBvid(item: any): string | null {
+    return extractMomentVideoIdentifier(item).bvid ?? null
   }
 
   function normalizeAuthor(author: any) {
@@ -642,16 +638,16 @@ export const useTopBarStore = defineStore('topBar', () => {
     const newItems: any[] = []
 
     items.forEach((item: any) => {
-      const videoId = extractMomentVideoIdentifier(item)
-      if (!videoId.bvid) {
+      const bvid = extractBvid(item)
+      if (!bvid) {
         newItems.push(item)
         return
       }
 
-      const existingEntry = collaborativeVideoMap.get(videoId.bvid)
+      const existingEntry = collaborativeVideoMap.get(bvid)
       if (!existingEntry) {
         const storedItem = { ...item }
-        collaborativeVideoMap.set(videoId.bvid, { item: storedItem })
+        collaborativeVideoMap.set(bvid, { item: storedItem })
         newItems.push(storedItem)
         return
       }
@@ -677,34 +673,31 @@ export const useTopBarStore = defineStore('topBar', () => {
       pagesize: pageSize,
     })
       .then((res: any) => {
-        if (!isApiSuccess(res))
-          return
+        if (res.code === 0) {
+          const { list } = res.data
 
-        const { list } = res.data
+          // if the length of this list is less then the pageSize, it means that it have no more contents
+          if (list.length < pageSize) {
+            noMoreMomentsContent.value = true
+          }
 
-        // if the length of this list is less then the pageSize, it means that it have no more contents
-        if (list.length < pageSize) {
-          noMoreMomentsContent.value = true
+          // if the length of this list is equal to the pageSize, this means that it may have the next page.
+          if (list.length === pageSize)
+            livePage.value++
+
+          moments.push(
+            ...list.map((item: any) => ({
+              type: 'live',
+              title: item.title,
+              author: item.uname,
+              authorFace: item.face,
+              cover: item.pic,
+              link: item.link,
+              isVideo: false,
+            } satisfies TopBarMomentItem)),
+          )
         }
-
-        // if the length of this list is equal to the pageSize, this means that it may have the next page.
-        if (list.length === pageSize)
-          livePage.value++
-
-        moments.push(
-          ...list.map((item: any) => ({
-            type: 'live',
-            title: item.title,
-            author: item.uname,
-            authorFace: item.face,
-            cover: item.pic,
-            link: item.link,
-            isVideo: false,
-          } satisfies TopBarMomentItem),
-          ),
-        )
       })
-      .catch(error => console.error(error))
       .finally(() => isLoadingMoments.value = false)
   }
 
@@ -721,10 +714,9 @@ export const useTopBarStore = defineStore('topBar', () => {
         csrf: getCSRF(),
       })
         .then((res: any) => {
-          if (isApiSuccess(res))
+          if (res.code === 0)
             addedWatchLaterList.push(aid)
         })
-        .catch(error => console.error(error))
     }
     else {
       api.watchlater.removeFromWatchLater({
@@ -732,12 +724,11 @@ export const useTopBarStore = defineStore('topBar', () => {
         csrf: getCSRF(),
       })
         .then((res: any) => {
-          if (isApiSuccess(res)) {
+          if (res.code === 0) {
             addedWatchLaterList.length = 0
             Object.assign(addedWatchLaterList, addedWatchLaterList.filter(item => item !== aid))
           }
         })
-        .catch(error => console.error(error))
     }
   }
 
@@ -756,18 +747,182 @@ export const useTopBarStore = defineStore('topBar', () => {
   }
 
   let updateTimer: ReturnType<typeof setInterval> | null = null
+  let sharedStateMessagingUnavailable = false
+
+  function disableSharedStateMessaging() {
+    sharedStateMessagingUnavailable = true
+    stopUpdateTimer()
+  }
+
+  function createSharedStateSnapshot(): TopBarSharedState {
+    return {
+      unReadMessage: { ...unReadMessage },
+      unReadDm: { ...unReadDm },
+      newMomentsCount: newMomentsCount.value,
+      watchLaterCount: watchLaterCount.value,
+      hasBCoinToReceive: hasBCoinToReceive.value,
+      bCoinAlreadyReceived: bCoinAlreadyReceived.value,
+      vipExpAlreadyReceived: vipExpAlreadyReceived.value,
+    }
+  }
+
+  function applySharedState(snapshot: TopBarSharedState) {
+    Object.assign(unReadMessage, snapshot.unReadMessage)
+    Object.assign(unReadDm, snapshot.unReadDm)
+    newMomentsCount.value = snapshot.newMomentsCount
+    watchLaterCount.value = snapshot.watchLaterCount
+    hasBCoinToReceive.value = snapshot.hasBCoinToReceive
+    bCoinAlreadyReceived.value = snapshot.bCoinAlreadyReceived
+    vipExpAlreadyReceived.value = snapshot.vipExpAlreadyReceived
+  }
+
+  onMessage<TopBarStatePublish>(
+    TOP_BAR_STATE_MESSAGE.UPDATED,
+    ({ accountId, snapshot }) => {
+      if (accountId === userInfo.mid)
+        applySharedState(snapshot)
+    },
+  )
+
+  onMessage<TopBarStateInvalidate>(
+    TOP_BAR_STATE_MESSAGE.INVALIDATED,
+    ({ accountId }) => {
+      if (accountId !== userInfo.mid)
+        return
+
+      syncSharedData({ refresh: getUnreadMessageCount }).catch((error) => {
+        console.error('刷新已失效的未读消息状态失败:', error)
+      })
+    },
+  )
+
+  async function refreshSharedData() {
+    await Promise.all([
+      getUnreadMessageCount(),
+      getTopBarNewMomentsCount(),
+      getWatchLaterCount(),
+      checkBCoinReceiveStatus(),
+      autoReceiveVipExp(),
+    ])
+  }
+
+  interface SyncSharedDataOptions {
+    force?: boolean
+    refresh?: () => Promise<void>
+  }
+
+  async function syncSharedDataFromBroker(options: SyncSharedDataOptions) {
+    if (!isLogin.value)
+      return
+
+    const accountId = userInfo.mid
+    if (!accountId)
+      return
+
+    const claim = await sendMessage<TopBarStateClaim, TopBarRefreshClaim>(
+      TOP_BAR_STATE_MESSAGE.CLAIM_REFRESH,
+      {
+        accountId,
+        maxAge: updateInterval,
+        force: options.force,
+      },
+    )
+
+    if (claim.snapshot)
+      applySharedState(claim.snapshot)
+
+    if (!claim.shouldRefresh)
+      return
+
+    if (claim.refreshId === undefined)
+      return
+
+    const refreshId = claim.refreshId
+
+    try {
+      await (options.refresh?.() ?? refreshSharedData())
+      await sendMessage<TopBarStatePublish>(
+        TOP_BAR_STATE_MESSAGE.PUBLISH,
+        {
+          accountId,
+          snapshot: createSharedStateSnapshot(),
+          refreshId,
+        },
+      )
+    }
+    catch (error) {
+      await sendMessage<TopBarStateRelease>(
+        TOP_BAR_STATE_MESSAGE.RELEASE_REFRESH,
+        {
+          accountId,
+          refreshId,
+        },
+      )
+      throw error
+    }
+  }
+
+  async function syncSharedData(options: SyncSharedDataOptions = {}) {
+    if (sharedStateMessagingUnavailable)
+      return
+
+    try {
+      await syncSharedDataFromBroker(options)
+    }
+    catch (error) {
+      if (!isExtensionContextInvalidatedError(error))
+        throw error
+
+      // 扩展重新加载后，旧 content script 的 runtime 无法恢复。
+      // 停止轮询并让后续同步短路，等待后台刷新提示引导页面加载新脚本。
+      disableSharedStateMessaging()
+    }
+  }
+
+  function syncUnreadMessageState() {
+    return syncSharedData({
+      force: true,
+      refresh: getUnreadMessageCount,
+    })
+  }
+
+  function syncMomentsState(selectedType: string = 'video') {
+    return syncSharedData({
+      force: true,
+      refresh: () => getTopBarNewMomentsCount(selectedType),
+    })
+  }
+
+  function syncWatchLaterState(includeList = false) {
+    return syncSharedData({
+      force: true,
+      refresh: includeList ? getAllWatchLaterList : getWatchLaterCount,
+    })
+  }
+
+  function invalidateUnreadMessageState() {
+    const accountId = userInfo.mid
+    if (!accountId || sharedStateMessagingUnavailable)
+      return Promise.resolve()
+
+    return sendMessage<TopBarStateInvalidate>(
+      TOP_BAR_STATE_MESSAGE.INVALIDATE,
+      { accountId },
+    ).catch((error) => {
+      if (!isExtensionContextInvalidatedError(error))
+        throw error
+
+      disableSharedStateMessaging()
+    })
+  }
 
   async function initData() {
     await getUserInfo()
 
-    // 只有在登录状态下才调用这些需要登录的API
-    if (isLogin.value) {
-      checkBCoinReceiveStatus()
-      autoReceiveVipExp()
-      getUnreadMessageCount()
-      getTopBarNewMomentsCount()
-      getAllWatchLaterList()
-    }
+    if (!isLogin.value)
+      return
+
+    await syncSharedData()
   }
 
   function startUpdateTimer() {
@@ -776,16 +931,12 @@ export const useTopBarStore = defineStore('topBar', () => {
       updateTimer = null
     }
     updateTimer = setInterval(() => {
-      if (isLogin.value) {
-        getUnreadMessageCount()
-        // 只有在弹窗未显示时才更新计数，避免与 watch 重复调用
-        if (!popupVisible.moments)
-          getTopBarNewMomentsCount()
-        if (!popupVisible.watchLater)
-          getWatchLaterCount()
-        checkBCoinReceiveStatus()
-        autoReceiveVipExp()
-      }
+      if (!isLogin.value)
+        return
+
+      syncSharedData().catch((error) => {
+        console.error('同步顶栏共享状态失败:', error)
+      })
     }, updateInterval)
   }
   function stopUpdateTimer() {
@@ -865,11 +1016,13 @@ export const useTopBarStore = defineStore('topBar', () => {
     isMouseOverPopup,
     setMouseOverPopup,
     getMouseOverPopup,
+    syncSharedData,
+    syncUnreadMessageState,
+    syncMomentsState,
+    syncWatchLaterState,
+    invalidateUnreadMessageState,
     startUpdateTimer,
     stopUpdateTimer,
-    checkBCoinReceiveStatus,
-    autoReceiveBCoin,
-    autoReceiveVipExp,
 
     moments,
     addedWatchLaterList,

@@ -3,8 +3,10 @@ import { onKeyStroke, useEventListener, useIntersectionObserver, useThrottleFn, 
 import type { Ref } from 'vue'
 import { provide, ref } from 'vue'
 
+import Button from '~/components/Button.vue'
 import type { BewlyAppProvider } from '~/composables/useAppProvider'
 import { DrawerType, UndoForwardState } from '~/composables/useAppProvider'
+import { confirmDialogKey } from '~/composables/useConfirmDialog'
 import { useDark } from '~/composables/useDark'
 import { BEWLY_MOUNTED, DRAWER_VIDEO_ENTER_PAGE_FULL, DRAWER_VIDEO_EXIT_PAGE_FULL, IFRAME_PAGE_SWITCH_BEWLY, IFRAME_PAGE_SWITCH_BILI, OVERLAY_SCROLL_BAR_SCROLL, OVERLAY_SCROLL_STATE_CHANGE } from '~/constants/globalEvents'
 import { HomeSubPage } from '~/contentScripts/views/Home/types'
@@ -41,6 +43,83 @@ else {
   isDark = ref(false)
 }
 const [showSettings, toggleSettings] = useToggle(false)
+const searchFocusOverlayActive = ref(false)
+
+interface ConfirmDialogRequest {
+  id: number
+  message: string
+  resolve: (confirmed: boolean) => void
+  settled: boolean
+}
+
+/**
+ * Lightweight confirm host (no Dialog / Transition / Teleport).
+ * Resolving the promise often mutates large page lists (favorites, history…);
+ * doing that in the same tick as a Transition/Teleport teardown races Vue's
+ * patcher and throws insertBefore NotFoundError under <App>.
+ */
+const activeConfirmDialog = ref<ConfirmDialogRequest>()
+const confirmDialogQueue: ConfirmDialogRequest[] = []
+let confirmDialogBusy = false
+let confirmDialogIdSeq = 0
+
+function showNextConfirmDialog() {
+  activeConfirmDialog.value = confirmDialogQueue.shift()
+}
+
+function showConfirmDialog(message: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const request: ConfirmDialogRequest = {
+      id: ++confirmDialogIdSeq,
+      message,
+      resolve,
+      settled: false,
+    }
+
+    if (activeConfirmDialog.value || confirmDialogBusy)
+      confirmDialogQueue.push(request)
+    else
+      activeConfirmDialog.value = request
+  })
+}
+
+function finishConfirmDialog(confirmed: boolean) {
+  const request = activeConfirmDialog.value
+  if (!request || request.settled)
+    return
+
+  request.settled = true
+  confirmDialogBusy = true
+  // Unmount the overlay first; only then resolve so callers' DOM updates
+  // (e.g. splicing favorite cards) never interleave with this node removal.
+  activeConfirmDialog.value = undefined
+
+  nextTick(() => {
+    request.resolve(confirmed)
+    confirmDialogBusy = false
+    showNextConfirmDialog()
+  })
+}
+
+onKeyStroke('Escape', (e: KeyboardEvent) => {
+  if (!activeConfirmDialog.value)
+    return
+  e.preventDefault()
+  e.stopPropagation()
+  finishConfirmDialog(false)
+}, { dedupe: true })
+
+onKeyStroke('Enter', (e: KeyboardEvent) => {
+  if (!activeConfirmDialog.value)
+    return
+  e.preventDefault()
+  e.stopPropagation()
+  finishConfirmDialog(true)
+}, { dedupe: true })
+
+provide(confirmDialogKey, {
+  confirm: showConfirmDialog,
+})
 
 // Get the 'page' query parameter from the URL
 function getPageParam(): AppPage | null {
@@ -120,6 +199,7 @@ function getDefaultHomeSubPage(tabConfig: { page: HomeSubPage, visible: boolean 
 // 添加Home页面的子页面状态
 const homeActivatedPage = ref<HomeSubPage>(getDefaultHomeSubPage(settings.value.homePageTabVisibilityList))
 const homeActivatedPageTouched = ref<boolean>(false)
+const isHomeTabSwitching = ref<boolean>(false)
 watch(
   () => settings.value.homePageTabVisibilityList,
   (tabConfig) => {
@@ -187,6 +267,26 @@ const handleThrottledPageForwardRefresh = useThrottleFn(() => handleForwardRefre
 const topBarRef = ref()
 const reachTop = ref<boolean>(true)
 
+watch(isHomeTabSwitching, (switching) => {
+  if (switching)
+    return
+
+  // IntersectionObserver may have reported an intersection while callbacks were
+  // suspended. Recheck once after restoration so a genuinely short/bottom page
+  // can still request more content without waiting for another scroll event.
+  requestAnimationFrame(() => {
+    const viewport = scrollViewportRef.value
+    const sentinel = loadMoreSentinelRef.value
+    if (!viewport || !sentinel || isHomeTabSwitching.value)
+      return
+
+    const viewportRect = viewport.getBoundingClientRect()
+    const sentinelRect = sentinel.getBoundingClientRect()
+    if (sentinelRect.top <= viewportRect.bottom + 200 && sentinelRect.bottom >= viewportRect.top)
+      handleThrottledReachBottom()
+  })
+})
+
 const iframeDrawerURL = ref<string>('')
 const showIframeDrawer = ref<boolean>(false)
 
@@ -242,7 +342,7 @@ useEventListener(window, 'message', ({ data, source }) => {
 
   if (type === 'iframeDarkModeChange') {
     // 在iframe环境中，只更新DOM样式，不修改用户的主题设置
-    // 避免覆盖用户设置的"auto"模式
+    // 避免覆盖用户选择的设备或定时主题模式
     if (isInIframe()) {
       // Check if we should apply selective dark mode (plugin UI only) on festival pages
       const isSelectiveDark = isFestivalPage()
@@ -419,7 +519,7 @@ onMounted(() => {
       useIntersectionObserver(
         loadMoreSentinelRef,
         ([{ isIntersecting }]) => {
-          if (isIntersecting) {
+          if (isIntersecting && !isHomeTabSwitching.value) {
             handleThrottledReachBottom()
           }
         },
@@ -668,9 +768,11 @@ provide<BewlyAppProvider>('BEWLY_APP', {
   activatedPage,
   homeActivatedPage,
   homeActivatedPageTouched,
+  isHomeTabSwitching,
   mainAppRef,
   scrollViewportRef,
   reachTop,
+  searchFocusOverlayActive,
   handleBackToTop,
   handlePageRefresh,
   canRefreshHomeSubPage,
@@ -840,7 +942,10 @@ if (settings.value.cleanUrlArgument) {
     id="bewly-wrapper"
     ref="mainAppRef"
     class="bewly-wrapper"
-    :class="{ dark: isDark }"
+    :class="{
+      'dark': isDark,
+      'bewly-wrapper--viewport': isHomePage() && !settings.useOriginalBilibiliHomepage,
+    }"
     text="$bew-text-1 size-$bew-base-font-size"
   >
     <!-- Background -->
@@ -884,6 +989,8 @@ if (settings.value.cleanUrlArgument) {
     <!-- TopBar -->
     <div
       v-if="showTopBar"
+      class="top-bar-host"
+      :class="{ 'top-bar-host--behind-search-overlay': searchFocusOverlayActive }"
       m-auto max-w="$bew-page-max-width"
       :style="{
         opacity: hideUIForIframePhotoViewer ? 0 : 1,
@@ -894,7 +1001,8 @@ if (settings.value.cleanUrlArgument) {
       <BewlyOrBiliTopBarSwitcher v-if="settings.showBewlyOrBiliTopBarSwitcher" />
 
       <TopBar
-        pos="top-0 left-0" z="1 hover:1001" w-full
+        class="top-bar-layer"
+        pos="top-0 left-0" w-full
       />
     </div>
 
@@ -917,8 +1025,13 @@ if (settings.value.cleanUrlArgument) {
           >
             <main m-auto max-w="$bew-page-max-width">
               <div
+                class="bewly-page-content"
+                :class="{
+                  'bewly-page-content--dock-left': activatedPage === AppPage.Home && settings.dockPosition === 'left',
+                  'bewly-page-content--dock-right': activatedPage === AppPage.Home && settings.dockPosition === 'right',
+                  'bewly-page-content--dock-bottom': activatedPage === AppPage.Home && settings.dockPosition === 'bottom',
+                }"
                 p="t-[calc(var(--bew-top-bar-height)+10px)]" m-auto
-                w="lg:[calc(100%-200px)] [calc(100%-150px)]"
                 :style="settings.useOriginalBilibiliTopBar && !reachTop
                   ? { paddingTop: 'calc(var(--bew-top-bar-height) + 120px)' }
                   : undefined"
@@ -945,10 +1058,151 @@ if (settings.value.cleanUrlArgument) {
       :url="iframeDrawerURL"
       @close="showIframeDrawer = false"
     />
+
+    <!-- Static confirm overlay: no Transition/Teleport (see finishConfirmDialog). -->
+    <div
+      v-if="activeConfirmDialog"
+      :key="activeConfirmDialog.id"
+      class="bew-confirm-dialog"
+      role="alertdialog"
+      aria-modal="true"
+      :aria-label="$t('common.operation.confirm')"
+    >
+      <div class="bew-confirm-dialog__backdrop" @click="finishConfirmDialog(false)" />
+      <div class="bew-confirm-dialog__panel">
+        <header class="bew-confirm-dialog__header">
+          <p class="bew-confirm-dialog__title">
+            {{ $t('common.operation.confirm') }}
+          </p>
+          <button
+            type="button"
+            class="bew-confirm-dialog__close"
+            :aria-label="$t('common.operation.cancel')"
+            @click="finishConfirmDialog(false)"
+          >
+            <div i-ic-baseline-clear />
+          </button>
+        </header>
+        <div class="bew-confirm-dialog__body">
+          <p class="bew-confirm-dialog__message">
+            {{ activeConfirmDialog.message }}
+          </p>
+        </div>
+        <footer class="bew-confirm-dialog__footer">
+          <Button type="tertiary" @click="finishConfirmDialog(false)">
+            {{ $t('common.operation.cancel') }}
+          </Button>
+          <Button type="primary" @click="finishConfirmDialog(true)">
+            {{ $t('common.operation.confirm') }}
+          </Button>
+        </footer>
+      </div>
+    </div>
   </div>
 </template>
 
 <style lang="scss" scoped>
+.top-bar-layer {
+  z-index: 1001;
+}
+
+.bew-confirm-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 10002;
+  pointer-events: auto;
+}
+
+.bew-confirm-dialog__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 40%);
+}
+
+.bew-confirm-dialog__panel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  overflow: hidden;
+  background: var(--bew-elevated-alt-solid);
+  border: 1px solid var(--bew-border-color);
+  border-radius: var(--bew-modal-radius);
+  box-shadow: var(--bew-shadow-4), var(--bew-shadow-edge-glow-2);
+  transform: translate(-50%, -50%);
+}
+
+.bew-confirm-dialog__header {
+  display: flex;
+  gap: var(--bew-space-4);
+  align-items: center;
+  justify-content: space-between;
+  min-height: 70px;
+  padding: 0 var(--bew-space-8);
+}
+
+.bew-confirm-dialog__title {
+  margin: 0;
+  font-size: var(--bew-font-size-title);
+  font-weight: var(--bew-font-weight-semibold);
+  line-height: var(--bew-line-height-title);
+}
+
+.bew-confirm-dialog__close {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  appearance: none;
+  color: inherit;
+  cursor: pointer;
+  background: var(--bew-elevated);
+  border: 1px solid var(--bew-border-color);
+  border-radius: var(--bew-interactive-radius);
+  box-shadow: var(--bew-shadow-edge-glow-1), var(--bew-shadow-2);
+
+  &:hover {
+    color: var(--bew-theme-color);
+    background: var(--bew-theme-color-30);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--bew-theme-color-40);
+    outline-offset: var(--bew-space-0-5);
+  }
+}
+
+.bew-confirm-dialog__body {
+  padding: var(--bew-space-2) var(--bew-space-8) var(--bew-space-2);
+}
+
+.bew-confirm-dialog__message {
+  margin: 0;
+  color: var(--bew-text-1);
+  font-size: var(--bew-font-size-body);
+  font-weight: var(--bew-font-weight-regular);
+  line-height: var(--bew-line-height-body);
+  white-space: pre-line;
+}
+
+.bew-confirm-dialog__footer {
+  display: flex;
+  gap: var(--bew-space-2);
+  justify-content: flex-end;
+  padding: var(--bew-space-2) var(--bew-space-8) var(--bew-space-6);
+}
+
+.top-bar-host--behind-search-overlay {
+  position: relative;
+  z-index: 0;
+}
+
 .bewly-wrapper {
   // To fix the filter used in `.bewly-wrapper` that cause the positions of elements become discorded.
   > * > * {
@@ -956,8 +1210,39 @@ if (settings.value.cleanUrlArgument) {
   }
 }
 
+.bewly-wrapper--viewport {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
 .bewly-scroll-viewport {
   outline: none;
   scrollbar-gutter: stable;
+}
+
+.bewly-page-content {
+  --bew-page-inline-padding: clamp(16px, 4vw, 80px);
+  --bew-page-padding-left: var(--bew-page-inline-padding);
+  --bew-page-padding-right: var(--bew-page-inline-padding);
+
+  box-sizing: border-box;
+  width: 100%;
+  padding-left: var(--bew-page-padding-left);
+  padding-right: var(--bew-page-padding-right);
+}
+
+.bewly-page-content--dock-left {
+  --bew-page-padding-left: max(var(--bew-page-inline-padding), var(--bew-dock-safe-inset));
+}
+
+.bewly-page-content--dock-right {
+  --bew-page-padding-right: max(var(--bew-page-inline-padding), var(--bew-dock-safe-inset));
+}
+
+.bewly-page-content--dock-bottom {
+  padding-bottom: var(--bew-dock-safe-inset);
 }
 </style>

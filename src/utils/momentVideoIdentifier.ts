@@ -42,10 +42,13 @@ function extractBvidFromUrl(value: unknown): string | undefined {
 }
 
 export function extractMomentVideoIdentifier(item: any): MomentVideoIdentifier {
-  const archive = item?.modules?.module_dynamic?.major?.archive
+  const major = item?.modules?.module_dynamic?.major
+  const archive = major?.archive
+  const ugcSeason = major?.ugc_season
 
   const aid = [
     archive?.aid,
+    ugcSeason?.aid,
     item?.aid,
     item?.rid,
     item?.basic?.rid_str,
@@ -55,9 +58,11 @@ export function extractMomentVideoIdentifier(item: any): MomentVideoIdentifier {
 
   const bvid = [
     normalizeBvid(archive?.bvid),
+    normalizeBvid(ugcSeason?.bvid),
     normalizeBvid(item?.bvid),
     extractBvidFromUrl(item?.jump_url),
     extractBvidFromUrl(archive?.jump_url),
+    extractBvidFromUrl(ugcSeason?.jump_url),
   ].find((value): value is string => value !== undefined)
 
   return { aid, bvid }

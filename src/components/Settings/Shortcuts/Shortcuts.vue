@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useToast } from 'vue-toastification'
 
 import Button from '~/components/Button.vue' // Assuming Button component exists
 import Radio from '~/components/Radio.vue'
@@ -13,8 +14,10 @@ import { setupShortcutHandlers } from '~/utils/shortcuts'
 
 import SettingsItem from '../components/SettingsItem.vue'
 import SettingsItemGroup from '../components/SettingsItemGroup.vue'
+import SettingsSectionHeading from '../components/SettingsSectionHeading.vue'
 
 const { t } = useI18n()
+const toast = useToast()
 
 // --- 类型定义 ---
 interface OfficialShortcut {
@@ -286,7 +289,7 @@ function handleKeyUp(event: KeyboardEvent, id: ConfigurableShortcutId) {
       const conflictResult = checkShortcutConflict(keyCombo, id)
 
       if (conflictResult.hasConflict && conflictResult.conflictInfo) {
-        alert(`此快捷键已被插件快捷键"${conflictResult.conflictInfo.name}"使用，不能重复设置。`)
+        toast.warning(t('settings.shortcuts.conflict', { name: conflictResult.conflictInfo.name }))
         cancelEdit()
       }
       else {
@@ -335,6 +338,12 @@ function resetAllShortcuts() {
 
 <template>
   <div>
+    <SettingsSectionHeading
+      :title="t('settings.shortcuts.title')"
+      :desc="t('settings.category_shortcuts_desc')"
+      icon="i-mingcute:keyboard-fill"
+    />
+
     <!-- General Keyboard Toggle -->
     <SettingsItemGroup>
       <SettingsItem :title="t('settings.shortcuts.enable_all_shortcuts_toggle')" right-width="auto">
@@ -347,7 +356,7 @@ function resetAllShortcuts() {
 
     <!-- Configurable Extension Shortcuts -->
     <template v-for="group in configurableShortcutsGroups" :key="group.title">
-      <SettingsItemGroup :title="group.title">
+      <SettingsItemGroup :title="group.title" collapsible>
         <template v-for="shortcutDef in group.shortcuts" :key="shortcutDef.id">
           <SettingsItem :title="shortcutDef.name" :desc="shortcutDef.description" right-width="auto">
             <div class="shortcut-item-config">
@@ -422,7 +431,11 @@ function resetAllShortcuts() {
     </SettingsItemGroup>
 
     <!-- Official Bilibili Shortcuts (Read-only) -->
-    <SettingsItemGroup :title="t('settings.shortcuts.group.official_bilibili')">
+    <SettingsItemGroup
+      :title="t('settings.shortcuts.group.official_bilibili')"
+      collapsible
+      default-collapsed
+    >
       <SettingsItem
         v-for="shortcut in officialShortcuts"
         :key="shortcut.key"

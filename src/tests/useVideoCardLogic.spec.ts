@@ -6,7 +6,7 @@ import { useVideoCardLogic } from '~/components/VideoCard/composables/useVideoCa
 
 const mocks = vi.hoisted(() => ({
   getCSRF: vi.fn(() => 'csrf-token'),
-  getAllWatchLaterList: vi.fn(),
+  syncWatchLaterState: vi.fn(),
   openIframeDrawer: vi.fn(),
   removeFromWatchLater: vi.fn(),
   saveToWatchLater: vi.fn(),
@@ -40,7 +40,7 @@ vi.mock('~/logic', () => ({
 
 vi.mock('~/stores/topBarStore', () => ({
   useTopBarStore: () => ({
-    getAllWatchLaterList: mocks.getAllWatchLaterList,
+    syncWatchLaterState: mocks.syncWatchLaterState,
     isLogin: true,
   }),
 }))
@@ -176,7 +176,8 @@ describe('useVideoCardLogic watch later', () => {
     expect(mocks.toastSuccess).not.toHaveBeenCalled()
 
     await vi.advanceTimersByTimeAsync(1000)
-    expect(mocks.getAllWatchLaterList).toHaveBeenCalledOnce()
+    expect(mocks.syncWatchLaterState).toHaveBeenCalledOnce()
+    expect(mocks.syncWatchLaterState).toHaveBeenCalledWith(true)
   })
 
   it('catches a rejected remove request and releases the loading guard', async () => {

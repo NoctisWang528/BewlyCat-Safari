@@ -39,11 +39,11 @@ function changeThemeColor(color: string) {
         <Radio v-model="settings.adaptToOtherPageStyles" />
       </SettingsItem>
       <SettingsItem
-        :title="$t('settings.nvidia_rtx_video_enhancement_compatibility')"
-        :desc="$t('settings.nvidia_rtx_video_enhancement_compatibility_desc')"
+        :title="$t('settings.prevent_mobile_redirect')"
+        :desc="$t('settings.prevent_mobile_redirect_desc')"
         right-width="auto"
       >
-        <Radio v-model="settings.nvidiaRtxVideoEnhancementCompatibility" />
+        <Radio v-model="settings.preventMobileRedirect" />
       </SettingsItem>
     </SettingsItemGroup>
 

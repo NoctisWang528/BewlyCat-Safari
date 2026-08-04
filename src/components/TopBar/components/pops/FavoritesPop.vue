@@ -4,27 +4,16 @@ import type { Ref } from 'vue'
 import Empty from '~/components/Empty.vue'
 import Loading from '~/components/Loading.vue'
 import { useOptimizedScroll } from '~/composables/useOptimizedScroll'
-import type { CollectedFavoriteSeason, CollectedFavoriteSeasonsResult, FavoriteSeasonMedia, FavoriteSeasonResourcesResult } from '~/models/video/favoriteSeason'
 import api from '~/utils/api'
 import { calcCurrentTime } from '~/utils/dataFormatter'
 import { getUserID, removeHttpFromUrl, scrollToTop } from '~/utils/main'
 
 import type { FavoriteCategory, FavoriteResource } from '../../types'
 
-type FavoriteCategorySource = 'folder' | 'season'
-type ViewCategory = FavoriteCategory & {
-  source: FavoriteCategorySource
-  cover?: string
-  link?: string
-}
-
-const favoriteCategories = reactive<Array<ViewCategory>>([])
-const collectedFavoriteSeasons = reactive<Array<CollectedFavoriteSeason>>([])
+const favoriteCategories = reactive<Array<FavoriteCategory>>([])
 const favoriteResources = reactive<Array<FavoriteResource>>([])
 
 const activatedMediaId = ref<number>(0)
-const activatedCategorySource = ref<FavoriteCategorySource>('folder')
-const activatedCategoryLink = ref<string>('')
 const activatedFavoriteTitle = ref<string>()
 const currentPageNum = ref<number>(1)
 
@@ -34,23 +23,17 @@ const noMoreContent = ref<boolean>(false)
 const favoriteVideosWrap = ref<HTMLElement>() as Ref<HTMLElement>
 
 const viewAllUrl = computed((): string => {
-  if (activatedCategorySource.value === 'season')
-    return getFavoriteSeasonUrl()
-
   return `//space.bilibili.com/${getUserID()}/favlist?fid=${
     activatedMediaId.value
   }&ftype=create`
 })
 
 const playAllUrl = computed((): string => {
-  if (activatedCategorySource.value === 'season')
-    return getFavoriteSeasonUrl()
-
   return `https://www.bilibili.com/list/ml${activatedMediaId.value}`
 })
 
-watch([activatedMediaId, activatedCategorySource], ([newId, newSource], [oldId, oldSource]) => {
-  if (newId === oldId && newSource === oldSource)
+watch(activatedMediaId, (newId, oldId) => {
+  if (newId === oldId)
     return
 
   favoriteResources.length = 0
@@ -85,7 +68,6 @@ useOptimizedScroll(
 
 async function initData() {
   await getFavoriteCategories()
-  await getCollectedFavoriteSeasons()
   if (favoriteCategories.length > 0)
     changeCategory(favoriteCategories[0])
 }
@@ -97,47 +79,11 @@ async function getFavoriteCategories() {
     .then((res) => {
       if (res.code === 0) {
         favoriteCategories.length = 0
-        favoriteCategories.push(...res.data.list.map(toFolderCategory))
-        favoriteCategories.push(...collectedFavoriteSeasons.map(toSeasonCategory))
+        favoriteCategories.push(...res.data.list)
         noMoreContent.value = false
       }
       isLoading.value = false
     })
-}
-
-async function getCollectedFavoriteSeasons() {
-  await api.favorite.getCollectedFavoriteSeasons({
-    up_mid: getUserID(),
-  })
-    .then((res: CollectedFavoriteSeasonsResult) => {
-      if (res.code === 0) {
-        collectedFavoriteSeasons.length = 0
-        collectedFavoriteSeasons.push(...res.data.list)
-        favoriteCategories.push(...collectedFavoriteSeasons.map(toSeasonCategory))
-      }
-    })
-}
-
-function toFolderCategory(item: FavoriteCategory): ViewCategory {
-  return {
-    ...item,
-    source: 'folder',
-  }
-}
-
-function toSeasonCategory(item: CollectedFavoriteSeason): ViewCategory {
-  return {
-    id: item.id,
-    fid: item.fid,
-    mid: item.mid,
-    attr: item.attr,
-    title: item.title,
-    fav_state: item.fav_state,
-    media_count: item.media_count,
-    source: 'season',
-    cover: item.cover,
-    link: item.link,
-  }
 }
 
 /**
@@ -150,11 +96,6 @@ async function getFavoriteResources() {
   isLoading.value = true
 
   try {
-    if (activatedCategorySource.value === 'season') {
-      await getFavoriteSeasonResources()
-      return
-    }
-
     const res = await api.favorite.getFavoriteResources({
       media_id: activatedMediaId.value,
       pn: currentPageNum.value,
@@ -189,71 +130,14 @@ async function getFavoriteResources() {
   }
 }
 
-async function getFavoriteSeasonResources() {
-  const res: FavoriteSeasonResourcesResult = await api.favorite.getFavoriteSeasonResources({
-    season_id: activatedMediaId.value,
-    pn: currentPageNum.value,
-  })
-
-  if (res.code === 0 && res.data) {
-    const medias = Array.isArray(res.data.medias) ? res.data.medias.filter((m: any) => m != null) : []
-    if (medias.length > 0)
-      favoriteResources.push(...medias.map(normalizeSeasonMedia))
-
-    noMoreContent.value = medias.length < 40
-  }
-  else {
-    noMoreContent.value = true
-  }
-}
-
-function normalizeSeasonMedia(item: FavoriteSeasonMedia): FavoriteResource {
-  return {
-    id: item.id,
-    type: 2,
-    title: item.title,
-    cover: item.cover,
-    intro: '',
-    page: 1,
-    duration: item.duration,
-    upper: {
-      ...item.upper,
-      face: '',
-    },
-    cnt_info: {
-      collect: item.cnt_info.collect,
-      play: item.cnt_info.play,
-      danmaku: item.cnt_info.danmaku,
-    },
-    link: item.bvid ? `https://www.bilibili.com/video/${item.bvid}` : '',
-    ctime: item.pubtime,
-    pubtime: item.pubtime,
-    fav_time: item.pubtime,
-    bv_id: item.bvid,
-    bvid: item.bvid,
-  }
-}
-
-function getFavoriteSeasonUrl() {
-  const fallbackUrl = `https://www.bilibili.com/list/season/${activatedMediaId.value}`
-  const matchedVideoLink = activatedCategoryLink.value.match(/^bilibili:\/\/video\/(\d+)(\?.*)?$/)
-
-  if (!matchedVideoLink)
-    return fallbackUrl
-
-  return `https://www.bilibili.com/video/av${matchedVideoLink[1]}${matchedVideoLink[2] || ''}`
-}
-
 function refreshFavoriteResources() {
   favoriteResources.length = 0
   currentPageNum.value = 1
   getFavoriteResources()
 }
 
-function changeCategory(categoryItem: ViewCategory) {
+function changeCategory(categoryItem: FavoriteCategory) {
   activatedMediaId.value = categoryItem.id
-  activatedCategorySource.value = categoryItem.source
-  activatedCategoryLink.value = categoryItem.link || ''
   activatedFavoriteTitle.value = categoryItem.title
 }
 
@@ -318,14 +202,14 @@ defineExpose({
         <ul grid="~ cols-1">
           <li
             v-for="item in favoriteCategories"
-            :key="`${item.source}-${item.id}`"
-            :class="activatedMediaId === item.id && activatedCategorySource === item.source ? 'activated-category' : ''"
+            :key="item.id"
+            :class="activatedMediaId === item.id ? 'activated-category' : ''"
             p="y-2 x-6"
             cursor="pointer"
-            transition="~ duration-300"
+            transition="background-color duration-200, color duration-200, opacity duration-200"
             @click="changeCategory(item)"
           >
-            {{ item.source === 'season' ? `${$t('favorites.collected_season_prefix')} ${item.title}` : item.title }}
+            {{ item.title }}
           </li>
         </ul>
       </aside>
@@ -370,23 +254,23 @@ defineExpose({
             rounded="$bew-radius"
             m="last:b-4" p="2"
             class="group"
-            transition="~ duration-300"
+            transition="background-color duration-200, color duration-200, opacity duration-200"
           >
-            <section flex="~ gap-4" item-start>
+            <section flex="~ gap-4" items-start>
               <div
                 bg="$bew-skeleton"
                 w="120px"
                 flex="shrink-0"
                 rounded="$bew-radius-half"
                 overflow="hidden"
+                class="aspect-video"
               >
-                <div pos="relative">
+                <div pos="relative" w-full h-full>
                   <img
-                    w="120px"
-                    class="aspect-video"
+                    w-full h-full
                     :src="`${removeHttpFromUrl(item.cover)}@256w_144h_1c`"
                     :alt="item.title"
-                    bg="contain"
+                    object-cover
                   >
                   <div
                     pos="absolute bottom-0 right-0"

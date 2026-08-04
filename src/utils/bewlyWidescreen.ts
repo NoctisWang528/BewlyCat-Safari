@@ -1,3 +1,5 @@
+import browser from 'webextension-polyfill'
+
 import { injectCSS } from './main'
 import { getVideoElement } from './player'
 
@@ -34,16 +36,19 @@ interface BewlyWidescreenState {
   sidebarInteractionCleanup?: () => void
   sidebarToggleAutoHideCleanup?: () => void
   descriptionCleanup?: () => void
+  escapeKeyCleanup?: () => void
   descriptionExpanded: boolean
 }
 
 const ROOT_ID = 'bewly-widescreen-root'
+const LOADING_ROOT_ID = 'bewly-widescreen-loading'
 const BODY_CLASS = 'bewly-widescreen-active'
 const EMPTY_CLASS = 'bewly-widescreen-empty'
 const SIDEBAR_NARROW_MIN_WIDTH = 360
 const SIDEBAR_NARROW_MAX_WIDTH = 460
 const MOBILE_BREAKPOINT = 900
 const LOAD_SETTLE_DELAY = 1200
+const LOADING_FADE_DURATION = 240
 const READY_RETRY_INTERVAL = 500
 const READY_RETRY_MAX = 30
 const SIDEBAR_REFRESH_DELAY = 800
@@ -51,12 +56,22 @@ const SIDEBAR_TOGGLE_IDLE_DELAY = 1000
 const BILIBILI_ACTION_ANIMATION_HUE = 196
 const COMMENT_ROOT_ID_SELECTOR = '#comment-module, #comment-body, #commentapp'
 const COMMENT_NESTED_UI_SELECTOR = '.reply-item, .sub-reply-item, bili-comment-renderer'
-const COMMENT_CONTENT_MARKER_SELECTOR = 'bili-comment-box, bili-comment-renderer, .reply-list, .comment-list, .reply-box, .comment-header'
+// Light-DOM markers only. Modern bili-comments mounts most UI in shadow roots,
+// so readiness must not require these descendants to exist.
+const COMMENT_CONTENT_MARKER_SELECTOR = 'bili-comments, bili-comment-box, bili-comment-renderer, .reply-list, .comment-list, .reply-box, .comment-header'
+const COMMENT_LIST_SELECTOR = 'bili-comment-renderer, .reply-list, .comment-list, .reply-item, .root-reply-container'
+const COMMENT_LOADING_SELECTOR = '.bili-comment-loading, .comment-loading, .loading-start, .bili-dyn-list-loading, .loading-img'
+const COMMENT_AVATAR_SELECTOR = 'bili-avatar, .bili-avatar, .user-face, .reply-face, .bili-user-avatar, img[src*="face"], img[data-src*="face"]'
 
 let state: BewlyWidescreenState | null = null
+let loadingOverlay: HTMLElement | null = null
+let loadingStyleEl: HTMLStyleElement | null = null
+let loadingFadeTimer: ReturnType<typeof setTimeout> | undefined
+let loadingPlaybackCleanup: (() => void) | undefined
 let readyRetryTimer: ReturnType<typeof setTimeout> | undefined
 let loadFallbackTimer: ReturnType<typeof setTimeout> | undefined
 let sidebarRefreshTimer: ReturnType<typeof setTimeout> | undefined
+let pageLoadHandler: (() => void) | undefined
 let readyRetryCount = 0
 let waitingForLoad = false
 let pendingSidebarPosition: 'left' | 'right' = 'right'
@@ -120,6 +135,9 @@ const selectors = {
     '.bpx-player-dm-wrap',
   ],
   playlist: [
+    // Watch Later and Favorites use this inner list. Their `.playlist-container`
+    // is the page-level layout and must stay outside the widescreen sidebar.
+    '.action-list-container',
     '[class*="eplist_ep_list_wrapper"]',
     '#eplist_module',
     '[class*="numberList_wrapper"]',
@@ -131,7 +149,6 @@ const selectors = {
     '.base-video-sections-v1',
     '.video-sections-v1',
     '.video-sections-content-list',
-    '.playlist-container',
   ],
   playlistControls: [
     '.auto-play',
@@ -277,14 +294,101 @@ function moveOrReplaceNode(selectors: string[], target: HTMLElement, movedNodes:
   return { found: moved, changed: moved }
 }
 
+function isCommentRootLoading(root: HTMLElement) {
+  return !!root.querySelector(COMMENT_LOADING_SELECTOR)
+}
+
+function hasCommentShadowTree(root: HTMLElement) {
+  return Array.from(root.querySelectorAll('*')).some((element) => {
+    const shadowRoot = (element as HTMLElement & { shadowRoot?: ShadowRoot | null }).shadowRoot
+    return !!shadowRoot
+  })
+}
+
+function getCommentRootScore(root: HTMLElement) {
+  let score = 0
+
+  if (root.matches(COMMENT_ROOT_ID_SELECTOR) || root.matches('.commentapp'))
+    score += 3
+  if (root.querySelector(COMMENT_CONTENT_MARKER_SELECTOR))
+    score += 2
+  if (hasCommentShadowTree(root))
+    score += 3
+  if (root.querySelector(COMMENT_LIST_SELECTOR))
+    score += 3
+  if (root.querySelector(COMMENT_AVATAR_SELECTOR))
+    score += 4
+  if (root.querySelector('bili-comment-box, .reply-box, .comment-header'))
+    score += 1
+  if (isCommentRootLoading(root))
+    score -= 3
+
+  // Prefer roots that already finished painting something measurable.
+  score += Math.min(root.querySelectorAll(COMMENT_AVATAR_SELECTOR).length, 8)
+  score += Math.min(root.querySelectorAll(COMMENT_LIST_SELECTOR).length, 8)
+
+  return score
+}
+
+function isCommentRootUsable(root: HTMLElement) {
+  if (!root.isConnected)
+    return false
+
+  // Known comment roots can be relocated immediately. Modern Bilibili comments
+  // hydrate inside shadow DOM / after becoming visible; waiting for light-DOM
+  // children here leaves the sidebar stuck on "评论区加载中".
+  if (root.matches(`${COMMENT_ROOT_ID_SELECTOR}, .commentapp`))
+    return true
+
+  if (root.querySelector(COMMENT_CONTENT_MARKER_SELECTOR))
+    return true
+
+  return hasCommentShadowTree(root)
+}
+
+function isCommentRootHydrated(root: HTMLElement) {
+  if (!isCommentRootUsable(root))
+    return false
+
+  if (isCommentRootLoading(root))
+    return false
+
+  if (hasCommentShadowTree(root))
+    return true
+
+  const hasList = !!root.querySelector(COMMENT_LIST_SELECTOR)
+  const hasComposer = !!root.querySelector('bili-comment-box, .reply-box, .comment-header')
+  return hasList || hasComposer
+}
+
 function moveCommentRoot(target: HTMLElement, movedNodes: MovedNode[]) {
-  // Once mounted, keep the same root. Replacing it in response to every body
-  // mutation can race Bilibili's renderer and create another comment editor.
+  // Once mounted, keep the same root unless Bilibili recreated a healthier
+  // replacement outside the layout (common when avatar/comment hydration races
+  // with DOM relocation).
   const existing = findCommentRoot(target)
+  const next = findCommentRoot(document, true)
+
+  if (existing && next && existing !== next) {
+    // Prefer an outside replacement only when it is clearly more complete.
+    // Never block on "fully hydrated" for the first move — that is the main
+    // cause of permanent empty comment panels under the fixed overlay.
+    const shouldReplace = (!isCommentRootHydrated(existing) && isCommentRootUsable(next))
+      || getCommentRootScore(next) >= getCommentRootScore(existing) + 2
+
+    if (!shouldReplace)
+      return { found: true, changed: false }
+
+    removeMovedNode(existing, movedNodes)
+    const moved = moveNode(next, target, movedNodes)
+    return { found: moved || !!findCommentRoot(target), changed: moved }
+  }
+
   if (existing)
     return { found: true, changed: false }
 
-  const next = findCommentRoot(document, true)
+  if (!next || !isCommentRootUsable(next))
+    return { found: false, changed: false }
+
   const moved = moveNode(next, target, movedNodes)
   return { found: moved, changed: moved }
 }
@@ -406,6 +510,137 @@ function createSidebarToggleButton() {
     setSidebarMode(state?.sidebarMode === 'fit' ? 'narrow' : 'fit')
   })
   return button
+}
+
+function getLoadingGifUrl() {
+  try {
+    return browser.runtime.getURL('/assets/loading.gif')
+  }
+  catch {
+    return ''
+  }
+}
+
+function showWidescreenLoading() {
+  if (loadingOverlay)
+    return
+
+  loadingStyleEl = injectCSS(`
+    #${LOADING_ROOT_ID} {
+      position: fixed;
+      inset: 0;
+      z-index: 2147483000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      color: var(--bew-text-2, #61666d);
+      background: var(--bew-bg, #f6f7f8);
+      font-family: var(--bew-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+      opacity: 1;
+      transition: opacity ${LOADING_FADE_DURATION}ms ease;
+    }
+
+    html.dark #${LOADING_ROOT_ID} {
+      color: var(--bew-text-2, #c9ccd0);
+      background: var(--bew-bg, #17181a);
+    }
+
+    #${LOADING_ROOT_ID}.is-leaving {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #${LOADING_ROOT_ID} .bewly-widescreen-loading-content {
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      line-height: 20px;
+    }
+
+    #${LOADING_ROOT_ID} .bewly-widescreen-loading-icon {
+      width: 36px;
+      height: 36px;
+      object-fit: contain;
+      flex-shrink: 0;
+    }
+  `)
+
+  const overlay = document.createElement('div')
+  overlay.id = LOADING_ROOT_ID
+  overlay.setAttribute('role', 'status')
+  overlay.setAttribute('aria-live', 'polite')
+
+  const content = document.createElement('div')
+  content.className = 'bewly-widescreen-loading-content'
+
+  const loadingGifUrl = getLoadingGifUrl()
+  if (loadingGifUrl) {
+    const icon = document.createElement('img')
+    icon.className = 'bewly-widescreen-loading-icon'
+    icon.src = loadingGifUrl
+    icon.alt = ''
+    icon.setAttribute('aria-hidden', 'true')
+    content.appendChild(icon)
+  }
+
+  const label = document.createElement('span')
+  label.textContent = '正在加载宽屏模式…'
+  content.appendChild(label)
+
+  overlay.appendChild(content)
+  const mountTarget = document.body ?? document.documentElement
+  mountTarget.appendChild(overlay)
+  loadingOverlay = overlay
+
+  const handlePlaying = (event: Event) => {
+    if (event.target === getVideoElement())
+      removeWidescreenLoading()
+  }
+  document.addEventListener('playing', handlePlaying, true)
+  loadingPlaybackCleanup = () => {
+    document.removeEventListener('playing', handlePlaying, true)
+    loadingPlaybackCleanup = undefined
+  }
+
+  // The player may already be running before the widescreen loading UI mounts.
+  const video = getVideoElement()
+  if (video && !video.paused && !video.ended)
+    removeWidescreenLoading()
+}
+
+function removeWidescreenLoading(immediate = false) {
+  loadingPlaybackCleanup?.()
+
+  if (loadingFadeTimer) {
+    clearTimeout(loadingFadeTimer)
+    loadingFadeTimer = undefined
+  }
+
+  const overlay = loadingOverlay
+  const styleEl = loadingStyleEl
+  if (!overlay && !styleEl)
+    return
+
+  const remove = () => {
+    overlay?.remove()
+    styleEl?.remove()
+    if (loadingOverlay === overlay)
+      loadingOverlay = null
+    if (loadingStyleEl === styleEl)
+      loadingStyleEl = null
+    loadingFadeTimer = undefined
+  }
+
+  if (immediate || !overlay) {
+    remove()
+    return
+  }
+
+  requestAnimationFrame(() => overlay.classList.add('is-leaving'))
+  loadingFadeTimer = setTimeout(remove, LOADING_FADE_DURATION)
 }
 
 function createRoot(sidebarPosition: 'left' | 'right' = 'right') {
@@ -1282,6 +1517,33 @@ function injectLayoutStyle() {
       margin-right: 0 !important;
     }
 
+    /* B 站的选集组件会继承普通视频页的固定高度。宽屏模式下由整个
+       选集面板负责滚动，列表便可以使用直到视口底部的全部剩余空间。 */
+    #${ROOT_ID} .bewly-widescreen-panel-playlist {
+      overflow-y: auto;
+      scrollbar-gutter: stable;
+    }
+
+    #${ROOT_ID} .bewly-widescreen-panel-playlist .video-pod,
+    #${ROOT_ID} .bewly-widescreen-panel-playlist .video-pod__body,
+    #${ROOT_ID} .bewly-widescreen-panel-playlist .video-pod__list,
+    #${ROOT_ID} .bewly-widescreen-panel-playlist .multi-page,
+    #${ROOT_ID} .bewly-widescreen-panel-playlist .multi-page-v1,
+    #${ROOT_ID} .bewly-widescreen-panel-playlist .cur-list,
+    #${ROOT_ID} .bewly-widescreen-panel-playlist .list-box,
+    #${ROOT_ID} .bewly-widescreen-panel-playlist .base-video-sections-v1,
+    #${ROOT_ID} .bewly-widescreen-panel-playlist .video-sections-v1,
+    #${ROOT_ID} .bewly-widescreen-panel-playlist .video-sections-content-list,
+    #${ROOT_ID} .bewly-widescreen-panel-playlist #eplist_module,
+    #${ROOT_ID} .bewly-widescreen-panel-playlist [class*="eplist_ep_list_wrapper"],
+    #${ROOT_ID} .bewly-widescreen-panel-playlist [class*="numberList_wrapper"],
+    #${ROOT_ID} .bewly-widescreen-panel-playlist [class*="imageList_wrap"] {
+      height: auto !important;
+      min-height: 0 !important;
+      max-height: none !important;
+      overflow: visible !important;
+    }
+
     #${ROOT_ID} .bewly-widescreen-panel [class*="eplist_ep_list_wrapper"],
     #${ROOT_ID} .bewly-widescreen-panel [class*="recommend_wrap"],
     #${ROOT_ID} .bewly-widescreen-panel #danmukuBox,
@@ -1812,6 +2074,7 @@ function shortenCommentTimes(panel: HTMLElement) {
 }
 
 function cleanupState(currentState: BewlyWidescreenState) {
+  currentState.escapeKeyCleanup?.()
   currentState.sidebarInteractionCleanup?.()
   currentState.sidebarToggleAutoHideCleanup?.()
   currentState.metadataListener?.()
@@ -1847,8 +2110,6 @@ function isReadyForLayout() {
 }
 
 function applyNow(sidebarPosition: 'left' | 'right' = 'right') {
-  exitBewlyWidescreen()
-
   const player = findMovable(selectors.player)
   if (!player)
     return false
@@ -1880,6 +2141,18 @@ function applyNow(sidebarPosition: 'left' | 'right' = 'right') {
 
   state = nextState
   document.body.classList.add(BODY_CLASS)
+
+  const handleEscapeKey = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape')
+      return
+
+    event.preventDefault()
+    event.stopPropagation()
+    exitBewlyWidescreen()
+  }
+  document.addEventListener('keydown', handleEscapeKey, true)
+  nextState.escapeKeyCleanup = () => document.removeEventListener('keydown', handleEscapeKey, true)
+
   setSidebarMode('fit')
 
   moveNode(player, playerFrame, movedNodes)
@@ -1890,6 +2163,7 @@ function applyNow(sidebarPosition: 'left' | 'right' = 'right') {
   setupSidebarInteractionTracking(nextState)
   setupSidebarToggleAutoHide(nextState)
   setTimeout(() => window.dispatchEvent(new Event('resize')), 0)
+  removeWidescreenLoading()
 
   return true
 }
@@ -1908,6 +2182,14 @@ function clearLoadFallbackTimer() {
   }
 }
 
+function clearPageLoadHandler() {
+  if (!pageLoadHandler)
+    return
+
+  window.removeEventListener('load', pageLoadHandler)
+  pageLoadHandler = undefined
+}
+
 function clearSidebarRefreshTimer() {
   if (sidebarRefreshTimer) {
     clearTimeout(sidebarRefreshTimer)
@@ -1923,14 +2205,14 @@ function scheduleReadyRetry(delay = READY_RETRY_INTERVAL) {
     if (state)
       return
 
-    if (isReadyForLayout()) {
-      applyNow(pendingSidebarPosition)
+    if (isReadyForLayout() && applyNow(pendingSidebarPosition))
       return
-    }
 
     readyRetryCount++
     if (readyRetryCount <= READY_RETRY_MAX)
       scheduleReadyRetry()
+    else
+      removeWidescreenLoading()
   }, delay)
 }
 
@@ -1939,6 +2221,7 @@ function startAfterPageLoad(sidebarPosition: 'left' | 'right' = 'right') {
     return
 
   waitingForLoad = false
+  clearPageLoadHandler()
   clearLoadFallbackTimer()
   readyRetryCount = 0
   pendingSidebarPosition = sidebarPosition
@@ -1958,11 +2241,16 @@ function scheduleSidebarRefresh() {
   }, SIDEBAR_REFRESH_DELAY)
 }
 
-export function applyBewlyWidescreen(sidebarPosition: 'left' | 'right' = 'right') {
+export function applyBewlyWidescreen(
+  sidebarPosition: 'left' | 'right' = 'right',
+  showLoading = true,
+) {
   if (state || waitingForLoad || readyRetryTimer)
     return
 
   pendingSidebarPosition = sidebarPosition
+  if (showLoading)
+    showWidescreenLoading()
 
   if (document.readyState === 'complete') {
     startAfterPageLoad(sidebarPosition)
@@ -1970,19 +2258,21 @@ export function applyBewlyWidescreen(sidebarPosition: 'left' | 'right' = 'right'
   }
 
   waitingForLoad = true
-  const loadHandler = () => startAfterPageLoad(sidebarPosition)
-  window.addEventListener('load', loadHandler, { once: true })
+  pageLoadHandler = () => startAfterPageLoad(sidebarPosition)
+  window.addEventListener('load', pageLoadHandler, { once: true })
 
   clearLoadFallbackTimer()
   loadFallbackTimer = setTimeout(() => {
     if (waitingForLoad)
-      startAfterPageLoad()
+      startAfterPageLoad(pendingSidebarPosition)
   }, 6000)
 }
 
 export function exitBewlyWidescreen() {
   clearReadyRetryTimer()
   clearLoadFallbackTimer()
+  clearPageLoadHandler()
+  removeWidescreenLoading(true)
   waitingForLoad = false
 
   if (!state)

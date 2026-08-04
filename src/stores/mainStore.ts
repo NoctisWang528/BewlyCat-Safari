@@ -91,7 +91,7 @@ export const useMainStore = defineStore('main', () => {
         openInNewTab: false,
         useOriginalBiliPage: true,
         url: `https://t.bilibili.com`,
-        hasBewlyPage: false,
+        hasBewlyPage: true,
       },
     ]
   })

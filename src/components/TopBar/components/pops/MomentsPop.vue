@@ -85,29 +85,23 @@ function getMomentWatchLaterTarget(moment: TopBarMomentItem) {
   const aid = Number.isSafeInteger(moment.aid) && Number(moment.aid) > 0
     ? Number(moment.aid)
     : undefined
-
   const bvid = typeof moment.bvid === 'string' && moment.bvid.trim()
     ? moment.bvid.trim()
     : undefined
-
   return { aid, bvid }
 }
 
 function getMomentWatchLaterKey(moment: TopBarMomentItem): string {
   const { aid, bvid } = getMomentWatchLaterTarget(moment)
-
   if (bvid)
     return `bvid:${bvid}`
-
   if (aid)
     return `aid:${aid}`
-
   return ''
 }
 
 function isMomentInWatchLater(moment: TopBarMomentItem): boolean {
   const { aid, bvid } = getMomentWatchLaterTarget(moment)
-
   return Boolean(
     (aid && topBarStore.addedWatchLaterList.includes(aid))
     || (bvid && topBarStore.addedWatchLaterBvids.has(bvid)),
@@ -119,78 +113,55 @@ async function toggleWatchLater(moment: TopBarMomentItem) {
     return
 
   const { aid, bvid } = getMomentWatchLaterTarget(moment)
-
-  if (!aid && !bvid)
-    return
-
   const key = getMomentWatchLaterKey(moment)
-  if (!key || pendingWatchLaterKeys.has(key))
+  if ((!aid && !bvid) || !key || pendingWatchLaterKeys.has(key))
     return
 
   const csrf = getCSRF()
   if (!csrf)
     return
 
-  const isInList = isMomentInWatchLater(moment)
   pendingWatchLaterKeys.add(key)
-
   try {
-    if (!isInList) {
-      const params: {
-        aid?: number
-        bvid?: string
-        csrf: string
-      } = { csrf }
-
+    if (!isMomentInWatchLater(moment)) {
+      const params: { aid?: number, bvid?: string, csrf: string } = { csrf }
       if (aid)
         params.aid = aid
-
       if (bvid)
         params.bvid = bvid
-
       const res = await api.watchlater.saveToWatchLater(params)
-
       if (res?.code === 0) {
         if (aid && !topBarStore.addedWatchLaterList.includes(aid))
           topBarStore.addedWatchLaterList.push(aid)
-
         if (!aid && bvid)
           topBarStore.addedWatchLaterBvids.add(bvid)
+        void topBarStore.syncWatchLaterState()
       }
+      return
     }
-    else {
-      let resolvedAid: number | undefined = aid
 
-      // bvid-only: need to resolve aid from getVideoInfo for removal
-      if (!resolvedAid && bvid) {
-        const info = await api.video.getVideoInfo({ bvid })
-        const infoAid = Number(info?.data?.aid)
-        if (Number.isSafeInteger(infoAid) && infoAid > 0) {
-          resolvedAid = infoAid
-          moment.aid = resolvedAid
-          moment.rid = resolvedAid
-        }
-        else {
-          return
-        }
-      }
-
-      if (!resolvedAid)
+    let resolvedAid = aid
+    if (!resolvedAid && bvid) {
+      const info = await api.video.getVideoInfo({ bvid })
+      const infoAid = Number(info?.data?.aid)
+      if (!Number.isSafeInteger(infoAid) || infoAid <= 0)
         return
+      resolvedAid = infoAid
+      moment.aid = infoAid
+      moment.rid = infoAid
+    }
 
-      const res = await api.watchlater.removeFromWatchLater({
-        aid: resolvedAid,
-        csrf,
-      })
+    if (!resolvedAid)
+      return
 
-      if (res?.code === 0) {
-        const index = topBarStore.addedWatchLaterList.indexOf(resolvedAid)
-        if (index >= 0)
-          topBarStore.addedWatchLaterList.splice(index, 1)
-
-        if (bvid)
-          topBarStore.addedWatchLaterBvids.delete(bvid)
-      }
+    const res = await api.watchlater.removeFromWatchLater({ aid: resolvedAid, csrf })
+    if (res?.code === 0) {
+      const index = topBarStore.addedWatchLaterList.indexOf(resolvedAid)
+      if (index >= 0)
+        topBarStore.addedWatchLaterList.splice(index, 1)
+      if (bvid)
+        topBarStore.addedWatchLaterBvids.delete(bvid)
+      void topBarStore.syncWatchLaterState()
     }
   }
   catch (error) {
@@ -234,7 +205,7 @@ defineExpose({
           v-for="tab in momentTabs"
           :key="tab.type"
           m="r-4"
-          transition="all duration-300"
+          transition="background-color duration-200, color duration-200, opacity duration-200"
           class="tab"
           :class="tab.type === selectedMomentTab.type ? 'tab-selected' : ''"
           cursor="pointer"
@@ -256,6 +227,7 @@ defineExpose({
     <main
       ref="momentsWrap"
       rounded="$bew-radius"
+      overflow-x-hidden
       overflow-y-auto
       p="x-4"
       flex-1
@@ -386,7 +358,6 @@ defineExpose({
                 w="82px" h="46px"
                 rounded="$bew-radius-half"
               >
-              <!-- 稍后再看悬浮按钮 -->
               <div
                 v-if="moment.isVideo && getMomentWatchLaterKey(moment)"
                 class="moment-watch-later-toggle"
@@ -423,7 +394,7 @@ defineExpose({
 
   &::after {
     --uno: "absolute bottom-0 left-0 w-full h-12px bg-$bew-theme-color opacity-0 transform scale-x-0 -z-1";
-    --uno: "transition-all duration-300";
+    --uno: "transition-colors duration-200";
     content: "";
   }
 }

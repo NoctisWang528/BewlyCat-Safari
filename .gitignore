@@ -41,3 +41,5 @@ extension-safari-macos/
 release/
 # src/old-extension/
 .playwright-mcp/
+# 本地计划
+UI-FIX-PLAN.md

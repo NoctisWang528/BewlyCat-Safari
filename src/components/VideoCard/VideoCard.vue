@@ -5,8 +5,8 @@ import { useBewlyApp } from '~/composables/useAppProvider'
 import { useVideoCardSharedStyles } from '~/composables/useVideoCardSharedStyles'
 import { settings } from '~/logic'
 import type { VideoCardLayoutSetting } from '~/logic/storage'
-import { calcCurrentTime, calcTimeSince, numFormatter } from '~/utils/dataFormatter'
-import { wasVideoVisitedRecently } from '~/utils/videoVisitHistory'
+import { calcCurrentTime, numFormatter } from '~/utils/dataFormatter'
+import { recordVideoVisit } from '~/utils/videoVisitHistory'
 
 import VideoCardCover from './components/VideoCardCover.vue'
 import VideoCardInfo from './components/VideoCardInfo.vue'
@@ -36,7 +36,7 @@ interface Props {
 
 const layout = computed((): VideoCardLayoutSetting => {
   const layoutSetting = settings.value.videoCardLayout as VideoCardLayoutSetting | undefined
-  return layoutSetting === 'old' || layoutSetting === 'compact' ? layoutSetting : 'modern'
+  return layoutSetting === 'old' ? 'old' : 'modern'
 })
 
 // 数据现在在转换阶段已经完成 HTML 解码，直接使用 props
@@ -70,7 +70,6 @@ const coverStatValues = computed(() => {
       danmaku: '',
       like: '',
       duration: '',
-      published: '',
     }
   }
 
@@ -83,44 +82,29 @@ const coverStatValues = computed(() => {
     duration: props.video.duration
       ? calcCurrentTime(props.video.duration)
       : props.video.durationStr ?? '',
-    published: props.video.publishedTimestamp
-      ? calcTimeSince(props.video.publishedTimestamp * 1000)
-      : props.video.capsuleText?.trim() ?? '',
   }
 })
 
 const coverStatsVisibility = computed(() => {
-  const { view, danmaku, like, duration, published } = coverStatValues.value
-
-  if (layout.value === 'compact') {
-    return {
-      view: false,
-      danmaku: false,
-      like: false,
-      duration: Boolean(duration),
-      published: Boolean(published),
-    }
-  }
+  const { view, danmaku, like, duration } = coverStatValues.value
 
   // 无用户信息模式下，只显示播放量和时长
   if (props.hideAuthor) {
     return {
-      view: Boolean(view),
+      view: settings.value.showVideoCardViewCount && Boolean(view),
       danmaku: false,
       like: false,
-      duration: Boolean(duration),
-      published: false,
+      duration: settings.value.showVideoCardDuration && Boolean(duration),
     }
   }
 
   // 所有统计项默认显示，由 CSS Container Query 控制响应式隐藏
   // 这避免了 JS 监听宽度变化带来的性能问题
   return {
-    view: Boolean(view),
-    danmaku: Boolean(danmaku),
-    like: Boolean(like),
-    duration: Boolean(duration),
-    published: false,
+    view: settings.value.showVideoCardViewCount && Boolean(view),
+    danmaku: settings.value.showVideoCardDanmakuCount && Boolean(danmaku),
+    like: settings.value.showVideoCardLikeCount && Boolean(like),
+    duration: settings.value.showVideoCardDuration && Boolean(duration),
   }
 })
 
@@ -136,7 +120,6 @@ const hasCoverStats = computed(() => {
     || (visibility.danmaku && values.danmaku)
     || (visibility.like && values.like)
     || (visibility.duration && values.duration)
-    || (visibility.published && values.published)
   )
 })
 
@@ -152,12 +135,25 @@ const previewEnabled = computed(() =>
   Boolean(props.showPreview && settings.value.enableVideoPreview),
 )
 
+const shouldDisableLinkDragging = computed(() =>
+  previewEnabled.value
+  && settings.value.enableVideoPreviewSwipeSeek,
+)
+
 const hoverPreviewOnCoverOnly = computed(() =>
   previewEnabled.value && settings.value.onlyCoverVideoPreview,
 )
 
+function handleLinkClick(event: MouseEvent) {
+  if (props.video)
+    recordVideoVisit(props.video)
+
+  const clickHandler = props.customClickHandler || logic.handleClick
+  clickHandler(event)
+}
+
 const linkEvents = computed(() => ({
-  click: props.customClickHandler || logic.handleClick,
+  click: handleLinkClick,
   ...(hoverPreviewOnCoverOnly.value
     ? {}
     : {
@@ -186,10 +182,6 @@ const primaryTags = computed(() => {
     return tag.filter(Boolean)
   return [tag]
 })
-
-const wasVisitedRecently = computed(() =>
-  Boolean(props.isFollowingPage && props.video && wasVideoVisitedRecently(props.video)),
-)
 
 // 使用 CSS 变量定义，让浏览器通过 CSS 容器查询自动响应
 const coverStatsStyle = computed(() => {
@@ -355,8 +347,7 @@ provide('getVideoType', () => props.type!)
   <div
     :ref="(el) => logic.cardRootRef.value = el as HTMLElement"
     class="video-card-container"
-    duration-300 ease-in-out
-    rounded="$bew-radius"
+    rounded="$bew-card-radius"
     :class="[
       layout !== 'old' ? 'mb-3' : 'mb-4',
       skeleton ? 'video-card-container--skeleton' : 'video-card-container--interactive',
@@ -365,7 +356,7 @@ provide('getVideoType', () => props.type!)
     <div
       class="video-card group"
       w="full"
-      rounded="$bew-radius"
+      rounded="$bew-card-radius"
     >
       <component
         :is="coverSkeleton ? 'div' : 'ALink'"
@@ -375,6 +366,7 @@ provide('getVideoType', () => props.type!)
           type: 'videoCard',
           customClickEvent: Boolean(props.customClickHandler) || settings.videoCardLinkOpenMode === 'drawer' || settings.videoCardLinkOpenMode === 'background',
           customClickEventIncludesModifiers: Boolean(props.customClickHandler),
+          disableDragging: shouldDisableLinkDragging,
         }"
         v-on="coverSkeleton ? {} : linkEvents"
       >
@@ -391,12 +383,11 @@ provide('getVideoType', () => props.type!)
             :horizontal="horizontal"
             :removed="logic.removed.value"
             :is-hover="logic.isHover.value"
-            :preview-enabled="previewEnabled"
             :should-hide-overlay-elements="Boolean(logic.shouldHideOverlayElements.value)"
             :preview-video-url="logic.previewVideoUrl.value || ''"
             :video-element="logic.videoElement.value || null"
             :is-in-watch-later="logic.isInWatchLater.value"
-            :show-watcher-later="showWatcherLater"
+            :show-watcher-later="showWatcherLater && settings.showVideoCardWatchLater"
             :cover-top-left-always-visible="coverTopLeftAlwaysVisible"
             :cover-image-url="coverImageUrl"
             :cover-stat-values="coverStatValues"
@@ -413,15 +404,6 @@ provide('getVideoType', () => props.type!)
               <slot name="coverTopLeft" />
             </template>
           </VideoCardCover>
-
-          <div
-            v-if="wasVisitedRecently"
-            class="video-card-visited-marker"
-            :title="$t('video_card.visited_recently')"
-            :aria-label="$t('video_card.visited_recently')"
-          >
-            {{ $t('video_card.watched') }}
-          </div>
         </div>
 
         <!-- Other Information -->
@@ -495,27 +477,9 @@ provide('getVideoType', () => props.type!)
   min-height: fit-content;
 }
 
-/* 骨架屏状态：禁用交互 */
+/* 骨架屏状态：禁用交互；各内容块自身已经提供骨架反馈。 */
 .video-card-container--skeleton {
   pointer-events: none;
-  animation: video-card-skeleton-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes video-card-skeleton-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.55;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .video-card-container--skeleton {
-    animation: none;
-  }
 }
 
 /* hover/active 效果全部在最外层容器，background-color + box-shadow 同一元素同步动画，无时序差 */
@@ -557,26 +521,9 @@ provide('getVideoType', () => props.type!)
   --uno: "w-full";
 }
 
-.video-card-visited-marker {
-  position: absolute;
-  top: 0.5rem;
-  left: 0.5rem;
-  z-index: 3;
-  color: rgb(255 255 255 / 90%);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.04em;
-  opacity: 0.48;
-  pointer-events: none;
-  text-shadow:
-    0 1px 2px rgb(0 0 0 / 85%),
-    0 0 4px rgb(0 0 0 / 55%);
-}
-
 .bew-title-auto {
   /* 使用固定的响应式字体大小，不使用容器查询单位 */
-  font-size: clamp(12px, 2.5vw, 18px);
+  font-size: clamp(var(--bew-font-size-control), 2.5vw, var(--bew-font-size-heading));
   line-height: clamp(1.15, 1.35, 1.5);
 }
 
@@ -589,7 +536,7 @@ provide('getVideoType', () => props.type!)
 
 /* 使用固定样式变量 */
 :deep(.video-card-stats) {
-  --video-card-stats-font-size: 0.75rem;
+  --video-card-stats-font-size: var(--bew-font-size-control);
   --video-card-stats-overlay-scale: 1.4;
   --video-card-stats-icon-size: 0.825rem;
 }

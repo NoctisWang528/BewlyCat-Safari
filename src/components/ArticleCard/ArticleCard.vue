@@ -2,36 +2,52 @@
 import ALink from '~/components/ALink.vue'
 
 interface ArticleCardProps {
-  id: number
+  id: number | string
+  url?: string
   title: string
   desc?: string
   cover?: string
   author: string
   authorMid?: number
-  view?: number
-  like?: number
-  reply?: number
-  publishTime?: number
+  /** 数字或接口已格式化文案（如 "20.4万"） */
+  view?: number | string
+  like?: number | string
+  reply?: number | string
+  /** Unix 秒级时间戳，或接口直接返回的展示文案 */
+  publishTime?: number | string
   categoryName?: string
   tags?: Array<{ name: string }>
 }
 
-defineProps<ArticleCardProps>()
+const props = defineProps<ArticleCardProps>()
 
-// 格式化数字
-function formatNumber(num: number | undefined) {
-  if (!num)
+const articleUrl = computed(() => {
+  if (props.url)
+    return props.url
+
+  const id = String(props.id)
+  if (/^\d{15,}$/.test(id))
+    return `https://www.bilibili.com/opus/${id}`
+  return `https://www.bilibili.com/read/${id.startsWith('cv') ? id : `cv${id}`}`
+})
+
+// 格式化数字：已是展示字符串则原样返回
+function formatNumber(num: number | string | undefined) {
+  if (num === undefined || num === null || num === '')
     return '0'
-  if (num >= 10000) {
+  if (typeof num === 'string')
+    return num
+  if (num >= 10000)
     return `${(num / 10000).toFixed(1)}万`
-  }
   return num.toString()
 }
 
-// 格式化日期
-function formatDate(timestamp: number | undefined) {
-  if (!timestamp)
+// 格式化日期：字符串直接展示；数字按 Unix 秒处理
+function formatDate(timestamp: number | string | undefined) {
+  if (timestamp === undefined || timestamp === null || timestamp === '')
     return ''
+  if (typeof timestamp === 'string')
+    return timestamp
 
   const date = new Date(timestamp * 1000)
   const now = new Date()
@@ -63,13 +79,13 @@ function formatDate(timestamp: number | undefined) {
 
 <template>
   <ALink
-    :href="`https://www.bilibili.com/read/cv${id}`"
+    :href="articleUrl"
     type="videoCard"
     class="article-card"
     flex gap-4 p-4
     bg="$bew-elevated hover:$bew-elevated-hover"
-    rounded="$bew-radius"
-    transition-all duration-300 cursor-pointer
+    rounded="$bew-card-radius"
+    cursor-pointer
   >
     <!-- 左侧内容 -->
     <div class="article-content" flex-1 min-w-0>
@@ -145,7 +161,7 @@ function formatDate(timestamp: number | undefined) {
       v-if="cover"
       class="article-cover"
       w-32 h-24
-      rounded="$bew-radius-half"
+      rounded="$bew-media-radius"
       overflow-hidden
       flex-shrink-0
       bg="$bew-fill-1"
@@ -164,6 +180,10 @@ function formatDate(timestamp: number | undefined) {
   text-decoration: none;
   color: inherit;
   display: flex;
+  transition:
+    background-color var(--bew-duration-moderate) var(--bew-ease-standard),
+    box-shadow var(--bew-duration-moderate) var(--bew-ease-standard),
+    transform var(--bew-duration-moderate) var(--bew-ease-emphasized);
 
   &:hover {
     transform: translateY(-2px);

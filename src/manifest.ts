@@ -78,7 +78,12 @@ export async function getManifest() {
     ],
     web_accessible_resources: [
       {
-        resources: ['dist/contentScripts/style.css', 'dist/contentScripts/inject.global.js', 'assets/*'],
+        resources: [
+          'dist/contentScripts/style.css',
+          'dist/contentScripts/inject.global.js',
+          'dist/audioWorklets/volume-normalization.js',
+          'assets/*',
+        ],
         matches: [...CONTENT_SCRIPT_MATCHES],
       },
     ],

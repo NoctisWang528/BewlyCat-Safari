@@ -77,6 +77,11 @@ type OnMessageListener = (
   sendResponse: (response: unknown) => void,
 ) => true
 
+export function isExtensionContextInvalidatedError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.toLowerCase().includes('extension context invalidated')
+}
+
 /**
  * 从 content script 发送消息到 background
  * 自动解包 {ok, data/error} 响应格式

@@ -17,21 +17,27 @@ import { captureOriginalBilibiliTopBar, ensureOriginalBilibiliTopBarAppended, re
 import { initFavoriteDialogEnhancement } from '~/utils/favoriteDialog'
 import { runWhenIdle } from '~/utils/lazyLoad'
 import { getLocalWallpaper, hasLocalWallpaper, isLocalWallpaperUrl } from '~/utils/localWallpaper'
-import { compareVersions, getCookie, injectCSS, isElectron, isHomePage, isInIframe, isNotificationPage, isVideoOrBangumiPage, isVideoPlaybackPage } from '~/utils/main'
-import { applyAutoPlayByVideoType, applyDefaultCaptionState, applyDefaultDanmakuState, defaultMode, handleVideoPageNavigation, isCollectionVideo, isPlayerDisplayModeReady, isVideoPage, startAutoExitFullscreenMonitoring, startAutoPlayUserChangeMonitoring, webFullscreen, widescreen } from '~/utils/player'
-import { initRandomPlay, resetRandomPlayInitialization } from '~/utils/randomPlay'
+import { compareVersions, getCookie, injectCSS, isElectron, isHomePage, isInIframe, isNotificationPage, isVideoOrBangumiPage, isVideoPlaybackPage, isWatchLaterListPage } from '~/utils/main'
+import { initNativeFavoriteSeasonPlayAllIntercept } from '~/utils/nativeFavoriteSeasonPlayAll'
+import { applyAutoPlayByVideoType, applyDefaultCaptionState, applyDefaultDanmakuState, defaultMode, handleVideoPageNavigation, isPlayerDisplayModeReady, isVideoPage, resolveDefaultVideoPlayerMode, startAutoExitFullscreenMonitoring, startAutoPlayUserChangeMonitoring, webFullscreen, widescreen } from '~/utils/player'
+import { applyRandomPlayActivationSettings, destroyRandomPlay, initRandomPlay, isCustomPlayPage, resetRandomPlayInitialization, syncRandomPlayOrder } from '~/utils/randomPlay'
 import { getPluginSearchResultsUrl } from '~/utils/searchNavigation'
 import { setupShortcutHandlers } from '~/utils/shortcuts'
 import { SVG_ICONS } from '~/utils/svgIcons'
 import { openLinkInBackground } from '~/utils/tabs'
 import { initVerticalVideoZoom, resetVerticalVideoZoom } from '~/utils/verticalVideoZoom'
 import { recordVideoVisitFromUrl } from '~/utils/videoVisitHistory'
+import { ensureResponsiveViewport } from '~/utils/viewportMeta'
 
 import { version } from '../../package.json'
 import { initAudioInterceptor, setupSettingsWatcher } from './audioInterceptor'
 import { installCommentThemeTokens } from './commentThemeTokens'
 import { setupIframePhotoViewerDetector } from './features/iframePhotoViewerDetector'
+import { setupNotificationStateInvalidation } from './features/notificationStateInvalidation'
+import { setupOpusDetailDrawerLayout } from './features/opusDetailDrawerLayout'
 import { ensureMainWorldInjected } from './pageWorldInjection'
+import { initTouchPlayerGestures } from './touchPlayerGestures'
+import { initVideoAspectRatioMemory } from './videoAspectRatioMemory'
 import { initVideoScreenshotControl } from './videoScreenshotControl'
 import App from './views/App.vue'
 import { initVolumeNormalizationControl } from './volumeNormalizationControl'
@@ -54,6 +60,13 @@ const isElectronEnv = isElectron()
 
 const currentUrl = document.URL
 
+if (shouldInitializeContentScript && isHomePage()) {
+  console.log('[BewlyCat][首页加载] 插件开始加载', {
+    time: new Date().toLocaleString(),
+    version,
+  })
+}
+
 function isFestivalPage(): boolean {
   return /https?:\/\/(?:www\.)?bilibili\.com\/festival\/.*/.test(document.URL)
 }
@@ -66,8 +79,8 @@ function isSupportedPages(): boolean {
     isHomePage()
     // video or bangumi page
     || isVideoOrBangumiPage()
-    // watchlater list page
-    || /https?:\/\/(?:www\.)?bilibili\.com\/watchlater\/list.*/.test(currentUrl)
+    // watch later list page
+    || isWatchLaterListPage(currentUrl)
     // popular page https://www.bilibili.com/v/popular/all
     || /https?:\/\/(?:www\.)?bilibili\.com\/v\/popular\/all.*/.test(currentUrl)
     // search page
@@ -83,9 +96,6 @@ function isSupportedPages(): boolean {
     // history page
     || /https?:\/\/(?:www\.)?bilibili\.com\/history.*/.test(currentUrl)
     || /https?:\/\/(?:www\.)?bilibili\.com\/account\/history.*/.test(currentUrl)
-    // watcher later page
-    || /https?:\/\/(?:www\.)?bilibili\.com\/watchlater\/#\/list.*/.test(currentUrl)
-    || /https?:\/\/(?:www\.)?bilibili\.com\/watchlater\/list.*/.test(currentUrl)
     // user space page
     || /https?:\/\/space\.bilibili\.com\.*/.test(currentUrl)
     // notifications page
@@ -134,14 +144,15 @@ export function isSupportedIframePages(): boolean {
       || /https?:\/\/www\.bilibili\.com\/anime.*/.test(currentUrl)
       || /https?:\/\/space\.bilibili\.com\/\d+\/favlist.*/.test(currentUrl)
       || /https?:\/\/www\.bilibili\.com\/history.*/.test(currentUrl)
-      || /https?:\/\/www\.bilibili\.com\/watchlater\/#\/list.*/.test(currentUrl)
-      || /https?:\/\/www\.bilibili\.com\/watchlater\/list.*/.test(currentUrl)
+      || isWatchLaterListPage(currentUrl)
       // moments page
       // https://github.com/BewlyBewly/BewlyBewly/issues/1246
       // https://github.com/BewlyBewly/BewlyBewly/issues/1256
       // https://github.com/BewlyBewly/BewlyBewly/issues/1266
       // https://github.com/keleus/BewlyCat/issues/150
       || /https?:\/\/t\.bilibili\.com(?!\/vote|\/share|\/pages\/nav).*/.test(currentUrl)
+      // moment detail (opus)
+      || /https?:\/\/(?:www\.)?bilibili\.com\/opus\/.*/.test(currentUrl)
       // notifications page, for `Open the notifications page as a drawer`
       || isNotificationPage()
     )
@@ -158,13 +169,12 @@ if (isElectronEnv) {
 }
 else if (shouldInitializeContentScript) {
   installCommentThemeTokens()
+  setupNotificationStateInvalidation()
 
-  // Safari injects the page-world bundle through a web-accessible script tag.
-  // The idempotency guard inside inject.global.js protects all platforms.
+  // Safari 通过可访问资源脚本标签注入页面世界，其余平台仍由 manifest 直接注入。
   // eslint-disable-next-line node/prefer-global/process
   if (process.env.SAFARI)
     ensureMainWorldInjected()
-
   // Fix `OverlayScrollbars` not working in Firefox
   // https://github.com/fingerprintjs/fingerprintjs/issues/683#issuecomment-881210244
   if (isFirefox) {
@@ -183,19 +193,22 @@ else if (shouldInitializeContentScript) {
   let playerModeRetryTimer: ReturnType<typeof setTimeout> | undefined
   let watchLaterButtonAdded = false // 标记稍后再看按钮是否已添加
 
-  recordVideoVisitFromUrl(lastUrl)
+  void settingsReady.then(() => recordVideoVisitFromUrl(lastUrl))
 
   function setupPluginSearchLinkNavigation() {
     document.addEventListener('click', (event) => {
       if (!settings.value.usePluginSearchResultsPage || !getCookie('DedeUserID'))
         return
 
-      const target = event.target
-      if (!(target instanceof Element))
+      // 评论区等 B 站 Web Component 会把点击目标重新指向 Shadow Host，
+      // 需要从完整事件路径中找到实际的搜索链接。
+      const anchor = event.composedPath().find(
+        (target): target is HTMLAnchorElement => target instanceof HTMLAnchorElement && target.hasAttribute('href'),
+      ) ?? (event.target instanceof Element ? event.target.closest('a[href]') : null)
+      if (!(anchor instanceof HTMLAnchorElement))
         return
 
-      const anchor = target.closest('a[href]')
-      if (!(anchor instanceof HTMLAnchorElement))
+      if (anchor.closest('.bili-header, #biliMainHeader, #internationalHeader, #bili-header-container'))
         return
 
       const pluginSearchResultsUrl = getPluginSearchResultsUrl(anchor.href)
@@ -231,6 +244,11 @@ else if (shouldInitializeContentScript) {
       useDark()
 
     const shouldApplyFullStyles = applyBewlyDesignClasses()
+
+    // opus 详情分栏布局不依赖“适配其他页样式”，只要在 iframe 内就尝试重排
+    if (isInIframe())
+      setupOpusDetailDrawerLayout()
+
     if (shouldApplyFullStyles) {
       // Setup iframe photo viewer detector (only in iframe)
       if (isInIframe())
@@ -281,7 +299,7 @@ else if (shouldInitializeContentScript) {
   })
 
   // 应用默认播放器模式
-  function applyDefaultPlayerMode() {
+  function applyDefaultPlayerMode(showBewlyWidescreenLoading = true) {
     if (!isVideoOrBangumiPage()) {
       clearPlayerModeRetry()
       return
@@ -310,33 +328,28 @@ else if (shouldInitializeContentScript) {
       return
     }
 
-    const playerMode = settings.value.defaultVideoPlayerMode
-    let targetPlayerMode = settings.value.keepCollectionVideoDefaultMode && isCollectionVideo()
-      ? 'default'
-      : playerMode
+    let targetPlayerMode = resolveDefaultVideoPlayerMode()
     if (isFestivalPage() && targetPlayerMode === 'bewlyWidescreen')
       targetPlayerMode = 'widescreen'
 
     if (!isPlayerDisplayModeReady(targetPlayerMode)) {
-      schedulePlayerModeRetry()
+      schedulePlayerModeRetry(showBewlyWidescreenLoading)
       return
     }
 
     clearPlayerModeRetry()
 
-    // 检查是否为合集视频且启用了保持默认模式
-    if (targetPlayerMode === 'default' && settings.value.keepCollectionVideoDefaultMode) {
-    // 合集视频强制使用默认模式
-      defaultMode()
-    }
-    else if (!targetPlayerMode || targetPlayerMode === 'default') {
+    if (!targetPlayerMode || targetPlayerMode === 'default') {
     // 默认模式也需要居中显示
       defaultMode()
     }
     else {
       switch (targetPlayerMode) {
         case 'bewlyWidescreen':
-          applyBewlyWidescreen(settings.value.bewlyWidescreenSidebarPosition || 'right')
+          applyBewlyWidescreen(
+            settings.value.bewlyWidescreenSidebarPosition || 'right',
+            showBewlyWidescreenLoading,
+          )
           break
         case 'webFullscreen':
           webFullscreen()
@@ -371,13 +384,13 @@ else if (shouldInitializeContentScript) {
     }
   }
 
-  function schedulePlayerModeRetry() {
+  function schedulePlayerModeRetry(showBewlyWidescreenLoading = true) {
     if (playerModeRetryTimer)
       return
 
     playerModeRetryTimer = setTimeout(() => {
       playerModeRetryTimer = undefined
-      applyDefaultPlayerMode()
+      applyDefaultPlayerMode(showBewlyWidescreenLoading)
     }, document.visibilityState === 'visible' ? 500 : 1000)
   }
 
@@ -405,7 +418,7 @@ else if (shouldInitializeContentScript) {
   // 初始化随机播放功能
   function initRandomPlayFeature() {
   // 只在视频页面初始化随机播放功能
-    if (isVideoPage() && settings.value.enableRandomPlay) {
+    if (isCustomPlayPage() && settings.value.enableRandomPlay) {
       initRandomPlay()
     }
   }
@@ -467,13 +480,14 @@ else if (shouldInitializeContentScript) {
         // 重置随机播放初始化状态，避免重复加载
         resetRandomPlayInitialization()
 
-        applyDefaultPlayerMode()
+        // B 站站内切集会立即开始播放，静默重建宽屏布局，避免加载遮罩盖住视频。
+        applyDefaultPlayerMode(false)
         // 如果是视频页面内部跳转，延迟执行滚动
         if (isVideoOrBangumiPage()) {
           handleVideoPageNavigation()
         }
         // 重新初始化随机播放功能
-        if (isVideoPage() && settings.value.enableRandomPlay) {
+        if (isCustomPlayPage() && settings.value.enableRandomPlay) {
           setTimeout(() => {
             initRandomPlayFeature()
           }, 2000) // 延迟2秒初始化，确保页面完全加载
@@ -506,39 +520,46 @@ else if (shouldInitializeContentScript) {
   window.addEventListener('load', () => {
     if (isVideoPage()) {
       applyDefaultPlayerMode()
-      // 初始化随机播放功能
-      if (settings.value.enableRandomPlay) {
-        setTimeout(() => {
-          initRandomPlayFeature()
-        }, 3000) // 延迟3秒初始化，确保页面完全加载
-      }
     }
     else if (isVideoOrBangumiPage()) {
       applyDefaultPlayerMode()
     }
 
-    // 添加搜索页面视频卡片点击事件处理
-    if (/https?:\/\/search\.bilibili\.com\.*/.test(location.href)) {
-      setupBiliVideoCardClickHandler()
+    // 初始化自定义播放功能
+    if (isCustomPlayPage() && settings.value.enableRandomPlay) {
+      setTimeout(() => {
+        initRandomPlayFeature()
+      }, 3000) // 延迟3秒初始化，确保页面完全加载
     }
+
+    // 添加搜索页面视频卡片链接点击事件处理
+    if (/https?:\/\/search\.bilibili\.com\.*/.test(location.href))
+      setupBiliVideoCardLinkClickHandler()
   })
 
-  // 添加bili-video-card点击事件处理
-  function setupBiliVideoCardClickHandler() {
+  // B 站原生视频卡片会在多个页面复用，统一监听稍后再看操作并同步顶栏状态。
+  function setupNativeWatchLaterStateSync() {
+    document.addEventListener('click', (event) => {
+      const watchLaterButton = event.composedPath().find(
+        (target): target is Element => target instanceof Element
+          && target.matches('.bili-watch-later, .bili-watch-later--wrap, .bili-watch-later__icon'),
+      )
+      if (!watchLaterButton)
+        return
+
+      // B 站接口写入存在短暂延迟，稍后强制刷新并广播给顶栏所在实例。
+      window.setTimeout(() => {
+        void useTopBarStore().syncWatchLaterState(true)
+      }, 1000)
+    }, true)
+  }
+
+  setupNativeWatchLaterStateSync()
+
+  // 添加搜索页 bili-video-card 链接点击事件处理
+  function setupBiliVideoCardLinkClickHandler() {
     document.addEventListener('click', (event) => {
       const target = event.target as HTMLElement
-
-      // 检查点击的是否是稍后再看按钮或其子元素
-      const watchLaterButton = target.closest('.bili-watch-later, .bili-watch-later--wrap, .bili-watch-later__icon')
-      if (watchLaterButton) {
-      // 如果点击的是稍后再看按钮，延迟1秒后更新顶栏数据
-        setTimeout(() => {
-        // 动态导入topBarStore来更新稍后再看列表
-          const topBarStore = useTopBarStore()
-          topBarStore.getAllWatchLaterList()
-        }, 1000)
-        return
-      }
 
       const linkElement = target.closest('.bili-video-card a, .bili-video-card__wrap a')
 
@@ -568,34 +589,47 @@ else if (shouldInitializeContentScript) {
 
   // Set the original Bilibili top bar to `display: none` to prevent it from showing before the load
   // see: https://github.com/BewlyBewly/BewlyBewly/issues/967
-  const removeOriginalTopBar = injectCSS(`.bili-header, #biliMainHeader { visibility: hidden !important; }`)
+  const removeOriginalTopBar = injectCSS(`
+    .bili-header,
+    #biliMainHeader,
+    .header-channel,
+    .bili-header-channel-panel {
+      visibility: hidden !important;
+    }
+  `)
 
   async function onDOMLoaded() {
-    const pluginSearchResultsUrl = !isInIframe() && getPluginSearchResultsUrl(location.href)
-
-    if (pluginSearchResultsUrl) {
+    // 首页需要先完成设置读取，避免默认值误把原版首页当成自定义首页并吞掉分区行。
+    if (isHomePage())
       await settingsReady
 
-      if (settings.value.usePluginSearchResultsPage && getCookie('DedeUserID')) {
-        location.replace(pluginSearchResultsUrl)
-        return
-      }
-    }
-
     const changeHomePage = !isInIframe() && !settings.value.useOriginalBilibiliHomepage && isHomePage()
+    document.documentElement.classList.toggle('bewly-custom-homepage', changeHomePage)
 
-    // Remove the original Bilibili homepage if in Bilibili homepage & useOriginalBilibiliHomepage is enabled
+    // 启用自定义首页时隐藏 B 站原始首页。
     if (changeHomePage) {
-    // Capture the original top bar early so we can optionally re-attach it later.
+      // 移动端缺少 viewport 声明时会按 980px 排版后整体缩放，导致响应式断点失效。
+      ensureResponsiveViewport(document)
+
+      // 提前保存原始顶栏，以便需要时重新挂载。
       captureOriginalBilibiliTopBar(document)
 
       // 方案选择：
       // 方案 1: 清理脚本 + 删除 DOM（可能更彻底，但有风险）
       // 方案 2: CSS 隐藏（更安全，性能更好，推荐）
 
-      // 推荐使用方案2：CSS隐藏
-      // 使用 CSS 隐藏 B 站原始页面，保留 DOM 结构
+      // 方案2：CSS 完整隐藏原站首页根节点，不再把 #app / .bili-feed4 保活露出。
+      // 原版顶栏需要用时再 portal 到 body（见 ensureOriginalBilibiliTopBarAppended），
+      // 避免「半隐藏的 B 站首页 Vue 树」与自定义首页双开抢资源。
       injectCSS(`
+      /* 自定义首页始终以当前可视视口为尺寸基准，避免原站最小宽度撑大文档。 */
+      html,
+      body {
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        overflow-x: hidden !important;
+      }
       /* Hide Bilibili's own page elements, preserving third-party extensions (e.g., Bili-Evolved) */
       body > #app,
       body > #i_cecream,
@@ -607,9 +641,8 @@ else if (shouldInitializeContentScript) {
         position: absolute !important;
         left: -9999px !important;
       }
-      /* Ensure the original top bar remains visible and properly positioned */
-      /* The visibility/display will be controlled by .remove-top-bar class in removeTopBar.scss */
-      .bili-header {
+      /* 顶栏 portal 到 body 后的定位；显隐由 .remove-top-bar 控制 */
+      body > .bili-header {
         position: relative !important;
         left: 0 !important;
         pointer-events: auto !important;
@@ -619,6 +652,8 @@ else if (shouldInitializeContentScript) {
       // 温和的脚本清理（可选，减少后台资源消耗）
       cleanupBilibiliScripts()
 
+      // 始终把原版顶栏移出被隐藏的 #app，避免后续开关原版顶栏时节点仍埋在不可见树里。
+      // 使用 Bewly 顶栏时由 .remove-top-bar 隐藏占位，逻辑对齐 1.6.9。
       ensureOriginalBilibiliTopBarAppended(document)
 
       // Setup login button click handlers for the original Bilibili top bar
@@ -665,12 +700,17 @@ else if (shouldInitializeContentScript) {
     if (settings.value.enableVolumeNormalization)
       initAudioInterceptor()
     initVolumeNormalizationControl()
+    initVideoAspectRatioMemory()
     initVideoScreenshotControl()
+    initTouchPlayerGestures()
 
     // Initialize Favorite Dialog Enhancement (for video pages)
     if (isVideoOrBangumiPage()) {
       initFavoriteDialogEnhancement()
     }
+
+    // 原生空间订阅合集 favlist「播放全部」按设置起播
+    initNativeFavoriteSeasonPlayAllIntercept()
   }
 
   if (document.readyState !== 'loading') {
@@ -720,6 +760,25 @@ else if (shouldInitializeContentScript) {
     }
 
     const root = document.createElement('div')
+    const useViewportLayout = !isInIframe() && !settings.value.useOriginalBilibiliHomepage && isHomePage()
+
+    if (useViewportLayout) {
+      Object.assign(container.style, {
+        position: 'fixed',
+        inset: '0',
+        width: 'auto',
+        minWidth: '0',
+        maxWidth: 'none',
+        height: '100dvh',
+        overflow: 'hidden',
+      })
+      Object.assign(root.style, {
+        width: '100%',
+        height: '100%',
+        minWidth: '0',
+      })
+    }
+
     const styleEl = document.createElement('link')
     // Fix #69 https://github.com/hakadao/BewlyBewly/issues/69
     // https://medium.com/@emilio_martinez/shadow-dom-open-vs-closed-1a8cf286088a - open shadow dom
@@ -731,14 +790,15 @@ else if (shouldInitializeContentScript) {
     shadowDOM.appendChild(resetStyleEl)
     shadowDOM.appendChild(styleEl)
     shadowDOM.appendChild(root)
-    container.style.opacity = '0'
-    container.style.transition = 'opacity 0.5s'
-    styleEl.onload = () => {
-    // To prevent abrupt style transitions caused by sudden style changes
-      setTimeout(() => {
-        container.style.opacity = '1'
-      }, 500)
+
+    // 样式就绪前隐藏整个 Shadow DOM，避免未应用样式的内容闪现。
+    // 就绪后一次性展示，避免容器淡入与壁纸遮罩透明度叠加，造成遮罩延迟出现。
+    container.style.visibility = 'hidden'
+    const revealContainer = () => {
+      container.style.visibility = 'visible'
     }
+    styleEl.addEventListener('load', revealContainer, { once: true })
+    styleEl.addEventListener('error', revealContainer, { once: true })
 
     // startShadowDOMStyleInjection()
 
@@ -768,33 +828,58 @@ else if (shouldInitializeContentScript) {
     sendSettingsToPage(settings.value)
   })
 
-  // 监听设置变化
-  watch(settings, (newSettings, oldSettings) => {
-    sendSettingsToPage(newSettings)
-
-    // 监听随机播放设置变化
-    if (newSettings.enableRandomPlay !== undefined) {
-      if (isVideoPage()) {
-        if (newSettings.enableRandomPlay) {
-        // 启用随机播放
+  watch(
+    [
+      () => settings.value.enableRandomPlay,
+      () => settings.value.randomPlayMode,
+      () => settings.value.minVideosForRandom,
+      () => settings.value.defaultCustomPlayOrder,
+      () => settings.value.enableCustomPlayOrderOverrides,
+      () => settings.value.customPlayOrderOverrides.multipart,
+      () => settings.value.customPlayOrderOverrides.collection,
+      () => settings.value.customPlayOrderOverrides.watchLater,
+      () => settings.value.customPlayOrderOverrides.playlist,
+    ],
+    ([enabled, activationMode, minVideos, ...orderSettings], [previousEnabled, previousActivationMode, previousMinVideos, ...previousOrderSettings]) => {
+      if (enabled !== previousEnabled && isCustomPlayPage()) {
+        if (enabled) {
           setTimeout(() => {
             initRandomPlayFeature()
           }, 1000)
         }
         else {
-        // 禁用随机播放，重置状态
-          resetRandomPlayInitialization()
+          destroyRandomPlay()
         }
       }
-    }
+
+      if (orderSettings.some((value, index) => value !== previousOrderSettings[index])) {
+        syncRandomPlayOrder()
+        applyRandomPlayActivationSettings()
+      }
+
+      if (
+        activationMode !== previousActivationMode
+        || minVideos !== previousMinVideos
+      ) {
+        applyRandomPlayActivationSettings()
+      }
+    },
+  )
+
+  // 监听设置变化
+  watch(settings, (newSettings, oldSettings) => {
+    sendSettingsToPage(newSettings)
 
     // 监听自动播放设置变化
-    if (isVideoPage()) {
+    if (isCustomPlayPage()) {
     // 检查自动播放相关设置是否发生变化
       const autoPlaySettingsChanged = oldSettings && (
-        newSettings.autoPlayMultipart !== oldSettings.autoPlayMultipart
+        newSettings.useBilibiliDefaultAutoPlay !== oldSettings.useBilibiliDefaultAutoPlay
+        || newSettings.enableRandomPlay !== oldSettings.enableRandomPlay
+        || newSettings.autoPlayMultipart !== oldSettings.autoPlayMultipart
         || newSettings.autoPlayCollection !== oldSettings.autoPlayCollection
         || newSettings.autoPlayRecommend !== oldSettings.autoPlayRecommend
+        || newSettings.autoPlayWatchLater !== oldSettings.autoPlayWatchLater
         || newSettings.autoPlayPlaylist !== oldSettings.autoPlayPlaylist
       )
 
@@ -803,6 +888,7 @@ else if (shouldInitializeContentScript) {
       // 延迟时间增加，确保页面元素已经渲染
         setTimeout(() => {
           applyAutoPlayByVideoType()
+          applyRandomPlayActivationSettings()
         }, 1000)
       }
     }
@@ -934,9 +1020,11 @@ else if (shouldInitializeContentScript) {
   // 启动自动播放用户修改监听
   startAutoPlayUserChangeMonitoring()
 
-  // 为 iframe 中运行时添加 ESC 键监听（消息页面和视频页面）
-  if (isInIframe() && (isNotificationPage() || isVideoOrBangumiPage())) {
-    const pageType = isNotificationPage() ? 'message' : 'video'
+  // 为 iframe 中运行时添加 ESC 键监听（消息页面、视频页面、动态详情）
+  const isMomentDetailPage = /https?:\/\/t\.bilibili\.com\/\d+/.test(currentUrl)
+    || /https?:\/\/(?:www\.)?bilibili\.com\/opus\/\d+/.test(currentUrl)
+  if (isInIframe() && (isNotificationPage() || isVideoOrBangumiPage() || isMomentDetailPage)) {
+    const pageType = isNotificationPage() ? 'message' : isVideoOrBangumiPage() ? 'video' : 'moment-detail'
     console.log(`[Bewly IFrame] ESC listener initialized for ${pageType} page`)
 
     window.addEventListener('keydown', (e: KeyboardEvent) => {

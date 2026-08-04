@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useMutationObserver } from '@vueuse/core'
+import { useMediaQuery, useMutationObserver } from '@vueuse/core'
 import { computed, onMounted, ref } from 'vue'
 
 import { settings } from '~/logic'
@@ -14,7 +14,10 @@ defineProps<{
   isDark: boolean
 }>()
 
-const { forceWhiteIcon, handleNotificationsItemClick } = useTopBarInteraction()
+const { forceWhiteIcon, handleNotificationsItemClick, showSearchBar } = useTopBarInteraction()
+const isNarrowLayout = useMediaQuery('(max-width: 767px)')
+
+const isArticlePage = /^https?:\/\/(?:www\.)?bilibili\.com\/(?:read|opus)\//.test(location.href)
 
 const leftSection = ref<HTMLElement | null>(null)
 const rightSection = ref<HTMLElement | null>(null)
@@ -94,6 +97,12 @@ const maxOffset = computed(() => {
 })
 
 const searchOffset = computed(() => {
+  // 窄屏优先把完整的中间栏交给搜索框，避免平移后浪费可用宽度。
+  if (isNarrowLayout.value)
+    return 0
+
+  // 左右区域宽度不同时，补偿一半宽度差，让有足够空余的搜索框相对页面居中。
+  // 实际偏移仍受搜索区域剩余空间限制，空间不足时不会挤压两侧控件。
   const desired = (rightWidth.value - leftWidth.value) / 2
   const limit = maxOffset.value
   if (!limit)
@@ -102,7 +111,7 @@ const searchOffset = computed(() => {
 })
 
 function refreshSearchContent() {
-  const el = searchSection.value?.querySelector('#search-wrap') as HTMLElement | null
+  const el = searchSection.value?.querySelector<HTMLElement>('[data-top-bar-search-content]')
   searchContent.value = el ?? null
   searchContentWidth.value = el?.offsetWidth ?? 0
 }
@@ -110,6 +119,7 @@ function refreshSearchContent() {
 
 <template>
   <main
+    class="top-bar-header"
     max-w="$bew-page-max-width"
     grid="~ cols-[auto_1fr_auto] items-center gap-4"
     p="x-12" m-auto
@@ -166,7 +176,17 @@ function refreshSearchContent() {
       class="top-bar-header__search"
       :style="{ transform: `translateX(${searchOffset}px)` }"
     >
-      <TopBarSearch />
+      <div
+        class="top-bar-header__search-content"
+        data-top-bar-search-content
+      >
+        <div
+          v-if="showSearchBar"
+          class="top-bar-header__search-control"
+        >
+          <TopBarSearch />
+        </div>
+      </div>
     </div>
 
     <!-- right content -->
@@ -175,10 +195,49 @@ function refreshSearchContent() {
         @notifications-click="handleNotificationsItemClick"
       />
     </div>
+
+    <div
+      class="top-bar-header__divider"
+      :class="{
+        'top-bar-header__divider--visible': !reachTop && !isArticlePage,
+        'top-bar-header__divider--white': forceWhiteIcon,
+      }"
+    />
   </main>
 </template>
 
 <style scoped lang="scss">
+.top-bar-header {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: var(--bew-top-bar-height);
+}
+
+.top-bar-header__divider {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  pointer-events: none;
+  background: color-mix(in oklab, var(--bew-border-color), transparent 35%);
+  opacity: 0;
+  transform: scaleX(0.96);
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
+
+  &--visible {
+    opacity: 0.65;
+    transform: scaleX(1);
+  }
+
+  &--white {
+    background: rgba(255, 255, 255, 0.16);
+  }
+}
+
 .top-bar-header__side {
   display: flex;
   align-items: center;
@@ -191,12 +250,44 @@ function refreshSearchContent() {
 
 .top-bar-header__side--right {
   justify-self: end;
+  gap: 8px;
 }
 
 .top-bar-header__search {
   display: flex;
   justify-content: center;
+  width: 100%;
   min-width: 0;
   transition: transform 0.2s ease;
+}
+
+.top-bar-header__search-content {
+  display: flex;
+  width: 100%;
+  max-width: 600px;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.top-bar-header__search-control {
+  width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+// 窄屏响应式 padding（避免窄屏下 x-48px 过于挤压）
+@media (max-width: 1279px) {
+  .top-bar-header {
+    gap: 12px;
+    padding-inline: 16px;
+  }
+}
+
+@media (max-width: 767px) {
+  .top-bar-header {
+    gap: 8px;
+    padding-inline: 8px;
+  }
 }
 </style>

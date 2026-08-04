@@ -2,10 +2,138 @@
 :root {
   --bew-page-max-width: 2280px;
 
-  --bew-base-font-size: 14.8px;
+  // #region Typography
+  // Use semantic roles instead of one-off size/weight pairs. Body and title share
+  // Bilibili's 15px base, with line height and weight providing their hierarchy.
+  --bew-font-size-caption: 12px;
+  --bew-font-size-control: 13px;
+  --bew-font-size-body: 15px;
+  --bew-font-size-title: 15px;
+  --bew-font-size-heading: 20px;
+  // Rare display text and large numerals are not part of the interface text scale.
+  --bew-font-size-display: 24px;
+  --bew-font-size-data: var(--bew-font-size-display);
+  --bew-font-size-data-emphasis: 28px;
+  --bew-line-height-caption: 16px;
+  --bew-line-height-control: 18px;
+  --bew-line-height-body: 24px;
+  --bew-line-height-title: 22px;
+  --bew-line-height-heading: 28px;
+  --bew-line-height-data: 32px;
+  --bew-font-weight-regular: 400;
+  --bew-font-weight-medium: 500;
+  --bew-font-weight-semibold: 600;
+  --bew-font-weight-bold: 700;
+  --bew-base-font-size: var(--bew-font-size-body);
+  // #endregion
 
-  --bew-radius: 12px;
-  --bew-radius-half: calc(var(--bew-radius) / 2);
+  // Icon-font glyphs use their own scale and must not be mistaken for text.
+  --bew-icon-size-sm: 16px;
+  --bew-icon-size-md: 20px;
+  --bew-icon-size-lg: 24px;
+  --bew-icon-size-xl: 32px;
+
+  // #region Radius
+  // Primitive radius scale. Use the semantic aliases below for components so
+  // cards, media and popovers can evolve without page-level overrides.
+  --bew-radius-sm: 4px;
+  --bew-radius-half: 6px;
+  --bew-radius-md: 8px;
+  --bew-radius-lg: 12px;
+  --bew-radius-xl: 16px;
+  --bew-radius-2xl: 24px;
+  --bew-radius-full: 9999px;
+  --bew-radius: var(--bew-radius-lg);
+  --bew-card-radius: var(--bew-radius-lg);
+  --bew-media-radius: var(--bew-radius-lg);
+  --bew-panel-radius: var(--bew-radius-lg);
+  --bew-modal-radius: var(--bew-radius-2xl);
+  --bew-popover-radius: var(--bew-radius-lg);
+  --bew-interactive-radius: var(--bew-radius-md);
+  --bew-badge-radius: var(--bew-radius-full);
+  // #endregion
+
+  // #region Spacing
+  // Layout uses a 4px grid. The 2px step is reserved for borders, rings and
+  // optical nudges rather than normal sibling spacing or container padding.
+  --bew-space-0-5: 2px;
+  --bew-space-1: 4px;
+  --bew-space-2: 8px;
+  --bew-space-3: 12px;
+  --bew-space-4: 16px;
+  --bew-space-5: 20px;
+  --bew-space-6: 24px;
+  --bew-space-8: 32px;
+  --bew-space-10: 40px;
+  --bew-space-12: 48px;
+  // #endregion
+
+  // Keep fixed Dock controls visually separate from scrollable page content.
+  --bew-dock-item-size: 35px;
+  --bew-dock-content-gap: var(--bew-space-3);
+  // Item size + the Dock's edge offset, shell margin/padding, and content gap.
+  --bew-dock-safe-inset: calc(var(--bew-dock-item-size) + var(--bew-space-10) + var(--bew-dock-content-gap));
+
+  // #region Motion
+  // Prefer specific transition properties over `transition: all` to avoid layout jumps.
+  --bew-duration-fast: 150ms;
+  --bew-duration-normal: 200ms;
+  --bew-duration-moderate: 300ms;
+  --bew-ease-standard: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --bew-ease-out: ease-out;
+  --bew-ease-in-out: ease-in-out;
+  // Subtle interactive press/hover (avoid extreme overshoot)
+  --bew-ease-emphasized: cubic-bezier(0.34, 1.3, 0.64, 1);
+  // #endregion
+
+  // #region Compact controls
+  // Shared geometry and typography for top-bar controls, segmented tabs and
+  // icon switchers. 36px outer - 2 * 4px padding = a 28px item target.
+  --bew-control-height: 36px;
+  --bew-control-padding: var(--bew-space-1);
+  --bew-control-gap: var(--bew-space-1);
+  --bew-control-border-width: 0px;
+  --bew-control-radius: var(--bew-radius-full);
+  --bew-control-item-height: calc(
+    var(--bew-control-height) - (var(--bew-control-border-width) + var(--bew-control-padding)) * 2
+  );
+  --bew-control-item-padding-x: var(--bew-space-3);
+  --bew-control-item-padding-x-wide: var(--bew-space-4);
+  --bew-control-item-radius: var(--bew-radius-full);
+  --bew-control-icon-size: 16px;
+  --bew-control-label-size: var(--bew-font-size-control);
+  --bew-control-label-line-height: var(--bew-line-height-control);
+  --bew-control-label-weight: var(--bew-font-weight-semibold);
+  --bew-control-brand-label-weight: var(--bew-font-weight-bold);
+  --bew-control-background: var(--bew-elevated);
+  --bew-control-background-white: color-mix(in oklab, var(--bew-elevated-solid), transparent 80%);
+  --bew-control-border-color: transparent;
+  // #endregion
+
+  // Search and logo stay one step larger (still full capsule/circle)
+  --bew-top-bar-primary-control-height: 46px;
+  --bew-top-bar-primary-control-radius: var(--bew-radius-full);
+  --bew-top-bar-brand-logo-width: 84px;
+  --bew-top-bar-brand-logo-height: 28px;
+  --bew-top-bar-brand-logo-compact-size: 24px;
+
+  // Interaction tokens aligned with home tab buttons
+  --bew-segment-item-hover-bg: var(--bew-fill-1);
+  --bew-segment-item-hover-color: var(--bew-text-1);
+  --bew-segment-item-active-bg: var(--bew-theme-color-20);
+  --bew-segment-item-active-color: var(--bew-theme-color);
+  --bew-segment-item-active-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 2px 6px var(--bew-theme-color-10);
+  --bew-segment-item-hover-bg-white: rgba(255, 255, 255, 0.16);
+  --bew-segment-item-active-bg-white: color-mix(in oklab, var(--bew-theme-color), transparent 55%);
+  --bew-segment-item-active-shadow-white:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 2px 6px color-mix(in oklab, var(--bew-theme-color), transparent 55%);
+  --bew-liquid-indicator-bg: var(--bew-segment-item-active-bg);
+  --bew-liquid-indicator-shadow: var(--bew-segment-item-active-shadow);
+  --bew-liquid-indicator-radius: var(--bew-control-item-radius);
+  --bew-liquid-indicator-bg-white: var(--bew-segment-item-active-bg-white);
+  --bew-liquid-indicator-shadow-white: var(--bew-segment-item-active-shadow-white);
+  --bew-liquid-indicator-fade-duration: var(--bew-duration-normal);
+  --bew-liquid-indicator-paint-duration: var(--bew-duration-normal);
 
   --bew-top-bar-height: 64px;
 
@@ -93,7 +221,7 @@
   --bew-success-color-80: color-mix(in oklab, var(--bew-success-color), transparent 20%);
   --bew-success-color-90: color-mix(in oklab, var(--bew-success-color), transparent 10%);
 
-  --bew-warning-color: hsl(48 90% 53%);
+  --bew-warning-color: #f59e0b;
   --bew-warning-color-10: color-mix(in oklab, var(--bew-warning-color), transparent 90%);
   --bew-warning-color-20: color-mix(in oklab, var(--bew-warning-color), transparent 80%);
   --bew-warning-color-30: color-mix(in oklab, var(--bew-warning-color), transparent 70%);
@@ -194,6 +322,9 @@
   // #endregion
 
   --bew-border-color: rgb(131 131 145 / 18%);
+
+  // Threaded comments use this subtle rail to keep nested reply ancestry visible.
+  --bew-comment-tree-line-color: var(--bew-fill-2);
 
   // 开关背景色
   --bew-switch-bg: rgb(227, 229, 231);
@@ -921,5 +1052,12 @@
   --Lb1_rgb: 11, 32, 42;
   --Lb5_rgb: 0, 135, 189;
   --Lb7_rgb: 88, 177, 212;
+}
+
+@media (min-width: 1024px) {
+  :host,
+  :root {
+    --bew-dock-item-size: 45px;
+  }
 }
 // #endregion

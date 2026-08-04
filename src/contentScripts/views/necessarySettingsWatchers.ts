@@ -1,10 +1,10 @@
 import { useI18n } from 'vue-i18n'
 
 import { IFRAME_TOP_BAR_CHANGE } from '~/constants/globalEvents'
-import { setUselessFeedCardBlockerEnabled } from '~/contentScripts/features/blockUselessFeedCards'
+import { setUselessFeedCardBlockerEnabled, shouldEnableUselessFeedCardBlocker } from '~/contentScripts/features/blockUselessFeedCards'
 import { LanguageType } from '~/enums/appEnums'
 import { appAuthTokens, FROSTED_GLASS_BLUR_MAX_PX, FROSTED_GLASS_BLUR_MIN_PX, localSettings, originalSettings, settings } from '~/logic'
-import { resetBilibiliTopBarInlineStyles, setOriginalBilibiliTopBarScrolled } from '~/utils/bilibiliTopBar'
+import { ensureOriginalBilibiliTopBarAppended, resetBilibiliTopBarInlineStyles, setOriginalBilibiliTopBarScrolled } from '~/utils/bilibiliTopBar'
 import { cleanBilibiliShareText, getUserID, injectCSS, isHomePage, isInIframe, isVideoPlaybackPage } from '~/utils/main'
 
 function isFestivalPage(): boolean {
@@ -26,12 +26,6 @@ export function setupNecessarySettingsWatchers() {
     return Math.min(FROSTED_GLASS_BLUR_MAX_PX, Math.max(FROSTED_GLASS_BLUR_MIN_PX, value))
   }
 
-  // Chromium routes videos through a different compositor path when a page uses
-  // backdrop filters. In compatibility mode, avoid that path on playback pages
-  // so NVIDIA RTX Video Enhancement can process the video.
-  const isFrostedGlassActive = () => settings.value.enableFrostedGlass
-    && !(settings.value.nvidiaRtxVideoEnhancementCompatibility && isVideoPlaybackPage())
-
   const applyFrostedGlassBlur = (rawValue: number) => {
     const clampedValue = clampFrostedGlassBlur(rawValue)
     const bewlyElement = document.querySelector('#bewly') as HTMLElement | null
@@ -40,7 +34,7 @@ export function setupNecessarySettingsWatchers() {
     if (bewlyElement)
       targets.push(bewlyElement)
 
-    if (!isFrostedGlassActive()) {
+    if (!settings.value.enableFrostedGlass) {
       targets.forEach((element) => {
         element.style.removeProperty('--bew-filter-glass-1')
         element.style.removeProperty('--bew-filter-glass-2')
@@ -66,7 +60,7 @@ export function setupNecessarySettingsWatchers() {
 
   const applyFrostedGlassState = () => {
     const bewlyElement = document.querySelector('#bewly') as HTMLElement | null
-    const shouldDisable = !isFrostedGlassActive()
+    const shouldDisable = !settings.value.enableFrostedGlass
 
     bewlyElement?.classList.toggle('disable-frosted-glass', shouldDisable)
     document.documentElement.classList.toggle('disable-frosted-glass', shouldDisable)
@@ -118,6 +112,8 @@ export function setupNecessarySettingsWatchers() {
   watch(
     [() => settings.value.customizeFont, () => settings.value.fontFamily],
     () => {
+      const bewlyHost = document.getElementById('bewly')
+
       if (typeof settings.value.customizeFont === 'boolean')
         settings.value.customizeFont = 'recommend'
 
@@ -133,12 +129,15 @@ export function setupNecessarySettingsWatchers() {
       // Under default settings, revert to Bilibili's original font-family
       if (settings.value.customizeFont === 'default') {
         document.documentElement.classList.remove('modify-fonts')
+        bewlyHost?.classList.remove('modify-fonts')
       }
       else if (settings.value.customizeFont === 'recommend') {
         document.documentElement.classList.add('modify-fonts')
+        bewlyHost?.classList.add('modify-fonts')
       }
       else {
         document.documentElement.classList.add('modify-fonts')
+        bewlyHost?.classList.add('modify-fonts')
         document.documentElement.style.setProperty('--bew-custom-fonts', settings.value.fontFamily)
       }
     },
@@ -186,10 +185,7 @@ export function setupNecessarySettingsWatchers() {
   )
 
   watch(
-    [
-      () => settings.value.enableFrostedGlass,
-      () => settings.value.nvidiaRtxVideoEnhancementCompatibility,
-    ],
+    () => settings.value.enableFrostedGlass,
     applyFrostedGlassState,
     { immediate: true },
   )
@@ -225,27 +221,50 @@ export function setupNecessarySettingsWatchers() {
     }
   }, { immediate: true })
 
+  const refreshUselessFeedCardBlocker = () => {
+    // 原版 Bilibili 页面也可能运行在 BewlyCat 的 iframe 中，每个文档都要独立标记外层卡片。
+    setUselessFeedCardBlockerEnabled(
+      shouldEnableUselessFeedCardBlocker({
+        blockAds: settings.value.blockAds,
+        homePage: isHomePage(),
+        inIframe: isInIframe(),
+      }),
+    )
+  }
+
   watch(() => settings.value.blockAds, () => {
-    // Do not use the "ads" keyword. AdGuard, AdBlock, and some ad-blocking extensions will
-    // detect and remove it when the class name contains "ads"
+    // 不要在类名中使用 "ads"，否则可能被 AdGuard、AdBlock 等扩展误删。
     if (settings.value.blockAds)
       document.documentElement.classList.add('block-useless-contents')
     else
       document.documentElement.classList.remove('block-useless-contents')
 
-    // Avoid expensive :has() selectors by using a JS marker on homepage feed cards.
-    setUselessFeedCardBlockerEnabled(settings.value.blockAds && isHomePage() && !isInIframe())
+    // 使用 JS 标记首页信息流卡片，避免代价较高的 :has() 选择器。
+    refreshUselessFeedCardBlocker()
   }, { immediate: true })
 
-  // SPA navigation: homepage state can change without a full reload.
-  if (!isInIframe()) {
-    const refreshUselessFeedCardBlocker = () => {
-      setUselessFeedCardBlockerEnabled(settings.value.blockAds && isHomePage() && !isInIframe())
-    }
-    window.addEventListener('pushstate', refreshUselessFeedCardBlocker)
-    window.addEventListener('popstate', refreshUselessFeedCardBlocker)
-    window.addEventListener('hashchange', refreshUselessFeedCardBlocker)
-  }
+  watch(
+    [
+      () => settings.value.originalMomentsShowUserCard,
+      () => settings.value.originalMomentsShowLiveList,
+      () => settings.value.originalMomentsShowCommunityCenter,
+      () => settings.value.originalMomentsShowHotSearch,
+      () => settings.value.originalMomentsShowUpList,
+    ],
+    ([showUserCard, showLiveList, showCommunityCenter, showHotSearch, showUpList]) => {
+      document.documentElement.classList.toggle('moments-hide-original-user-card', !showUserCard)
+      document.documentElement.classList.toggle('moments-hide-original-live-list', !showLiveList)
+      document.documentElement.classList.toggle('moments-hide-original-community-center', !showCommunityCenter)
+      document.documentElement.classList.toggle('moments-hide-original-hot-search', !showHotSearch)
+      document.documentElement.classList.toggle('moments-hide-original-up-list', !showUpList)
+    },
+    { immediate: true },
+  )
+
+  // iframe 内的原版页面同样可能通过 SPA 导航离开或返回首页。
+  window.addEventListener('pushstate', refreshUselessFeedCardBlocker)
+  window.addEventListener('popstate', refreshUselessFeedCardBlocker)
+  window.addEventListener('hashchange', refreshUselessFeedCardBlocker)
 
   /**
    * 搜尋結果的上方的廣告，但有時是年末總結、年度報告這些
@@ -313,6 +332,24 @@ export function setupNecessarySettingsWatchers() {
       // Clear accessKey if not logged in
       if (!getUserID())
         appAuthTokens.value.accessToken = ''
+    },
+    { immediate: true },
+  )
+
+  watch(
+    () => settings.value.useOriginalBilibiliHomepage,
+    (useOriginalBilibiliHomepage) => {
+      // 只有外层 BewlyCat 自定义首页需要接管原版顶栏第二行，原版首页交还给 B 站或第三方顶栏控制。
+      const useBewlyHomepage = !isInIframe() && isHomePage() && !useOriginalBilibiliHomepage
+      document.documentElement.classList.toggle('bewly-custom-homepage', useBewlyHomepage)
+
+      if (useBewlyHomepage && settings.value.useOriginalBilibiliTopBar) {
+        const scrollTop = document.getElementById('bewly')
+          ?.shadowRoot
+          ?.querySelector<HTMLElement>('.bewly-scroll-viewport')
+          ?.scrollTop ?? 0
+        setOriginalBilibiliTopBarScrolled(document, scrollTop > 0)
+      }
     },
     { immediate: true },
   )
@@ -426,7 +463,6 @@ export function setupNecessarySettingsWatchers() {
 
     lastBewlyDesignHref = location.href
     applyBewlyDesignClasses()
-    applyFrostedGlassState()
   }
 
   window.addEventListener('popstate', refreshBewlyDesignOnRouteChange)
@@ -502,10 +538,15 @@ export function setupNecessarySettingsWatchers() {
       // we should keep the *outer* document's Bilibili top bar hidden to avoid double headers.
       const shouldHideOuterBiliTopBar = hasBiliIframePage()
 
+      // 自定义首页下原版顶栏只挂在 body，不再回填 #app 做保活。
+      // 切回 Bewly 顶栏时用 remove-top-bar 隐藏即可，避免重新点亮原站首页 Vue 树。
+      if (settings.value.useOriginalBilibiliTopBar && !shouldHideOuterBiliTopBar)
+        ensureOriginalBilibiliTopBarAppended(document)
+
       const shouldApplyRemoveTopBar = !settings.value.useOriginalBilibiliTopBar || shouldHideOuterBiliTopBar
       document.documentElement.classList.toggle('remove-top-bar', shouldApplyRemoveTopBar)
 
-      const outerHeader = document.querySelector<HTMLElement>('.bili-header')
+      const outerHeader = document.querySelector<HTMLElement>('body > .bili-header, .bili-header')
       if (outerHeader) {
         if (shouldHideOuterBiliTopBar)
           outerHeader.style.display = 'none'

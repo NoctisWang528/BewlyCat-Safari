@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { onClickOutside, onKeyStroke, useDebounceFn } from '@vueuse/core'
+import { onClickOutside, onKeyStroke, useDebounceFn, useElementBounding, useMediaQuery } from '@vueuse/core'
 import DOMPurify from 'dompurify'
+import type { CSSProperties } from 'vue'
 import { computed, inject, reactive, ref, shallowRef, watch } from 'vue'
 
 import type { BewlyAppProvider } from '~/composables/useAppProvider'
 import { AppPage } from '~/enums/appEnums'
 import { settings } from '~/logic'
-import { useTopBarStore } from '~/stores/topBarStore'
 import api from '~/utils/api'
 import { findLeafActiveElement } from '~/utils/element'
 import { isHomePage } from '~/utils/main'
+import { buildKeywordSearchUrl } from '~/utils/searchNavigation'
 import { openLinkInBackground } from '~/utils/tabs'
 
 import type { HistoryItem, SuggestionItem, SuggestionResponse } from './searchHistoryProvider'
@@ -64,6 +65,7 @@ const props = defineProps<{
   showHotSearch?: boolean
   modelValue?: string
   searchBehavior?: 'navigate' | 'stay'
+  topBarMode?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -72,6 +74,7 @@ const emit = defineEmits<{
 }>()
 
 const searchWrapRef = ref<HTMLElement>()
+const { left: searchWrapLeft, top: searchWrapTop } = useElementBounding(searchWrapRef)
 const keywordRef = ref<HTMLInputElement>()
 const isFocus = ref<boolean>(false)
 const keyword = ref<string>(props.modelValue ?? '')
@@ -86,9 +89,28 @@ const isLoadingHotSearch = ref<boolean>(false)
 // 搜索推荐相关状态
 const searchRecommendation = ref<SearchRecommendationItem | null>(null)
 const isLoadingSearchRecommendation = ref<boolean>(false)
+const isNarrowLayout = useMediaQuery('(max-width: 767px)')
 
 const searchMode = computed(() => props.searchBehavior ?? 'navigate')
 const isInPlaceSearch = computed(() => searchMode.value === 'stay')
+const visibleHotSearchList = computed(() => {
+  const limit = props.topBarMode && isNarrowLayout.value ? 5 : 10
+  return hotSearchList.value.slice(0, limit)
+})
+const narrowTopBarPopupStyle = computed<CSSProperties | undefined>(() => {
+  if (!props.topBarMode || !isNarrowLayout.value)
+    return undefined
+
+  return {
+    position: 'absolute',
+    top: `calc(var(--bew-top-bar-height) + 4px - ${searchWrapTop.value}px)`,
+    right: 'auto',
+    left: `calc(8px - ${searchWrapLeft.value}px)`,
+    width: 'calc(100vw - 16px)',
+    maxHeight: 'calc(100dvh - var(--bew-top-bar-height) - 12px)',
+    marginTop: '0',
+  }
+})
 const visibleKeyboardSelectionMode = computed<KeyboardSelectionMode>(() => {
   if (isFocus.value && keyword.value.trim().length > 0 && suggestions.length !== 0)
     return 'suggestions'
@@ -118,9 +140,6 @@ const placeholderText = computed(() => {
 
 // 尝试获取 BEWLY_APP（在首页时可用）
 const bewlyApp = inject<BewlyAppProvider | undefined>('BEWLY_APP', undefined)
-
-// 获取登录状态
-const topBarStore = useTopBarStore()
 
 // 判断是否在搜索结果页且启用了插件搜索
 const shouldHandleInCurrentPage = computed(() => {
@@ -152,6 +171,9 @@ watch(keyword, (value) => {
 })
 
 watch(isFocus, async (focus) => {
+  if (props.darkenOnFocus && bewlyApp)
+    bewlyApp.searchFocusOverlayActive.value = focus
+
   // 延后加载搜索历史
   if (focus) {
     try {
@@ -282,6 +304,9 @@ onMounted(() => {
 
 // 组件卸载时清理定时器
 onBeforeUnmount(() => {
+  if (props.darkenOnFocus && bewlyApp)
+    bewlyApp.searchFocusOverlayActive.value = false
+
   cleanupRecommendationTimer()
 })
 
@@ -336,19 +361,7 @@ function handleNativeInput(event: Event) {
 }
 
 function buildKeywordHref(keyword: string) {
-  const encoded = encodeURIComponent(keyword)
-
-  // 如果未登录，直接返回 B 站原版搜索页面 URL
-  if (!topBarStore.isLogin) {
-    return `https://search.bilibili.com/all?keyword=${encoded}`
-  }
-
-  if (settings.value.usePluginSearchResultsPage) {
-    // 写死插件搜索结果页面 URL
-    return `https://www.bilibili.com/?page=SearchResults&keyword=${encoded}`
-  }
-  // 写死B站原版搜索页面 URL
-  return `https://search.bilibili.com/all?keyword=${encoded}`
+  return buildKeywordSearchUrl(keyword)
 }
 
 // 从URL中提取搜索关键词
@@ -545,9 +558,9 @@ function handleClearKeyword() {
   <div
     id="search-wrap"
     ref="searchWrapRef"
+    :class="{ 'search-wrap--top-bar': topBarMode }"
     w="full"
     max-w="550px"
-    h-46px
     pos="relative"
     @focusout="handleFocusOut"
   >
@@ -599,13 +612,11 @@ function handleClearKeyword() {
         class="group"
         enterkeyhint="search"
         name="search"
-        rounded="60px"
         p="l-6 r-18 y-3"
         h-inherit
         spellcheck="false"
         text="$b-search-bar-normal-text-color group-focus-within:$b-search-bar-focus-text-color group-hover:$b-search-bar-hover-text-color"
         un-border="1 solid $bew-border-color"
-        transition="all duration-300"
         @focus="isFocus = true"
         @input="handleNativeInput"
         @keydown.enter.stop="handleKeyEnter"
@@ -615,7 +626,7 @@ function handleClearKeyword() {
       >
       <button
         v-if="isFocus && keyword"
-        pos="absolute right-12" bg="$bew-fill-1 hover:$bew-fill-2" text="xs" rounded-10
+        pos="absolute right-12" bg="$bew-fill-1 hover:$bew-fill-2" text="xs" rounded="$bew-radius-half"
         p-1
         flex="~ items-center justify-between"
         @click="handleClearKeyword"
@@ -624,16 +635,13 @@ function handleClearKeyword() {
       </button>
 
       <button
+        class="search-submit-btn"
         p-2
         rounded-full
-        text="lg leading-0 $b-search-bar-normal-icon-color group-hover:$b-search-bar-hover-icon-color group-focus-within:$b-search-bar-focus-icon-color"
-        transition="all duration-300"
+        text="lg leading-0"
         border-none
         outline-none
         pos="absolute right-6px"
-        bg="hover:$bew-fill-2"
-        filter="group-focus-within:~"
-        style="--un-drop-shadow: drop-shadow(0 0 6px var(--bew-theme-color))"
         @click="navigateToSearchResultPage(keyword)"
       >
         <div i-tabler:search block align-middle />
@@ -644,6 +652,8 @@ function handleClearKeyword() {
       <div
         v-if="shouldShowSearchDropdown"
         id="search-dropdown"
+        class="bew-popover-surface"
+        :style="narrowTopBarPopupStyle"
       >
         <!-- 热搜区块 -->
         <div
@@ -656,7 +666,7 @@ function handleClearKeyword() {
 
           <div class="hot-search-container p-2 grid grid-cols-2 gap-x-4 gap-y-1">
             <ALink
-              v-for="(item, index) in hotSearchList.slice(0, 10)" :key="item.keyword"
+              v-for="(item, index) in visibleHotSearchList" :key="item.keyword"
               :href="buildKeywordHref(item.keyword)"
               type="searchBar"
               :custom-click-event="true"
@@ -737,6 +747,8 @@ function handleClearKeyword() {
       <div
         v-if="isFocus && suggestions.length !== 0 && keyword.length > 0"
         id="search-suggestion"
+        class="bew-popover-surface"
+        :style="narrowTopBarPopupStyle"
       >
         <div
           v-for="(item, index) in suggestions"
@@ -759,7 +771,9 @@ function handleClearKeyword() {
 
 .result-list-enter-active,
 .result-list-leave-active {
-  --uno: "transition-all duration-300 ease-in-out";
+  transition:
+    opacity var(--bew-duration-moderate) var(--bew-ease-in-out),
+    transform var(--bew-duration-moderate) var(--bew-ease-in-out);
 }
 
 .result-list-enter-from,
@@ -769,7 +783,9 @@ function handleClearKeyword() {
 
 .focus-character-enter-active,
 .focus-character-leave-active {
-  --uno: "transition-all duration-300 ease-in-out";
+  transition:
+    opacity var(--bew-duration-moderate) var(--bew-ease-in-out),
+    transform var(--bew-duration-moderate) var(--bew-ease-in-out);
 }
 
 .focus-character-enter-from,
@@ -779,7 +795,7 @@ function handleClearKeyword() {
 
 .mask-enter-active,
 .mask-leave-active {
-  --uno: "transition-all duration-300 ease-in-out";
+  transition: opacity var(--bew-duration-moderate) var(--bew-ease-in-out);
 }
 
 .mask-enter-from,
@@ -793,8 +809,11 @@ function handleClearKeyword() {
 }
 
 #search-wrap {
+  min-width: 0;
+  max-width: var(--b-search-bar-max-width, 550px);
+  height: var(--b-search-bar-height, var(--bew-top-bar-primary-control-height, 46px));
+
   --b-search-bar-normal-color: var(--bew-content);
-  --b-search-bar-hover-color: var(--bew-content-hover);
   --b-search-bar-focus-color: var(--bew-content-hover);
 
   --b-search-bar-normal-icon-color: var(--bew-text-1);
@@ -824,11 +843,23 @@ function handleClearKeyword() {
     input {
       @include card-content;
       appearance: none;
+      min-width: 0;
       position: relative;
       z-index: 1;
+      border-radius: var(
+        --b-search-bar-radius,
+        calc(var(--b-search-bar-height, var(--bew-top-bar-primary-control-height, 46px)) / 2)
+      );
+      transition:
+        background-color var(--bew-duration-normal) var(--bew-ease-standard),
+        color var(--bew-duration-normal) var(--bew-ease-standard),
+        opacity var(--bew-duration-normal) var(--bew-ease-standard),
+        box-shadow var(--bew-duration-normal) var(--bew-ease-standard),
+        border-radius var(--bew-duration-moderate) var(--bew-ease-standard);
 
-      &:hover {
-        --uno: "bg-$b-search-bar-hover-color";
+      &::placeholder {
+        color: inherit;
+        opacity: var(--b-search-bar-placeholder-opacity, 0.65);
       }
 
       &:focus {
@@ -837,17 +868,61 @@ function handleClearKeyword() {
     }
 
     &.focus input {
-      --uno: "border-$bew-theme-color rounded-$bew-radius";
+      border-color: var(--bew-theme-color);
+      border-radius: var(--bew-radius);
       box-shadow:
         0 0 0 2px var(--bew-theme-color),
         0 6px 16px var(--bew-theme-color-40),
         inset 0 0 6px var(--bew-theme-color-30);
     }
+
+    .search-submit-btn {
+      position: absolute;
+      color: var(--b-search-bar-normal-icon-color);
+      background: transparent;
+      isolation: isolate;
+      transition: color 280ms ease;
+
+      &::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        pointer-events: none;
+        z-index: 0;
+        background: var(--bew-theme-color);
+        filter: blur(4px);
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.25);
+        transition:
+          transform 420ms cubic-bezier(0.22, 1, 0.36, 1),
+          opacity 320ms ease;
+      }
+
+      > * {
+        position: relative;
+        z-index: 1;
+      }
+    }
+
+    &:hover .search-submit-btn,
+    &:focus-within .search-submit-btn,
+    .search-submit-btn:hover,
+    .search-submit-btn:focus-visible {
+      color: var(--b-search-bar-hover-icon-color, var(--bew-theme-color));
+
+      &::before {
+        opacity: 0.4;
+        transform: translate(-50%, -50%) scale(1.1);
+      }
+    }
   }
 
   @mixin search-content {
-    @include card-content;
-    --uno: "p-2 mt-2 absolute rounded-$bew-radius hover:block";
+    --uno: "text-base outline-none w-full p-2 mt-2 absolute hover:block";
   }
 
   @mixin search-content-item {
@@ -856,7 +931,6 @@ function handleClearKeyword() {
 
   #search-dropdown {
     @include search-content;
-    --uno: "bg-$bew-elevated";
     --uno: "max-h-420px important-overflow-y-auto";
     z-index: 1000;
 
@@ -933,7 +1007,6 @@ function handleClearKeyword() {
 
   #search-suggestion {
     @include search-content;
-    --uno: "bg-$bew-elevated";
     --uno: "max-h-420px important-overflow-y-auto";
     z-index: 1000;
 
@@ -942,6 +1015,19 @@ function handleClearKeyword() {
 
       &.active {
         --uno: "bg-$bew-fill-2 shadow-[var(--bew-shadow-1),var(--bew-shadow-edge-glow-1)]";
+      }
+    }
+  }
+
+  &.search-wrap--top-bar {
+    @media (max-width: 767px) {
+      #search-dropdown,
+      #search-suggestion {
+        max-height: calc(100dvh - var(--bew-top-bar-height) - 12px);
+      }
+
+      #search-dropdown .hot-search-container {
+        grid-template-columns: minmax(0, 1fr);
       }
     }
   }

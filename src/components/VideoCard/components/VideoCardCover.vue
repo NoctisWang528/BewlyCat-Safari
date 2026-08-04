@@ -15,11 +15,10 @@ import type { Video } from '../types'
 interface Props {
   skeleton?: boolean
   video?: Video
-  layout: 'modern' | 'compact' | 'old'
+  layout: 'modern' | 'old'
   horizontal?: boolean
   removed: boolean
   isHover: boolean
-  previewEnabled: boolean
   shouldHideOverlayElements: boolean
   previewVideoUrl: string
   videoElement: HTMLVideoElement | null
@@ -33,14 +32,12 @@ interface Props {
     danmaku: string
     like: string
     duration: string
-    published: string
   }
   coverStatsVisibility?: {
     view: boolean
     danmaku: boolean
     like: boolean
     duration: boolean
-    published: boolean
   }
   hasCoverStats?: boolean
   shouldHideCoverStats?: boolean
@@ -56,23 +53,39 @@ const emit = defineEmits<{
 }>()
 
 const videoRef = ref<HTMLVideoElement | null>(null)
+const isCoverHovered = ref(false)
 const isLoadingStream = ref<boolean>(false)
 const isPreviewFullscreen = ref<boolean>(false)
-const isPreviewPlaying = ref<boolean>(false)
 const showVideoControls = ref<boolean>(false)
+const isScrubbing = ref<boolean>(false)
+const scrubProgress = ref<number>(0)
 const shouldEnableVideoControls = computed(() => settings.value.enableVideoCtrlBarOnVideoCard && !props.video?.roomid)
+const shouldEnableSwipeSeek = computed(() => settings.value.enableVideoPreviewSwipeSeek && !props.video?.roomid)
 let hls: Hls | null = null
 let flvPlayer: flvjs.Player | null = null
 let controlsHideTimeout: number | null = null
+/** 仅记录 pointerdown 意图；真正 scrub 需横向拖过阈值后才激活 */
+let activeScrubPointerId: number | null = null
+let scrubStartX = 0
+let scrubStartY = 0
+let scrubStartTime = 0
+let scrubPreviewWidth = 0
+/** 是否已确认为横向拖动手势（越过阈值）。长按/微抖不会置 true */
+let hasDragGesture = false
+let suppressPreviewClick = false
+let suppressPreviewClickTimeout: number | null = null
+let pendingScrubTime: number | null = null
+let scrubAnimationFrame: number | null = null
+let scrubSeekTimeout: number | null = null
+let lastScrubSeekAt = 0
+let lastControlsPointerActivityAt = 0
 
-const shouldShowWatchLater = computed(() =>
-  props.previewEnabled ? isPreviewPlaying.value : props.isHover,
-)
-
-function handlePreviewPlaying() {
-  if (props.isHover && props.previewVideoUrl)
-    isPreviewPlaying.value = true
-}
+/** 需要明显的左右拖动才接管，避免长按/点击抖动误触并频繁 seek */
+const SCRUB_START_THRESHOLD_PX = 18
+const NEARBY_SEEK_RANGE_SECONDS = 30
+/** 拖动中降低视频 seek 频率；进度条仍即时更新 */
+const SCRUB_SEEK_INTERVAL_MS = 120
+const CONTROLS_POINTER_ACTIVITY_INTERVAL_MS = 100
 
 function clearControlsHideTimeout() {
   if (controlsHideTimeout !== null) {
@@ -101,15 +114,232 @@ function showControlsTemporarily() {
   scheduleControlsHide()
 }
 
-function handlePreviewMouseMove() {
+function handlePreviewMouseMove(event?: PointerEvent) {
   if (!shouldEnableVideoControls.value || !props.previewVideoUrl)
     return
 
   if (!props.isHover && !isPreviewFullscreen.value)
     return
 
+  const eventTimestamp = event?.timeStamp ?? performance.now()
+  if (eventTimestamp - lastControlsPointerActivityAt < CONTROLS_POINTER_ACTIVITY_INTERVAL_MS)
+    return
+  lastControlsPointerActivityAt = eventTimestamp
+
   showControlsTemporarily()
 }
+
+function updateScrubProgress(videoEl: HTMLVideoElement) {
+  scrubProgress.value = Number.isFinite(videoEl.duration) && videoEl.duration > 0
+    ? Math.min(100, Math.max(0, videoEl.currentTime / videoEl.duration * 100))
+    : 0
+}
+
+function clearScrubSeekSchedule() {
+  if (scrubAnimationFrame !== null) {
+    cancelAnimationFrame(scrubAnimationFrame)
+    scrubAnimationFrame = null
+  }
+  if (scrubSeekTimeout !== null) {
+    clearTimeout(scrubSeekTimeout)
+    scrubSeekTimeout = null
+  }
+}
+
+function resetPreviewScrub() {
+  clearScrubSeekSchedule()
+  activeScrubPointerId = null
+  hasDragGesture = false
+  isScrubbing.value = false
+  pendingScrubTime = null
+  scrubPreviewWidth = 0
+  lastScrubSeekAt = 0
+}
+
+function getVideoTimeFromPointer(videoEl: HTMLVideoElement, pointerX: number) {
+  if (scrubPreviewWidth <= 0)
+    return null
+
+  const duration = videoEl.duration
+  if (!Number.isFinite(duration) || duration <= 0)
+    return null
+
+  const seekRange = Math.min(duration, NEARBY_SEEK_RANGE_SECONDS)
+  const deltaX = pointerX - scrubStartX
+  return Math.min(duration, Math.max(0, scrubStartTime + deltaX / scrubPreviewWidth * seekRange))
+}
+
+function applyPendingScrubSeek(videoEl: HTMLVideoElement, timestamp = performance.now()) {
+  const nextTime = pendingScrubTime
+  if (nextTime === null)
+    return
+
+  lastScrubSeekAt = timestamp
+  videoEl.currentTime = nextTime
+}
+
+/**
+ * 进度条即时刷新；真正改 video.currentTime 做节流。
+ * 节流等待结束后会补一次最新位置，避免拖动时画面卡住。
+ */
+function scheduleVideoTimeUpdate(videoEl: HTMLVideoElement, targetTime: number) {
+  pendingScrubTime = targetTime
+  scrubProgress.value = Math.min(100, Math.max(0, targetTime / videoEl.duration * 100))
+
+  const now = performance.now()
+  const elapsed = now - lastScrubSeekAt
+  if (elapsed >= SCRUB_SEEK_INTERVAL_MS) {
+    clearScrubSeekSchedule()
+    applyPendingScrubSeek(videoEl, now)
+    return
+  }
+
+  if (scrubSeekTimeout !== null || scrubAnimationFrame !== null)
+    return
+
+  const waitMs = Math.max(0, SCRUB_SEEK_INTERVAL_MS - elapsed)
+  scrubSeekTimeout = window.setTimeout(() => {
+    scrubSeekTimeout = null
+    scrubAnimationFrame = requestAnimationFrame((timestamp) => {
+      scrubAnimationFrame = null
+      if (pendingScrubTime === null || !hasDragGesture)
+        return
+      applyPendingScrubSeek(videoEl, timestamp)
+    })
+  }, waitMs)
+}
+
+function handlePreviewPointerDown(event: PointerEvent) {
+  const videoEl = videoRef.value
+  const previewEl = event.currentTarget as HTMLElement
+
+  if (!shouldEnableSwipeSeek.value || !videoEl || event.button !== 0)
+    return
+  if (!Number.isFinite(videoEl.duration) || videoEl.duration <= 0)
+    return
+
+  // Keep the native control bar interactive when it is enabled.
+  const rect = previewEl.getBoundingClientRect()
+  if (shouldEnableVideoControls.value && event.clientY >= rect.bottom - 40)
+    return
+
+  // 只记录起点。长按/点击不 seek、不 capture；需左右拖过阈值才激活。
+  activeScrubPointerId = event.pointerId
+  scrubStartX = event.clientX
+  scrubStartY = event.clientY
+  scrubStartTime = videoEl.currentTime
+  scrubPreviewWidth = rect.width
+  hasDragGesture = false
+  pendingScrubTime = null
+  lastScrubSeekAt = 0
+}
+
+function handlePreviewPointerMove(event: PointerEvent) {
+  // 未进入横向 scrub 时才刷新控制条，避免拖动中额外响应式开销
+  if (!hasDragGesture)
+    handlePreviewMouseMove(event)
+
+  if (activeScrubPointerId !== event.pointerId)
+    return
+
+  const videoEl = videoRef.value
+  const previewEl = event.currentTarget as HTMLElement
+  if (!videoEl || !Number.isFinite(videoEl.duration) || videoEl.duration <= 0)
+    return
+
+  const deltaX = event.clientX - scrubStartX
+  const deltaY = event.clientY - scrubStartY
+
+  if (!hasDragGesture) {
+    const horizontalDistance = Math.abs(deltaX)
+    const verticalDistance = Math.abs(deltaY)
+
+    // 位移不足：当作长按/静止，不处理
+    if (horizontalDistance < SCRUB_START_THRESHOLD_PX)
+      return
+
+    // 纵向优先：交给页面滚动，放弃本次 scrub 意图
+    if (horizontalDistance <= verticalDistance) {
+      resetPreviewScrub()
+      return
+    }
+
+    // 明确横向拖动一段距离后才接管
+    hasDragGesture = true
+    isScrubbing.value = true
+    pendingScrubTime = scrubStartTime
+    updateScrubProgress(videoEl)
+    previewEl.setPointerCapture(event.pointerId)
+  }
+
+  const targetTime = getVideoTimeFromPointer(videoEl, event.clientX)
+  if (targetTime !== null)
+    scheduleVideoTimeUpdate(videoEl, targetTime)
+  event.preventDefault()
+  event.stopPropagation()
+}
+
+function finishPreviewScrub(event: PointerEvent, cancelled = false) {
+  if (activeScrubPointerId !== event.pointerId)
+    return
+
+  const previewEl = event.currentTarget as HTMLElement
+  if (previewEl.hasPointerCapture(event.pointerId))
+    previewEl.releasePointerCapture(event.pointerId)
+
+  const didDrag = hasDragGesture
+  const finalScrubTime = pendingScrubTime
+  resetPreviewScrub()
+
+  // 未形成横向拖动（点击/长按）直接结束，不 seek、不拦截点击
+  if (!didDrag || cancelled)
+    return
+
+  const videoEl = videoRef.value
+  if (videoEl && finalScrubTime !== null)
+    videoEl.currentTime = finalScrubTime
+
+  suppressPreviewClick = true
+  if (suppressPreviewClickTimeout !== null)
+    clearTimeout(suppressPreviewClickTimeout)
+  suppressPreviewClickTimeout = window.setTimeout(() => {
+    suppressPreviewClick = false
+    suppressPreviewClickTimeout = null
+  }, 0)
+  event.preventDefault()
+  event.stopPropagation()
+}
+
+function handlePreviewClick(event: MouseEvent) {
+  if (!suppressPreviewClick)
+    return
+
+  suppressPreviewClick = false
+  event.preventDefault()
+  event.stopPropagation()
+}
+
+function handlePreviewDragStart(event: DragEvent) {
+  event.preventDefault()
+}
+
+const previewInteractionEvents = computed(() => ({
+  ...(shouldEnableVideoControls.value
+    ? { pointerenter: handlePreviewMouseMove }
+    : {}),
+  ...(shouldEnableVideoControls.value || shouldEnableSwipeSeek.value
+    ? { pointermove: handlePreviewPointerMove }
+    : {}),
+  ...(shouldEnableSwipeSeek.value
+    ? {
+        pointerdown: handlePreviewPointerDown,
+        pointerup: finishPreviewScrub,
+        pointercancel: (event: PointerEvent) => finishPreviewScrub(event, true),
+        click: handlePreviewClick,
+        dragstart: handlePreviewDragStart,
+      }
+    : {}),
+}))
 
 function resetVideoElement(videoEl: HTMLVideoElement) {
   videoEl.pause()
@@ -120,6 +350,7 @@ function resetVideoElement(videoEl: HTMLVideoElement) {
 function stopPreview(videoEl: HTMLVideoElement) {
   cleanupPlayers()
   clearControlsHideTimeout()
+  resetPreviewScrub()
   showVideoControls.value = false
   resetVideoElement(videoEl)
 }
@@ -321,8 +552,6 @@ async function setupPreviewVideo(url: string, videoEl: HTMLVideoElement) {
 
 // Watch for preview URL and videoRef changes
 watch([() => props.previewVideoUrl, () => props.isHover, videoRef], ([url, isHover, videoEl]) => {
-  isPreviewPlaying.value = false
-
   if (!videoEl)
     return
 
@@ -363,6 +592,9 @@ onBeforeUnmount(() => {
   document.removeEventListener('fullscreenchange', syncPreviewFullscreenState)
   document.removeEventListener('webkitfullscreenchange', syncPreviewFullscreenState as EventListener)
   clearControlsHideTimeout()
+  resetPreviewScrub()
+  if (suppressPreviewClickTimeout !== null)
+    clearTimeout(suppressPreviewClickTimeout)
   cleanupPlayers()
 })
 
@@ -374,16 +606,18 @@ onBeforeUnmount(() => {
   <div
     class="group/cover"
     shrink-0
-    relative bg="$bew-skeleton" rounded="$bew-radius"
+    relative bg="$bew-skeleton" rounded="$bew-media-radius"
     overflow-hidden
     cursor-pointer
     group-hover:z-2
     style="aspect-ratio: 16 / 9; contain: layout style; will-change: auto;"
+    @mouseenter="isCoverHovered = true"
+    @mouseleave="isCoverHovered = false"
   >
     <!-- Skeleton mode -->
     <div
       v-if="skeleton"
-      w-full h-full bg="$bew-skeleton" rounded="$bew-radius"
+      w-full h-full bg="$bew-skeleton" rounded="$bew-media-radius"
       style="aspect-ratio: 16 / 9;"
     />
 
@@ -393,7 +627,8 @@ onBeforeUnmount(() => {
       <LazyPicture
         :src="coverImageUrl"
         loading="lazy"
-        root-margin="96px"
+        :release-offscreen="settings.releaseOffscreenVideoCardImages"
+        :retain-screens="3"
         :show-skeleton="true"
         @loaded="emit('imageLoaded')"
       />
@@ -401,7 +636,7 @@ onBeforeUnmount(() => {
       <div
         v-if="removed"
         pos="absolute top-0 left-0" w-full h-fit aspect-video flex="~ col gap-2 items-center justify-center"
-        bg="$bew-fill-4" backdrop-blur-20px mix-blend-luminosity rounded="$bew-radius" z-2
+        bg="$bew-fill-4" backdrop-blur-20px mix-blend-luminosity rounded="$bew-media-radius" z-2
       >
         <p mb-2 color-white text-lg>
           {{ $t('video_card.video_removed') }}
@@ -421,16 +656,29 @@ onBeforeUnmount(() => {
       <Transition v-if="!removed && settings.enableVideoPreview" name="fade">
         <div
           v-if="previewVideoUrl && (isHover || isPreviewFullscreen)"
-          pos="absolute top-0 left-0" w-full aspect-video rounded="$bew-radius" bg-black
-          @pointermove.capture="handlePreviewMouseMove"
+          class="video-card-preview"
+          :class="{ 'video-card-preview--scrubbable': shouldEnableSwipeSeek }"
+          pos="absolute top-0 left-0" w-full aspect-video rounded="$bew-media-radius" bg-black
+          v-on="previewInteractionEvents"
         >
           <video
             ref="videoRef"
             autoplay muted
+            :draggable="false"
             :controls="showVideoControls"
             w-full h-full
-            @playing="handlePreviewPlaying"
           />
+
+          <div
+            v-if="isScrubbing && !shouldEnableVideoControls"
+            class="video-card-preview__scrub-progress"
+            aria-hidden="true"
+          >
+            <div
+              class="video-card-preview__scrub-progress-value"
+              :style="{ transform: `scaleX(${scrubProgress / 100})` }"
+            />
+          </div>
 
           <!-- Loading indicator -->
           <Transition name="fade">
@@ -451,10 +699,10 @@ onBeforeUnmount(() => {
       <!-- Ranking Number -->
       <div
         v-if="video?.rank"
+        class="video-card-overlay-transition"
         pos="absolute top-0"
         p-2
         :class="layout !== 'old' ? 'group-hover:opacity-0' : { 'opacity-0': shouldHideOverlayElements }"
-        duration-300
       >
         <div
           v-if="Number(video?.rank) <= 3"
@@ -479,7 +727,8 @@ onBeforeUnmount(() => {
       <template v-if="!removed && video">
         <!-- Old layout: Video Duration (right bottom) -->
         <div
-          v-if="layout === 'old' && (video?.duration || video?.durationStr)"
+          v-if="layout === 'old' && settings.showVideoCardDuration && (video?.duration || video?.durationStr)"
+          class="video-card-overlay-transition"
           pos="absolute bottom-0 right-0"
           z="2"
           p="x-2 y-1"
@@ -488,15 +737,14 @@ onBeforeUnmount(() => {
           text="!white xs"
           bg="black opacity-60"
           :class="{ 'opacity-0': shouldHideOverlayElements }"
-          duration-300
         >
           {{ video?.duration ? calcCurrentTime(video?.duration ?? 0) : video?.durationStr }}
         </div>
 
         <div
+          class="video-card-overlay-transform-transition"
           :class="coverTopLeftAlwaysVisible ? 'opacity-100' : 'opacity-0 group-hover/cover:opacity-100'"
           :transform="coverTopLeftAlwaysVisible ? 'scale-100' : 'scale-70 group-hover/cover:scale-100'"
-          duration-300
           pos="absolute top-0 left-0" z-2
           @click.stop=""
         >
@@ -505,9 +753,10 @@ onBeforeUnmount(() => {
 
         <div
           v-if="video?.liveStatus === 1"
+          class="video-card-overlay-transition"
           :class="layout !== 'old' ? 'group-hover:opacity-0' : { 'opacity-0': shouldHideOverlayElements }"
           pos="absolute left-0 top-0" bg="$bew-theme-color" text="xs white" fw-bold
-          p="x-2 y-1" m-1 inline-block rounded="$bew-radius" duration-300
+          p="x-2 y-1" m-1 inline-block rounded="$bew-radius"
         >
           LIVE
           <i i-svg-spinners:pulse-3 align-middle mt--0.2em />
@@ -515,20 +764,21 @@ onBeforeUnmount(() => {
 
         <div
           v-if="Object.keys(video?.badge ?? {}).length > 0"
+          class="video-card-overlay-transition"
           :class="layout !== 'old' ? 'group-hover:opacity-0' : { 'opacity-0': shouldHideOverlayElements }"
           :style="{
             backgroundColor: video?.badge?.bgColor,
             color: video?.badge?.color,
           }"
           pos="absolute right-0 top-0" bg="$bew-theme-color" text="xs white"
-          p="x-2 y-1" m-1 inline-block rounded="$bew-radius" duration-300
+          p="x-2 y-1" m-1 inline-block rounded="$bew-radius"
         >
           {{ video?.badge?.text }}
         </div>
 
-        <!-- Watch later appears after preview playback starts, or after the non-preview hover delay. -->
+        <!-- Track cover hover separately so delayed preview playback does not delay this action. -->
         <div
-          v-if="showWatcherLater && shouldShowWatchLater"
+          v-if="showWatcherLater && isCoverHovered"
           role="button"
           tabindex="0"
           :aria-label="isInWatchLater ? $t('common.added') : $t('common.save_to_watch_later')"
@@ -537,9 +787,8 @@ onBeforeUnmount(() => {
           rounded="$bew-radius"
           text="!white xl"
           bg="black opacity-60"
-          class="opacity-0 group-hover/cover:opacity-100"
+          class="video-card-overlay-transform-transition opacity-0 group-hover/cover:opacity-100"
           transform="scale-70 group-hover/cover:scale-100"
-          duration-300
           @click.prevent.stop="emit('toggleWatchLater')"
           @keydown.enter.prevent.stop="emit('toggleWatchLater')"
           @keydown.space.prevent.stop="emit('toggleWatchLater')"
@@ -557,19 +806,11 @@ onBeforeUnmount(() => {
           v-if="layout !== 'old' && hasCoverStats"
           class="video-card-cover-stats video-card-stats"
           :class="{
-            'video-card-cover-stats--compact': layout === 'compact',
             'video-card-cover-stats--hidden': shouldHideCoverStats,
           }"
           :style="coverStatsStyle"
         >
           <div class="video-card-cover-stats__items">
-            <span
-              v-if="coverStatsVisibility?.published"
-              class="video-card-cover-stats__item video-card-cover-stats__item--published"
-            >
-              <span class="video-card-cover-stats__value">{{ coverStatValues?.published }}</span>
-            </span>
-
             <span
               v-if="coverStatsVisibility?.view"
               class="video-card-cover-stats__item cover-stat-view"
@@ -608,6 +849,49 @@ onBeforeUnmount(() => {
 </template>
 
 <style lang="scss" scoped>
+.video-card-overlay-transition {
+  transition: opacity var(--bew-duration-moderate, 300ms) var(--bew-ease-standard, ease);
+}
+
+.video-card-overlay-transform-transition {
+  transition:
+    opacity var(--bew-duration-moderate, 300ms) var(--bew-ease-standard, ease),
+    transform var(--bew-duration-moderate, 300ms) var(--bew-ease-standard, ease);
+}
+
+.video-card-preview--scrubbable {
+  cursor: ew-resize;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.video-card-preview--scrubbable video {
+  -webkit-user-drag: none;
+}
+
+.video-card-preview__scrub-progress {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  left: 0.5rem;
+  z-index: 3;
+  height: 0.25rem;
+  overflow: hidden;
+  border-radius: var(--bew-radius-full);
+  background: rgb(255 255 255 / 35%);
+  pointer-events: none;
+}
+
+.video-card-preview__scrub-progress-value {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--bew-theme-color);
+  transform-origin: left center;
+  will-change: transform;
+}
+
 .video-card-cover-stats {
   position: absolute;
   left: 0;
@@ -688,28 +972,6 @@ onBeforeUnmount(() => {
   font-size: var(--video-card-stats-font-size, 0.75rem);
   /* 时长固定在最右侧，不收缩 */
   flex-shrink: 0;
-}
-
-.video-card-cover-stats--compact {
-  --video-card-stats-overlay-scale: 1.1;
-  padding: calc(var(--video-card-stats-font-size, 0.75rem) * 0.5)
-    calc(var(--video-card-stats-font-size, 0.75rem) * 0.65);
-}
-
-.video-card-cover-stats--compact .video-card-cover-stats__items {
-  overflow: hidden;
-  flex-shrink: 1;
-}
-
-.video-card-cover-stats__item--published {
-  min-width: 0;
-  overflow: hidden;
-}
-
-.video-card-cover-stats__item--published .video-card-cover-stats__value {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* 响应式显示控制已移至 VideoCard.vue 的 coverStatsVisibility 计算属性 */

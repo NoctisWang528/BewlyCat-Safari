@@ -192,8 +192,8 @@ defineExpose({ initData })
             <a
               :class="{ active: activatedRankingType.id === rankingType.id }"
               px-4 lh-30px h-30px hover:bg="$bew-fill-2" w-inherit
-              block rounded="$bew-radius" cursor-pointer transition="all 300 ease-out"
-              hover:scale-105 un-text="$bew-text-1"
+              block rounded="$bew-radius" cursor-pointer transition="background-color duration-200, color duration-200, box-shadow duration-200, transform duration-200"
+              un-text="$bew-text-1"
               @click="activatedRankingType = rankingType"
             >{{ rankingType.name }}</a>
           </li>
@@ -221,6 +221,7 @@ defineExpose({ initData })
             'grid-adaptive-bangumi': gridLayout === 'adaptive',
             'grid-two-columns': gridLayout === 'twoColumns',
             'grid-one-column': gridLayout === 'oneColumn',
+            'grid-list-auto-switch': gridLayout === 'twoColumns' && settings.autoSwitchListLayout,
           }"
         >
           <BangumiCard
@@ -259,7 +260,7 @@ defineExpose({ initData })
 
 <style lang="scss" scoped>
 .active {
-  --uno: "scale-110 bg-$bew-theme-color-auto text-$bew-text-auto shadow-$bew-shadow-2";
+  --uno: "scale-105 bg-$bew-theme-color-auto text-$bew-text-auto shadow-$bew-shadow-2";
 }
 
 .hide {
@@ -280,7 +281,13 @@ defineExpose({ initData })
 
 .grid-one-column {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 500px), 1fr));
+  grid-template-columns: repeat(1, minmax(0, 1fr));
   gap: 20px;
+}
+
+@media (max-width: 639.98px) {
+  .grid-two-columns.grid-list-auto-switch {
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
 }
 </style>

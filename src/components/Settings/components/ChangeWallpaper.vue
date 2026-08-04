@@ -165,7 +165,7 @@ onMounted(() => {
   <SettingsItemGroup :title="$t('settings.group_wallpaper')">
     <SettingsItem v-if="!isGlobal" :title="$t('settings.individually_set_search_page_wallpaper')" right-width="auto">
       <template #desc>
-        <span color="$bew-warning-color">{{ $t('common.performance_impact_warn') }}</span>
+        <span class="bew-warning-text">{{ $t('common.performance_impact_warn') }}</span>
       </template>
 
       <Radio v-model="settings.individuallySetSearchPageWallpaper" />
@@ -240,7 +240,7 @@ onMounted(() => {
               :class="{ 'selected-wallpaper': isGlobal ? settings.wallpaper === '' : settings.searchPageWallpaper === '' }"
               @click="changeWallpaper('')"
             >
-              <div i-tabler:photo-off text="3xl $bew-text-3" />
+              <div i-tabler:photo-off text="size-$bew-icon-size-xl $bew-text-3" />
             </picture>
 
             <Tooltip v-for="item in WALLPAPERS" :key="item.url" placement="top" :content="item.name" aspect-video>
@@ -306,7 +306,7 @@ onMounted(() => {
                 >
                   <div
                     i-tabler:photo-up
-                    text="3xl $bew-text-3"
+                    text="size-$bew-icon-size-xl $bew-text-3"
                   />
                 </div>
                 <img
@@ -348,7 +348,7 @@ onMounted(() => {
 
       <SettingsItem :title="$t('settings.enable_wallpaper_masking')" right-width="auto">
         <template #desc>
-          <span color="$bew-warning-color">{{ $t('common.performance_impact_warn') }}</span>
+          <span class="bew-warning-text">{{ $t('common.performance_impact_warn') }}</span>
         </template>
 
         <Radio v-if="isGlobal" v-model="settings.enableWallpaperMasking" />

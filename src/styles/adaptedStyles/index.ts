@@ -1,8 +1,8 @@
 import './common'
 import './thirdParties'
 
-import { settings } from '~/logic/storage'
-import { isHomePage, isInIframe } from '~/utils/main'
+import { settings, settingsReady } from '~/logic/storage'
+import { isHomePage, isInIframe, isWatchLaterListPage } from '~/utils/main'
 
 async function setupStyles() {
   const currentUrl = document.URL
@@ -29,8 +29,60 @@ async function setupStyles() {
     /https?:\/\/t\.bilibili\.com\.*/.test(currentUrl)
     // moment detail, new articles page
     || /https?:\/\/www\.bilibili\.com\/opus\/.*/.test(currentUrl)) {
-    await import('./pages/momentsPage.scss')
     document.documentElement.classList.add('momentsPage')
+
+    const isOriginalMomentsFeed = /https?:\/\/t\.bilibili\.com\/?(?:[?#].*)?$/.test(currentUrl)
+    let initialVisibilityGuard: HTMLStyleElement | undefined
+    if (isOriginalMomentsFeed) {
+      // storage 是异步读取的。先让可选区域不可见，等真实设置和正式样式同时就绪后再显示，
+      // 避免用户已经关闭的原生组件在首屏短暂闪现。
+      initialVisibilityGuard = document.createElement('style')
+      initialVisibilityGuard.dataset.bewlyMomentsInitialVisibility = ''
+      initialVisibilityGuard.textContent = `
+        html.momentsPage:not(.moments-original-components-ready) .bili-dyn-home--member > aside.left > section:has(.bili-dyn-my-info),
+        html.momentsPage:not(.moments-original-components-ready) .bili-dyn-home--member > aside.left > section:has(.bili-dyn-my-info--skeleton),
+        html.momentsPage:not(.moments-original-components-ready) .bili-dyn-home--member > aside.left > section:has(.bili-dyn-live-users),
+        html.momentsPage:not(.moments-original-components-ready) .bili-dyn-home--member > aside.right > section:has(.bili-dyn-banner),
+        html.momentsPage:not(.moments-original-components-ready) .bili-dyn-home--member > aside.right > section:has(.bili-dyn-topic-box),
+        html.momentsPage:not(.moments-original-components-ready) .bili-dyn-home--member > aside.right > section:has(.bili-dyn-search-trendings),
+        html.momentsPage:not(.moments-original-components-ready) .bili-dyn-home--member > aside.right > section:has(.topic-panel),
+        html.momentsPage:not(.moments-original-components-ready) .bili-dyn-home--member > main > section:has(.bili-dyn-up-list),
+        html.momentsPage:not(.moments-original-components-ready) .bili-dyn-my-info,
+        html.momentsPage:not(.moments-original-components-ready) .bili-dyn-my-info--skeleton,
+        html.momentsPage:not(.moments-original-components-ready) .bili-dyn-live-users,
+        html.momentsPage:not(.moments-original-components-ready) .bili-dyn-banner,
+        html.momentsPage:not(.moments-original-components-ready) .bili-dyn-topic-box,
+        html.momentsPage:not(.moments-original-components-ready) .bili-dyn-search-trendings,
+        html.momentsPage:not(.moments-original-components-ready) .topic-panel,
+        html.momentsPage:not(.moments-original-components-ready) .bili-dyn-up-list {
+          visibility: hidden !important;
+        }
+      `
+      document.documentElement.appendChild(initialVisibilityGuard)
+    }
+
+    await Promise.all([
+      import('./pages/momentsPage.scss'),
+      isOriginalMomentsFeed ? settingsReady : Promise.resolve(),
+    ])
+
+    if (isOriginalMomentsFeed) {
+      document.documentElement.classList.toggle('moments-hide-original-user-card', !settings.value.originalMomentsShowUserCard)
+      document.documentElement.classList.toggle('moments-hide-original-live-list', !settings.value.originalMomentsShowLiveList)
+      document.documentElement.classList.toggle('moments-hide-original-community-center', !settings.value.originalMomentsShowCommunityCenter)
+      document.documentElement.classList.toggle('moments-hide-original-hot-search', !settings.value.originalMomentsShowHotSearch)
+      document.documentElement.classList.toggle('moments-hide-original-up-list', !settings.value.originalMomentsShowUpList)
+      document.documentElement.classList.add('moments-original-components-ready')
+      initialVisibilityGuard?.remove()
+    }
+
+    // 插件动态页通过抽屉 iframe 打开详情时，隐藏原站冗余布局并聚焦正文。
+    const isMomentDetail = /https?:\/\/t\.bilibili\.com\/\d+/.test(currentUrl)
+      || /https?:\/\/(?:www\.)?bilibili\.com\/opus\/\d+/.test(currentUrl)
+    if (isInIframe() && isMomentDetail) {
+      document.documentElement.classList.add('drawer')
+      document.documentElement.classList.add('remove-top-bar-without-placeholder')
+    }
   }
 
   // history page 历史记录页
@@ -43,10 +95,7 @@ async function setupStyles() {
   }
 
   // watch later page 稍候再看页
-  else if (
-    /https?:\/\/(?:www\.)?bilibili\.com\/watchlater\/list.*/.test(currentUrl)
-    || /https?:\/\/(?:www\.)?bilibili\.com\/watchlater\/#\/list.*/.test(currentUrl)
-  ) {
+  else if (isWatchLaterListPage(currentUrl)) {
     await import('./pages/watchLaterPage.scss')
     document.documentElement.classList.add('watchLaterPage')
   }

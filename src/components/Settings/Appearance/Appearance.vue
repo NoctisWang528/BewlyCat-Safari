@@ -8,8 +8,25 @@ import { FROSTED_GLASS_BLUR_MAX_PX, FROSTED_GLASS_BLUR_MIN_PX, localSettings, se
 import ChangeWallpaper from '../components/ChangeWallpaper.vue'
 import SettingsItem from '../components/SettingsItem.vue'
 import SettingsItemGroup from '../components/SettingsItemGroup.vue'
+import SettingsSectionHeading from '../components/SettingsSectionHeading.vue'
 
 const { t } = useI18n()
+
+const themeScheduleStart = ref(settings.value.themeScheduleStart)
+const themeScheduleEnd = ref(settings.value.themeScheduleEnd)
+
+watch(() => settings.value.themeScheduleStart, (value) => {
+  themeScheduleStart.value = value
+})
+
+watch(() => settings.value.themeScheduleEnd, (value) => {
+  themeScheduleEnd.value = value
+})
+
+function saveThemeSchedule() {
+  settings.value.themeScheduleStart = themeScheduleStart.value
+  settings.value.themeScheduleEnd = themeScheduleEnd.value
+}
 
 const themeColorOptions = computed<Array<string>>(() => {
   return [
@@ -75,16 +92,20 @@ const fontPreferenceOptions = computed(() => {
 const themeOptions = computed<Array<{ value: string, label: string }>>(() => {
   return [
     {
-      label: t('settings.theme_opt.light'),
-      value: 'light',
-    },
-    {
       label: t('settings.theme_opt.dark'),
       value: 'dark',
     },
     {
+      label: t('settings.theme_opt.light'),
+      value: 'light',
+    },
+    {
       label: t('settings.theme_opt.auto'),
       value: 'auto',
+    },
+    {
+      label: t('settings.theme_opt.scheduled'),
+      value: 'scheduled',
     },
   ]
 })
@@ -116,9 +137,69 @@ function changeWallpaper(url: string) {
 
 <template>
   <div>
+    <SettingsSectionHeading
+      :title="$t('settings.menu_appearance')"
+      :desc="$t('settings.category_appearance_desc')"
+      icon="i-mingcute:paint-brush-fill"
+    />
+
+    <SettingsItemGroup :title="$t('settings.group_visual_effects')">
+      <SettingsItem
+        :title="$t('settings.enable_frosted_glass')"
+        :badge="$t('settings.badge_performance_impact')"
+        right-width="auto"
+      >
+        <template #desc>
+          <span class="bew-warning-text">{{ $t('common.performance_impact_warn') }}</span>
+        </template>
+
+        <Radio v-model="settings.enableFrostedGlass" />
+      </SettingsItem>
+      <SettingsItem
+        v-if="settings.enableFrostedGlass"
+        :title="$t('settings.frosted_glass_blur_intensity')"
+        right-width="auto"
+      >
+        <div class="slider-control">
+          <Slider
+            v-model="settings.frostedGlassBlurIntensity"
+            :min="FROSTED_GLASS_BLUR_MIN_PX"
+            :max="FROSTED_GLASS_BLUR_MAX_PX"
+            :label="`${settings.frostedGlassBlurIntensity}`"
+          />
+        </div>
+      </SettingsItem>
+      <SettingsItem
+        :title="$t('settings.enable_liquid_segment_indicator')"
+        :badge="$t('settings.badge_performance_impact')"
+        right-width="auto"
+      >
+        <template #desc>
+          <span>{{ $t('settings.enable_liquid_segment_indicator_desc') }}</span>
+          <span block class="bew-warning-text">{{ $t('common.performance_impact_warn') }}</span>
+        </template>
+        <Radio v-model="settings.enableLiquidSegmentIndicator" />
+      </SettingsItem>
+      <SettingsItem :title="$t('settings.disable_shadow')" right-width="auto">
+        <Radio v-model="settings.disableShadow" />
+      </SettingsItem>
+    </SettingsItemGroup>
+
     <SettingsItemGroup :title="$t('settings.group_color')">
       <SettingsItem :title="$t('settings.theme')" right-width="auto">
         <Select v-model="settings.theme" w="160px" :options="themeOptions" />
+      </SettingsItem>
+      <SettingsItem
+        v-if="settings.theme === 'scheduled'"
+        :title="$t('settings.theme_schedule')"
+        :desc="$t('settings.theme_schedule_desc')"
+        right-width="auto"
+      >
+        <div class="theme-schedule" flex="~ items-center gap-2">
+          <input v-model="themeScheduleStart" type="time" @blur="saveThemeSchedule">
+          <span>–</span>
+          <input v-model="themeScheduleEnd" type="time" @blur="saveThemeSchedule">
+        </div>
       </SettingsItem>
       <SettingsItem :title="$t('settings.video_page_dark_mode')" right-width="auto">
         <template #desc>
@@ -212,33 +293,6 @@ function changeWallpaper(url: string) {
 
     <ChangeWallpaper type="global" />
 
-    <SettingsItemGroup :title="$t('settings.group_visual_effects')">
-      <SettingsItem :title="$t('settings.enable_frosted_glass')" right-width="auto">
-        <template #desc>
-          <span color="$bew-warning-color">{{ $t('common.performance_impact_warn') }}</span>
-        </template>
-
-        <Radio v-model="settings.enableFrostedGlass" />
-      </SettingsItem>
-      <SettingsItem
-        v-if="settings.enableFrostedGlass"
-        :title="$t('settings.frosted_glass_blur_intensity')"
-        right-width="auto"
-      >
-        <div class="slider-control">
-          <Slider
-            v-model="settings.frostedGlassBlurIntensity"
-            :min="FROSTED_GLASS_BLUR_MIN_PX"
-            :max="FROSTED_GLASS_BLUR_MAX_PX"
-            :label="`${settings.frostedGlassBlurIntensity}`"
-          />
-        </div>
-      </SettingsItem>
-      <SettingsItem :title="$t('settings.disable_shadow')" right-width="auto">
-        <Radio v-model="settings.disableShadow" />
-      </SettingsItem>
-    </SettingsItemGroup>
-
     <SettingsItemGroup :title="$t('settings.group_fonts')">
       <SettingsItem :title="$t('settings.customize_font')" right-width="auto">
         <Select
@@ -260,7 +314,11 @@ function changeWallpaper(url: string) {
     </SettingsItemGroup>
 
     <SettingsItemGroup>
-      <SettingsItem :title="$t('settings.customize_css')" right-width="auto">
+      <SettingsItem
+        :title="$t('settings.customize_css')"
+        :badge="$t('settings.badge_advanced')"
+        right-width="auto"
+      >
         <Radio v-model="localSettings.customizeCSS" />
         <template #desc>
           <span text="$bew-error-color">
@@ -282,6 +340,18 @@ function changeWallpaper(url: string) {
 
 .dark-mode-base-color-options {
   width: 252px;
+}
+
+.theme-schedule input {
+  min-height: var(--bew-control-height);
+  padding: 0 var(--bew-space-3);
+  color: var(--bew-text-1);
+  background: var(--bew-fill-1);
+  border: 1px solid var(--bew-fill-3);
+  border-radius: var(--bew-interactive-radius);
+  font-size: var(--bew-font-size-body);
+  line-height: var(--bew-line-height-body);
+  color-scheme: inherit;
 }
 
 .slider-control {

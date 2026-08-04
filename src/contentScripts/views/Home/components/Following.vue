@@ -410,13 +410,15 @@ function shouldBeBlacklisted(uploader: UploaderInfo): boolean {
 
 // 检查视频是否为充电专属视频
 function isChargingVideo(item: MomentItem): boolean {
-  const badgeText = item.modules?.module_dynamic?.major?.archive?.badge?.text
+  const major = item.modules?.module_dynamic?.major
+  const badgeText = major?.archive?.badge?.text || major?.ugc_season?.badge?.text
   return badgeText === BadgeText.充电专属
 }
 
 // 检查视频是否为动态视频
 function isDynamicVideo(item: MomentItem): boolean {
-  const badgeText = item.modules?.module_dynamic?.major?.archive?.badge?.text
+  const major = item.modules?.module_dynamic?.major
+  const badgeText = major?.archive?.badge?.text || major?.ugc_season?.badge?.text
   return badgeText === BadgeText.动态视频
 }
 
@@ -769,7 +771,9 @@ async function loadSingleUploaderTime(mid: number, retryCount: number = 0) {
       const videoItems: { item: MomentItem, time: number }[] = []
 
       for (const item of response.data.items) {
-        if (item.modules?.module_dynamic?.major?.archive && item.modules?.module_author?.pub_ts) {
+        const major = item.modules?.module_dynamic?.major
+        const hasVideo = Boolean(major?.archive || major?.ugc_season)
+        if (hasVideo && item.modules?.module_author?.pub_ts) {
           videoItems.push({
             item,
             time: item.modules.module_author.pub_ts * 1000,
@@ -1016,9 +1020,10 @@ async function loadAllViewVideos(maxPages: number = 3, token?: number) {
             })
           }
 
+          const major = item.modules?.module_dynamic?.major
           videoList.value.push({
             uniqueId: `following-all-${item.id_str}`,
-            bvid: item.modules?.module_dynamic?.major?.archive?.bvid,
+            bvid: major?.archive?.bvid || major?.ugc_season?.bvid,
             item,
             authorList: authors,
             displayData: mapMomentItemToVideo(item, authors),
@@ -1179,8 +1184,9 @@ async function loadUserMoments(mid: number, maxPages: number = 3, token?: number
         const allVideoItems: { item: MomentItem, time: number }[] = []
 
         response.data.items.forEach((item: MomentItem) => {
-          // 只处理包含视频的动态
-          if (!item.modules?.module_dynamic?.major?.archive) {
+          // 只处理包含视频的动态（投稿 archive / 合集订阅 ugc_season）
+          const major = item.modules?.module_dynamic?.major
+          if (!major?.archive && !major?.ugc_season) {
             return
           }
 
@@ -1191,8 +1197,8 @@ async function loadUserMoments(mid: number, maxPages: number = 3, token?: number
 
           const authors: Author[] = []
 
-          if ((item.modules?.module_dynamic?.major?.archive?.stat as any)?.coop_num) {
-            (item.modules.module_dynamic.major.archive as any).coop_info?.forEach((coop: any) => {
+          if ((major.archive?.stat as any)?.coop_num) {
+            (major.archive as any).coop_info?.forEach((coop: any) => {
               authors.push({
                 name: coop.name,
                 authorFace: coop.face,
@@ -1214,7 +1220,7 @@ async function loadUserMoments(mid: number, maxPages: number = 3, token?: number
 
             videoList.value.push({
               uniqueId: `user-moment-${item.id_str}`,
-              bvid: item.modules?.module_dynamic?.major?.archive?.bvid,
+              bvid: major.archive?.bvid || major.ugc_season?.bvid,
               item,
               authorList: authors,
               displayData,
@@ -1385,12 +1391,13 @@ function mapLiveItemToVideo(liveItem: FollowingLiveItem): Video {
   }
 }
 
-// 将moment item转换为Video格式
+// 将moment item转换为Video格式（含合集订阅 ugc_season）
 function mapMomentItemToVideo(item?: MomentItem, authors?: Author[]): Video | undefined {
   if (!item)
     return undefined
 
-  const archive = item.modules?.module_dynamic?.major?.archive
+  const major = item.modules?.module_dynamic?.major
+  const archive = major?.archive || major?.ugc_season
   if (!archive)
     return undefined
 
@@ -1571,12 +1578,12 @@ defineExpose({ initData })
             type="text"
             :placeholder="$t('common.search')"
             px-4 py-2 w-full
-            rounded-lg
+            rounded="$bew-radius"
             bg="$bew-fill-1"
             border="1 $bew-border-color"
             text="sm $bew-text-1"
             outline-none
-            transition="all 300"
+            transition="border-color duration-300, background-color duration-300"
             focus:border="$bew-theme-color"
             focus:bg="$bew-fill-2"
             placeholder:text="$bew-text-3"
@@ -1589,8 +1596,8 @@ defineExpose({ initData })
             <a
               :class="{ active: selectedUploader === null }"
               px-4 py-2 hover:bg="$bew-fill-2" w-inherit
-              block rounded-lg cursor-pointer transition="all 300 ease-out"
-              hover:scale-105 un-text="$bew-text-1"
+              block rounded="$bew-radius" cursor-pointer transition="background-color duration-200, color duration-200, box-shadow duration-200"
+              un-text="$bew-text-1"
               flex="~ items-center gap-3"
               @click="selectUploader(null)"
             >
@@ -1617,8 +1624,8 @@ defineExpose({ initData })
             <a
               :class="{ active: selectedUploader === uploader.mid }"
               px-4 py-2 hover:bg="$bew-fill-2" w-inherit
-              block rounded-lg cursor-pointer transition="all 300 ease-out"
-              hover:scale-105 un-text="$bew-text-1"
+              block rounded="$bew-radius" cursor-pointer transition="background-color duration-200, color duration-200, box-shadow duration-200"
+              un-text="$bew-text-1"
               flex="~ items-center gap-3"
               @click="selectUploader(uploader.mid)"
             >
@@ -1691,7 +1698,10 @@ defineExpose({ initData })
 .list-move,
 .list-enter-active,
 .list-leave-active {
-  transition: all 0.5s ease;
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease,
+    box-shadow 0.3s ease;
 }
 
 .list-enter-from,

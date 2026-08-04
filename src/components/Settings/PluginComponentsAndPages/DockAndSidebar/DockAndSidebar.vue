@@ -71,7 +71,7 @@ function resetDockContent() {
       page: e.page,
       visible: true,
       openInNewTab: false,
-      useOriginalBiliPage: !e.hasBewlyPage,
+      useOriginalBiliPage: e.useOriginalBiliPage,
     }
   })
 }
@@ -82,6 +82,10 @@ function handleToggleDockItem(dockItem: any) {
     dockItem.visible = !dockItem.visible
   else
     dockItem.visible = true
+}
+
+function updateDockItemPageMode(dockItem: DockItem, useOriginalBiliPage: boolean) {
+  dockItem.useOriginalBiliPage = useOriginalBiliPage
 }
 </script>
 
@@ -104,7 +108,10 @@ function handleToggleDockItem(dockItem: any) {
           w="160px"
         />
       </SettingsItem>
-      <SettingsItem :desc="$t('settings.dock_content_adjustment_desc')">
+      <SettingsItem
+        :title="$t('settings.dock_content_adjustment')"
+        :desc="$t('settings.dock_content_adjustment_desc')"
+      >
         <template #title>
           <div flex="~ gap-4 items-center">
             {{ $t('settings.dock_content_adjustment') }}
@@ -139,12 +146,15 @@ function handleToggleDockItem(dockItem: any) {
                     {{ pageOptions.find(option => option.value === element.page)?.label }}
                   </div>
                 </div>
-                <div flex="~ gap-4 items-center justify-between wrap">
+                <div flex="~ gap-4 items-center justify-between wrap" @click.stop>
                   <div
                     flex="~ items-center"
                   >
                     {{ $t('settings.dock_item_use_original_bili_web_page') }}
-                    <Radio v-model="element.useOriginalBiliPage" />
+                    <Radio
+                      :model-value="element.useOriginalBiliPage"
+                      @update:model-value="updateDockItemPageMode(element, $event as boolean)"
+                    />
                   </div>
                   <div flex="~ items-center">
                     {{ $t('settings.dock_item_open_in_new_tab') }}
