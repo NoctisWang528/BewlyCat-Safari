@@ -98,10 +98,11 @@ v1.6.7-safari.3
 v1.6.8-safari.1
 v1.6.9-safari.1
 v1.7.3-safari.1
+v1.7.4-safari.1
 ```
 
-- `1.7.3` 表示跟随的 BewlyCat 上游基线。
-- `safari.3` 表示本仓库在该基线上的第 3 个 Safari Release。
+- `1.7.4` 表示跟随的 BewlyCat 上游基线。
+- `safari.1` 表示本仓库在该基线上的第 1 个 Safari Release。
 - Safari 修订号只在发布时增加；普通提交不单独占用版本号。
 - Xcode `MARKETING_VERSION` 跟随上游基线，`CURRENT_PROJECT_VERSION`
   作为 build number 持续递增。

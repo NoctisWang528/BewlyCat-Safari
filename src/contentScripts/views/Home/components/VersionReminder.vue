@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import Button from '~/components/Button.vue'
 import Dialog from '~/components/Dialog.vue'
-import { SAFARI_RELEASES_URL, SAFARI_VERSION } from '~/constants/release'
+import { SAFARI_BILIBILI_URL, SAFARI_RELEASES_URL, SAFARI_VERSION } from '~/constants/release'
 import { settings } from '~/logic'
-
-const BILIBILI_DYNAMIC_URL = 'https://space.bilibili.com/34234421'
 
 const dialogVisible = ref(false)
 
@@ -72,7 +70,7 @@ function acknowledgeCurrentVersion() {
         </a>
 
         <a
-          :href="BILIBILI_DYNAMIC_URL"
+          :href="SAFARI_BILIBILI_URL"
           target="_blank"
           rel="noopener noreferrer"
           class="version-reminder-dialog__link"

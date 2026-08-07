@@ -30,7 +30,7 @@ vi.mock('webextension-polyfill', () => ({
   },
 }))
 
-vi.mock('~/logic', () => ({
+vi.mock('~/logic/appAuthStorage', () => ({
   appAuthTokens: authMocks.appAuthTokens,
   resetAppAuthTokens: authMocks.resetAppAuthTokens,
 }))

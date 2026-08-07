@@ -64,23 +64,17 @@ assert(
   'dist/contentScripts/style.css missing',
 )
 
-// 7. Audio worklet exists
-assert(
-  fileExists(path.join(extDir, 'dist/audioWorklets/volume-normalization.js')),
-  'dist/audioWorklets/volume-normalization.js missing',
-)
-
-// 8. DNR rules exist
+// 7. DNR rules exist
 assert(
   fileExists(path.join(extDir, 'assets/rules.json')),
   'assets/rules.json missing',
 )
 
-// 9. Background configuration exists
+// 8. Background configuration exists
 const bg = manifest.background || {}
 assert(bg.scripts || bg.service_worker, 'background configuration missing')
 
-// 10. If background.scripts without type:"module", check for bare import/export
+// 9. If background.scripts without type:"module", check for bare import/export
 if (bg.scripts && !bg.type) {
   const bgPath = path.join(extDir, 'dist/background/index.js')
   if (fileExists(bgPath)) {
@@ -94,12 +88,12 @@ if (bg.scripts && !bg.type) {
   }
 }
 
-// 11. Safari should NOT have world: "MAIN" in content_scripts
+// 10. Safari should NOT have world: "MAIN" in content_scripts
 const cs = manifest.content_scripts || []
 const mainWorldEntry = cs.find(item => item.world === 'MAIN')
 assert(!mainWorldEntry, 'Safari manifest must not have world: "MAIN" in content_scripts')
 
-// 12. web_accessible_resources should not use <all_urls>
+// 11. web_accessible_resources should not use <all_urls>
 const war = manifest.web_accessible_resources || []
 const warText = JSON.stringify(war)
 assert(
@@ -107,17 +101,17 @@ assert(
   'web_accessible_resources should not default to <all_urls>, tighten to specific domains',
 )
 
-// 13. page-world and audio-worklet bundles should be web accessible
+// 12. page-world bundle should be web accessible
 assert(
   warText.includes('inject.global.js'),
   'inject.global.js should be in web_accessible_resources for script-tag injection',
 )
 assert(
-  warText.includes('volume-normalization.js'),
-  'volume-normalization.js should be in web_accessible_resources',
+  !warText.includes('volume-normalization.js'),
+  'removed volume-normalization.js should not remain in web_accessible_resources',
 )
 
-// 14. Safari manifest should have alarms permission
+// 13. Safari manifest should have required permissions
 const permissions = manifest.permissions || []
 assert(
   permissions.includes('alarms'),
@@ -126,6 +120,10 @@ assert(
 assert(
   permissions.includes('scripting'),
   'Safari manifest should include scripting permission for content script recovery',
+)
+assert(
+  permissions.includes('cookies'),
+  'Safari manifest should include cookies permission for authenticated background requests',
 )
 
 // 14. Safari modifyHeaders rules require the host-access DNR permission

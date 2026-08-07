@@ -16,6 +16,12 @@ vi.mock('webextension-polyfill', () => ({
   },
 }))
 
+vi.mock('~/composables/useConfirmDialog', () => ({
+  useConfirmDialog: () => ({
+    confirm: vi.fn().mockResolvedValue(true),
+  }),
+}))
+
 vi.mock('~/logic', () => ({
   originalSettings: {
     language: 'en',
@@ -92,12 +98,12 @@ describe('settings about page', () => {
   })
 
   it('shows Safari branding and keeps distinct repository links in order', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(successfulReleaseResponse('v1.7.3-safari.2')))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(successfulReleaseResponse('v1.7.4-safari.1')))
     const { app, root } = mountAbout()
     await flushReleaseCheck()
 
     expect(root.querySelector('.product-name')?.textContent).toBe('BewlyCat-Safari')
-    expect(root.querySelector('.version-link')?.textContent?.trim()).toBe('v1.7.3-safari.2')
+    expect(root.querySelector('.version-link')?.textContent?.trim()).toBe('v1.7.4-safari.1')
 
     const links = Array.from(root.querySelectorAll<HTMLAnchorElement>('.link-card'))
     expect(links.map(link => ({
@@ -126,7 +132,7 @@ describe('settings about page', () => {
   })
 
   it('checks Safari releases and shows NEW for a different full tag', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(successfulReleaseResponse('v1.7.3-safari.3'))
+    const fetchMock = vi.fn().mockResolvedValue(successfulReleaseResponse('v1.7.4-safari.2'))
     vi.stubGlobal('fetch', fetchMock)
     const { app, root } = mountAbout()
     await flushReleaseCheck()
@@ -144,7 +150,7 @@ describe('settings about page', () => {
 
   it('hides NEW for the exact current tag and when the release check fails', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(successfulReleaseResponse('v1.7.3-safari.2'))
+      .mockResolvedValueOnce(successfulReleaseResponse('v1.7.4-safari.1'))
       .mockRejectedValueOnce(new Error('offline'))
     vi.stubGlobal('fetch', fetchMock)
 

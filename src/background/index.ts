@@ -8,6 +8,7 @@ import { setupContentScriptRefreshPrompt } from './contentScriptRefreshPrompt'
 import { setupLoginStateWatcher } from './loginStateWatcher'
 import { setupApiMsgListeners } from './messageListeners/api'
 import { setupTabMsgListeners } from './messageListeners/tabs'
+import { setupOptionalBackgroundFeatures } from './platformFeatures'
 import { setupSettingsCloudSync } from './settingsCloudSync'
 import { setupSettingsStorageCoordinator } from './settingsStorageCoordinator'
 import { setupTopBarStateBroker } from './topBarStateBroker'
@@ -147,13 +148,13 @@ if (isFirefoxBuild) {
 
 // Setup all message listeners
 setupSettingsStorageCoordinator()
-if (!isSafariBuild)
-  setupSettingsCloudSync()
 setupApiMsgListeners()
 setupTabMsgListeners()
 setupTopBarStateBroker()
 setupAppAuthScheduler()
 setupContentScriptRefreshPrompt()
 setupContentScriptRecovery()
-if (!isSafariBuild)
-  setupLoginStateWatcher()
+setupOptionalBackgroundFeatures(isSafariBuild, {
+  setupLoginStateWatcher,
+  setupSettingsCloudSync,
+})
