@@ -38,15 +38,14 @@ export async function getManifest() {
     },
     permissions: [
       'storage',
+      'alarms',
+      'cookies',
       isSafari
         ? 'declarativeNetRequestWithHostAccess'
         : 'declarativeNetRequest',
       ...!isFirefox ? ['scripting'] : [],
       ...isFirefox
-        ? ['webRequest', 'webRequestBlocking', 'cookies']
-        : [],
-      ...isSafari
-        ? ['alarms']
+        ? ['webRequest', 'webRequestBlocking']
         : [],
     ],
     host_permissions: [
@@ -81,7 +80,6 @@ export async function getManifest() {
         resources: [
           'dist/contentScripts/style.css',
           'dist/contentScripts/inject.global.js',
-          'dist/audioWorklets/volume-normalization.js',
           'assets/*',
         ],
         matches: [...CONTENT_SCRIPT_MATCHES],

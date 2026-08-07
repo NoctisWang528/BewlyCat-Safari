@@ -5,8 +5,11 @@ import { BILIBILI_DESKTOP_USER_AGENT, isBilibiliWwwUrl, isPreventMobileRedirectE
 import { setupAppAuthScheduler } from './appAuthScheduler'
 import { setupContentScriptRecovery } from './contentScriptRecovery'
 import { setupContentScriptRefreshPrompt } from './contentScriptRefreshPrompt'
+import { setupLoginStateWatcher } from './loginStateWatcher'
 import { setupApiMsgListeners } from './messageListeners/api'
 import { setupTabMsgListeners } from './messageListeners/tabs'
+import { setupSettingsCloudSync } from './settingsCloudSync'
+import { setupSettingsStorageCoordinator } from './settingsStorageCoordinator'
 import { setupTopBarStateBroker } from './topBarStateBroker'
 import { initWbiKeys } from './wbiSign'
 
@@ -47,6 +50,8 @@ const preventMobileRedirectRule: browser.DeclarativeNetRequest.Rule = {
 
 // eslint-disable-next-line node/prefer-global/process
 const isFirefoxBuild = Boolean(process.env.FIREFOX)
+// eslint-disable-next-line node/prefer-global/process
+const isSafariBuild = Boolean(process.env.SAFARI)
 let preventMobileRedirectEnabled = false
 
 async function syncPreventMobileRedirectRule(enabled: boolean) {
@@ -141,9 +146,14 @@ if (isFirefoxBuild) {
 }
 
 // Setup all message listeners
+setupSettingsStorageCoordinator()
+if (!isSafariBuild)
+  setupSettingsCloudSync()
 setupApiMsgListeners()
 setupTabMsgListeners()
 setupTopBarStateBroker()
 setupAppAuthScheduler()
 setupContentScriptRefreshPrompt()
 setupContentScriptRecovery()
+if (!isSafariBuild)
+  setupLoginStateWatcher()
