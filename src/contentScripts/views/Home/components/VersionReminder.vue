@@ -4,7 +4,7 @@ import Dialog from '~/components/Dialog.vue'
 import { SAFARI_RELEASES_URL, SAFARI_VERSION } from '~/constants/release'
 import { settings } from '~/logic'
 
-const BILIBILI_DYNAMIC_URL = 'https://space.bilibili.com/32487218/dynamic'
+const BILIBILI_DYNAMIC_URL = 'https://space.bilibili.com/34234421'
 
 const dialogVisible = ref(false)
 

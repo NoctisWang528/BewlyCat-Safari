@@ -9,8 +9,8 @@ import {
 
 describe('safari release metadata', () => {
   it('uses the upstream version plus Safari revision', () => {
-    expect(SAFARI_VERSION).toBe('1.7.3-safari.1')
-    expect(SAFARI_TAG).toBe('v1.7.3-safari.1')
+    expect(SAFARI_VERSION).toBe('1.7.3-safari.2')
+    expect(SAFARI_TAG).toBe('v1.7.3-safari.2')
   })
 
   it('checks and links to Safari releases instead of upstream browser packages', () => {
