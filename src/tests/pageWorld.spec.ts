@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -24,6 +27,18 @@ function createTargetWindow() {
 }
 
 describe('page-world lifecycle', () => {
+  it('keeps Safari lifecycle, comment theme, and watch-later bridges in the page script', () => {
+    const source = readFileSync(join(process.cwd(), 'src/inject/index.ts'), 'utf8')
+
+    expect(source).toContain('BEWLY_PAGE_WORLD_GLOBAL_KEY')
+    expect(source).toContain('installPageWorldPingListener(pageWorldState)')
+    expect(source).toContain('installCommentShadowDarkMode(window)')
+    expect(source).toContain('installPageWatchLaterBridge({')
+    expect(source).toContain('pageWorldState.status = \'ready\'')
+    expect(source).toContain('sendPageWorldFailed(error, VERSION)')
+    expect(source).not.toContain('__BEWLYCAT_PAGE_SCRIPT_INITIALIZED__')
+  })
+
   it('only reports already-loaded for a ready state', () => {
     const { iframe, target } = createTargetWindow()
     const postMessage = vi.spyOn(target, 'postMessage').mockImplementation(() => {})

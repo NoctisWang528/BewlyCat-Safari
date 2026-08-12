@@ -71,10 +71,16 @@ function mountAbout() {
           contributors_image_failed: 'Failed to load contributors',
           current_contributors: 'Current contributors',
           contributors: 'Contributors',
+          copy_environment_info: 'Copy environment info',
+          copy_environment_info_desc: 'Copy environment info for reports',
           export_settings: 'Export Settings',
           export_settings_desc: 'Export settings',
           import_settings: 'Import Settings',
           links: 'Links',
+          group_environment_info: 'Environment info',
+          environment_info_unknown: 'Unknown',
+          environment_info_copied: 'Copied',
+          environment_info_copy_failed: 'Copy failed',
           reset_settings: 'Reset Settings',
           safari_github: 'Safari GitHub',
           upstream_github: 'Upstream GitHub',
@@ -98,12 +104,12 @@ describe('settings about page', () => {
   })
 
   it('shows Safari branding and keeps distinct repository links in order', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(successfulReleaseResponse('v1.7.4-safari.1')))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(successfulReleaseResponse('v1.7.5-safari.1')))
     const { app, root } = mountAbout()
     await flushReleaseCheck()
 
     expect(root.querySelector('.product-name')?.textContent).toBe('BewlyCat-Safari')
-    expect(root.querySelector('.version-link')?.textContent?.trim()).toBe('v1.7.4-safari.1')
+    expect(root.querySelector('.version-link')?.textContent?.trim()).toBe('v1.7.5-safari.1')
 
     const links = Array.from(root.querySelectorAll<HTMLAnchorElement>('.link-card'))
     expect(links.map(link => ({
@@ -119,7 +125,7 @@ describe('settings about page', () => {
         text: 'Upstream GitHub',
       },
       {
-        href: 'https://space.bilibili.com/32487218/dynamic',
+        href: 'https://space.bilibili.com/34234421',
         text: 'Bilibili',
       },
       {
@@ -132,7 +138,7 @@ describe('settings about page', () => {
   })
 
   it('checks Safari releases and shows NEW for a different full tag', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(successfulReleaseResponse('v1.7.4-safari.2'))
+    const fetchMock = vi.fn().mockResolvedValue(successfulReleaseResponse('v1.7.5-safari.2'))
     vi.stubGlobal('fetch', fetchMock)
     const { app, root } = mountAbout()
     await flushReleaseCheck()
@@ -150,7 +156,7 @@ describe('settings about page', () => {
 
   it('hides NEW for the exact current tag and when the release check fails', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(successfulReleaseResponse('v1.7.4-safari.1'))
+      .mockResolvedValueOnce(successfulReleaseResponse('v1.7.5-safari.1'))
       .mockRejectedValueOnce(new Error('offline'))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -164,5 +170,28 @@ describe('settings about page', () => {
     await flushReleaseCheck()
     expect(secondMount.root.querySelector('.new-version-link')).toBeNull()
     secondMount.app.unmount()
+  })
+
+  it('copies Safari environment metadata and bundles the contributors image', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(successfulReleaseResponse('v1.7.5-safari.1')))
+
+    const { app, root } = mountAbout()
+    await flushReleaseCheck()
+
+    const contributors = root.querySelector<HTMLImageElement>('.contributors-image-link img')
+    expect(contributors?.src).toBe('safari-extension://bewlycat/assets/contributors.svg')
+
+    const copyButton = Array.from(root.querySelectorAll('button'))
+      .find(button => button.textContent?.includes('Copy environment info'))
+    copyButton?.click()
+    await Promise.resolve()
+
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('BewlyCat-Safari 版本：1.7.5-safari.1'))
+    app.unmount()
   })
 })
