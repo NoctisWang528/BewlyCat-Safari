@@ -68,8 +68,8 @@ function calculatePosition(desiredHeight: number) {
   const availableSpace = openUp ? spaceAbove : spaceBelow
 
   dropdownPosition.value = {
-    top: (openUp ? rect.top : rect.bottom) + window.scrollY,
-    left: rect.left + window.scrollX,
+    top: (openUp ? rect.top : rect.bottom),
+    left: rect.left,
     width: rect.width,
     openUp,
     // 极端矮视口下也不能超过实际可用空间，否则仍会溢出贴边
@@ -143,6 +143,7 @@ function onMouseEnter() {
   <div
     ref="containerRef"
     pos="relative"
+    data-layout-edit-control
     @mouseleave="onMouseLeave"
     @mouseenter="onMouseEnter"
   >
@@ -188,6 +189,7 @@ function onMouseEnter() {
           v-if="showOptions"
           ref="dropdownRef"
           class="bew-popover-surface"
+          data-layout-edit-control
           :style="{
             top: `${dropdownPosition.top}px`,
             left: `${dropdownPosition.left}px`,
@@ -197,7 +199,7 @@ function onMouseEnter() {
             transform: dropdownPosition.openUp ? `translateY(calc(-100% - ${DROPDOWN_MARGIN}px))` : undefined,
             marginTop: dropdownPosition.openUp ? undefined : `${DROPDOWN_MARGIN}px`,
           }"
-          pos="absolute" p="2"
+          pos="fixed" p="2"
           z="10004" flex="~ col gap-1"
           w="full" overflow-y-overlay will-change-transform
         >
@@ -220,6 +222,7 @@ function onMouseEnter() {
       <!-- 遮罩 外部滚动时关闭下拉菜单 -->
       <div
         v-if="showOptions"
+        data-layout-edit-control
         pos="fixed top-0 left-0" w-full h-full
         z="10003"
         @wheel="closeOptions"

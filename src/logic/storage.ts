@@ -98,6 +98,7 @@ export interface ShortcutsSettings {
 
 export type VideoCardFontSizeSetting = 'xs' | 'sm' | 'base' | 'lg'
 export type VideoCardLayoutSetting = 'modern' | 'old'
+export type TabsPosition = 'left' | 'center'
 export type TopBarLogoStyle = 'icon' | 'brand'
 export type AutoPlayMode = 'default' | 'autoPlay' | 'autoPlayWithRecommend' | 'pauseAtEnd' | 'loop'
 export type RandomPlayOrder = 'sequential' | 'reverse' | 'random'
@@ -122,6 +123,7 @@ export type RecommendationMode = 'web' | 'app' | 'webNoCookie'
  * - indentOnly：仅缩进，无收起
  */
 export type CommentReplyTreeMode = 'lineCollapseMain' | 'lineKeepMain' | 'indentOnly'
+export type CommentReplyPaginationMode = 'loadMore' | 'pagination'
 
 export interface ShadowCurvePoint {
   position: number
@@ -208,6 +210,7 @@ export interface Settings {
   showCommentHostTag: boolean // 显示评论回复详情页楼主标识
   enableCommentReplyTreeDisplay: boolean // 启用评论回复树展示
   commentReplyTreeMode: CommentReplyTreeMode // 评论回复树展示模式
+  commentReplyPaginationMode: CommentReplyPaginationMode // 评论回复树分页展示模式
   adjustCommentImageHeight: boolean // 调整评论区图片高度以匹配实际比例
   hideCommentImageScrollbar: boolean // 评论区图片预览时隐藏页面滚动条
   enlargeFavoriteDialog: boolean // 视频页收藏夹放大样式增强
@@ -263,16 +266,18 @@ export interface Settings {
   showVideoCardLikeCount: boolean
   showVideoCardDuration: boolean
   showVideoCardWatchLater: boolean
+  showVideoCardMoreButton: boolean
   showVideoWatchedBadge: boolean
   videoCardContextMenuConfig: VideoCardContextMenuConfigItem[]
 
   // Desktop & Dock
   autoHideTopBar: boolean
+  showLayoutEditButton: boolean
   videoPageTopBarConfig: VideoPageTopBarConfig
   alwaysUseTransparentTopBar: boolean
+  alwaysUseFrostedGlassTopBar: boolean
   enableTopBarGradient: boolean
   showTopBarThemeColorGradient: boolean
-  showBewlyOrBiliTopBarSwitcher: boolean
   showBewlyOrBiliPageSwitcher: boolean
   showBewlyOrBiliPageSwitcherOnMorePages: boolean
   topBarLogoStyle: TopBarLogoStyle
@@ -296,6 +301,7 @@ export interface Settings {
   momentsSidebarShowPublish: boolean
   momentsSidebarShowLive: boolean
   momentsShowUpList: boolean
+  momentsTabsPosition: TabsPosition
   momentsEnableLivePreview: boolean
   momentsEnableVideoPreview: boolean
   /** Bewly 动态页期望列数；窄屏会自动降列 */
@@ -318,6 +324,10 @@ export interface Settings {
   momentsHidePgcDynamics: boolean
   /** 过滤专栏动态 */
   momentsHideArticleDynamics: boolean
+  /** 根据标题、正文、作者与附加卡片中的关键词过滤动态 */
+  momentsEnableKeywordFilter: boolean
+  /** 逗号分隔的动态屏蔽关键词 */
+  momentsBlockedKeywords: string
   momentsCardOpenMode: 'dialog' | 'newTab' | 'background'
 
   alwaysUseDock: boolean
@@ -404,6 +414,7 @@ export interface Settings {
   followingInactiveDays: number // UP主超过N天未更新则移至不活跃名单
 
   homePageTabVisibilityList: { page: HomeSubPage, visible: boolean }[]
+  homeTabsPosition: TabsPosition
   alwaysShowTabsOnHomePage: boolean
   fixedHomeTabsOnHomePage: boolean
   enableVersionReminder: boolean
@@ -497,6 +508,7 @@ export const originalSettings: Settings = {
   showCommentHostTag: true, // 默认启用楼主标识显示
   enableCommentReplyTreeDisplay: true, // 默认启用评论回复树展示
   commentReplyTreeMode: 'lineKeepMain', // 默认：线条树状，收起时保留父节点正文
+  commentReplyPaginationMode: 'loadMore', // 默认累计加载评论回复
   adjustCommentImageHeight: true, // 默认启用评论图片高度调整
   hideCommentImageScrollbar: false, // 默认不隐藏评论图片预览时的页面滚动条
   enlargeFavoriteDialog: false, // 默认关闭收藏夹放大样式
@@ -549,16 +561,18 @@ export const originalSettings: Settings = {
   showVideoCardLikeCount: true,
   showVideoCardDuration: true,
   showVideoCardWatchLater: true,
+  showVideoCardMoreButton: true,
   showVideoWatchedBadge: false,
   videoCardContextMenuConfig: defaultVideoCardContextMenuConfig.map(item => ({ ...item })),
 
   // Desktop & Dock
   autoHideTopBar: false,
+  showLayoutEditButton: true,
   videoPageTopBarConfig: VideoPageTopBarConfig.ShowOnScroll,
   alwaysUseTransparentTopBar: false,
+  alwaysUseFrostedGlassTopBar: false,
   enableTopBarGradient: true,
   showTopBarThemeColorGradient: true,
-  showBewlyOrBiliTopBarSwitcher: true,
   showBewlyOrBiliPageSwitcher: true,
   showBewlyOrBiliPageSwitcherOnMorePages: false,
   topBarLogoStyle: 'icon',
@@ -572,6 +586,8 @@ export const originalSettings: Settings = {
     { key: 'creatorCenter', visible: true, badgeType: 'none' },
     { key: 'upload', visible: true, badgeType: 'none' },
     { key: 'notifications', visible: true, badgeType: 'number' },
+    { key: 'pinnedChannels', visible: true, badgeType: 'none' },
+    { key: 'avatar', visible: true, badgeType: 'none' },
   ],
   topBarPinnedChannels: [],
   openNotificationsPageAsDrawer: true,
@@ -590,6 +606,7 @@ export const originalSettings: Settings = {
   momentsSidebarShowPublish: true,
   momentsSidebarShowLive: true,
   momentsShowUpList: true,
+  momentsTabsPosition: 'left',
   momentsEnableLivePreview: true,
   momentsEnableVideoPreview: true,
   momentsGridColumns: '3',
@@ -605,6 +622,8 @@ export const originalSettings: Settings = {
   momentsHideForwardDynamics: false,
   momentsHidePgcDynamics: false,
   momentsHideArticleDynamics: false,
+  momentsEnableKeywordFilter: false,
+  momentsBlockedKeywords: '',
   momentsCardOpenMode: 'dialog',
 
   alwaysUseDock: false,
@@ -691,6 +710,7 @@ export const originalSettings: Settings = {
   followingInactiveDays: 100, // 默认100天
 
   homePageTabVisibilityList: [],
+  homeTabsPosition: 'left',
   alwaysShowTabsOnHomePage: false,
   fixedHomeTabsOnHomePage: false,
   enableVersionReminder: true,
@@ -817,11 +837,26 @@ watch(
     const record = value as Record<string, any>
 
     Reflect.deleteProperty(record, 'detectCommentShadowBan')
-    Reflect.deleteProperty(record, 'homeTabsPosition')
+    Reflect.deleteProperty(record, 'showBewlyOrBiliTopBarSwitcher')
     Reflect.deleteProperty(record, 'enableHomeGridVirtualization')
 
+    const validTabsPositions: TabsPosition[] = ['left', 'center']
+    if (!validTabsPositions.includes(record.homeTabsPosition))
+      record.homeTabsPosition = originalSettings.homeTabsPosition
+    if (!validTabsPositions.includes(record.momentsTabsPosition))
+      record.momentsTabsPosition = originalSettings.momentsTabsPosition
+
     // 清理已移除的音量均衡功能设置。
-    for (const field of ['enableVolumeNormalization', 'targetVolume', 'normalizationStrength', 'adaptiveGainSpeed', 'voiceGateDb', 'volumeNormalizationDebug'])
+    for (const field of [
+      'enableVolumeNormalization',
+      'targetVolume',
+      'normalizationStrength',
+      'adaptiveGainSpeed',
+      'voiceGateDb',
+      'volumeNormalizationDebug',
+      'showDockRefreshButton',
+      'showDockBackToTopButton',
+    ])
       Reflect.deleteProperty(record, field)
 
     // 旧布尔开关 → 评论回复树展示模式
@@ -840,9 +875,16 @@ watch(
     if (!validCommentReplyTreeModes.includes(record.commentReplyTreeMode))
       record.commentReplyTreeMode = originalSettings.commentReplyTreeMode
 
+    const validCommentReplyPaginationModes: CommentReplyPaginationMode[] = ['loadMore', 'pagination']
+    if (!validCommentReplyPaginationModes.includes(record.commentReplyPaginationMode))
+      record.commentReplyPaginationMode = originalSettings.commentReplyPaginationMode
+
     const validTopBarLogoStyles: TopBarLogoStyle[] = ['icon', 'brand']
     if (!validTopBarLogoStyles.includes(record.topBarLogoStyle))
       record.topBarLogoStyle = originalSettings.topBarLogoStyle
+
+    if (typeof record.showLayoutEditButton !== 'boolean')
+      record.showLayoutEditButton = originalSettings.showLayoutEditButton
 
     if (!Number.isFinite(record.frostedGlassBlurIntensity))
       record.frostedGlassBlurIntensity = originalSettings.frostedGlassBlurIntensity

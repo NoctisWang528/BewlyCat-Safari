@@ -8,16 +8,11 @@ import Select from '~/components/Select.vue'
 import { originalSettings, settings } from '~/logic'
 import type { GridColumnsConfig, VideoCardFontSizeSetting, VideoCardLayoutSetting } from '~/logic/storage'
 import { defaultGridColumns, GRID_BREAKPOINTS } from '~/logic/storage'
-import {
-  MAX_LIST_LAYOUT_BREAKPOINT,
-  MIN_LIST_LAYOUT_BREAKPOINT,
-  normalizeListLayoutBreakpoint,
-} from '~/utils/gridLayout'
+import { normalizeListLayoutBreakpoint } from '~/utils/gridLayout'
 
 import SettingsItem from '../../components/SettingsItem.vue'
 import SettingsItemGroup from '../../components/SettingsItemGroup.vue'
 import ShadowCurveEditor from '../../components/ShadowCurveEditor.vue'
-import LinkOpening from '../../Navigation/LinkOpening.vue'
 import VideoCardContentEditor from './VideoCardContentEditor.vue'
 import VideoCardContextMenuEditor from './VideoCardContextMenuEditor.vue'
 
@@ -53,16 +48,38 @@ const breakpointLabels: { key: keyof GridColumnsConfig, label: string }[] = [
   { key: 'xxl', label: `≥ ${GRID_BREAKPOINTS.xxl}px` },
 ]
 
-function updateColumns(key: keyof GridColumnsConfig, value: number) {
+const gridColumnsDraft = ref<Record<keyof GridColumnsConfig, string | number>>({
+  ...settings.value.gridColumns,
+})
+
+watch(() => settings.value.gridColumns, (value) => {
+  gridColumnsDraft.value = { ...value }
+}, { deep: true })
+
+function confirmColumn(key: keyof GridColumnsConfig) {
+  const value = Math.min(12, Math.max(1, Math.round(Number(gridColumnsDraft.value[key]) || 1)))
+  gridColumnsDraft.value[key] = value
+  if (settings.value.gridColumns[key] === value)
+    return
   settings.value.gridColumns = { ...settings.value.gridColumns, [key]: value }
 }
 
 function resetColumns() {
-  settings.value.gridColumns = { ...defaultGridColumns }
+  const columns = { ...defaultGridColumns }
+  gridColumnsDraft.value = columns
+  settings.value.gridColumns = columns
 }
 
-function updateListLayoutBreakpoint(value: string | number | undefined) {
-  settings.value.autoSwitchListLayoutBreakpoint = normalizeListLayoutBreakpoint(value)
+const listLayoutBreakpointInput = ref<string | number>(settings.value.autoSwitchListLayoutBreakpoint)
+
+watch(() => settings.value.autoSwitchListLayoutBreakpoint, (value) => {
+  listLayoutBreakpointInput.value = value
+})
+
+function confirmListLayoutBreakpoint() {
+  const normalizedValue = normalizeListLayoutBreakpoint(listLayoutBreakpointInput.value)
+  settings.value.autoSwitchListLayoutBreakpoint = normalizedValue
+  listLayoutBreakpointInput.value = normalizedValue
 }
 </script>
 
@@ -130,12 +147,10 @@ function updateListLayoutBreakpoint(value: string | number | undefined) {
       >
         <div class="list-layout-control">
           <Input
-            :model-value="settings.autoSwitchListLayoutBreakpoint"
+            v-model="listLayoutBreakpointInput"
             type="number"
-            :min="MIN_LIST_LAYOUT_BREAKPOINT"
-            :max="MAX_LIST_LAYOUT_BREAKPOINT"
             class="list-layout-control__input"
-            @update:model-value="updateListLayoutBreakpoint"
+            @blur="confirmListLayoutBreakpoint"
           >
             <template #prefix>
               <span class="list-layout-control__label">{{ $t('settings.auto_switch_list_layout_breakpoint') }}</span>
@@ -158,12 +173,12 @@ function updateListLayoutBreakpoint(value: string | number | undefined) {
             >
               <span class="grid-breakpoints__label">{{ bp.label }}</span>
               <Input
-                :model-value="settings.gridColumns[bp.key]"
+                v-model="gridColumnsDraft[bp.key]"
                 type="number"
                 :min="1"
                 :max="12"
                 class="grid-breakpoints__input"
-                @update:model-value="(v) => updateColumns(bp.key, Number(v) || 1)"
+                @blur="confirmColumn(bp.key)"
               />
               <span class="grid-breakpoints__unit">{{ $t('settings.grid_columns_unit') }}</span>
             </div>
@@ -250,8 +265,6 @@ function updateListLayoutBreakpoint(value: string | number | undefined) {
         </Button>
       </SettingsItem>
     </SettingsItemGroup>
-
-    <LinkOpening scope="videoCard" />
   </div>
 </template>
 
@@ -282,18 +295,17 @@ function updateListLayoutBreakpoint(value: string | number | undefined) {
     width: 100%;
     min-width: 4.5rem;
     border: 1px solid color-mix(in oklab, var(--bew-border-color), var(--bew-fill-2) 60%);
+    background: var(--bew-fill-1);
 
-    // Keep the native number stepper integrated with the input surface. The
-    // pseudo-elements are Chromium/WebKit-specific; Firefox keeps its native
-    // controls and still receives the same input background below.
     :deep(input[type="number"]) {
-      background-color: var(--bew-fill-1);
-      color-scheme: inherit;
+      appearance: textfield;
+      background: transparent;
+      color: var(--bew-text-1);
 
       &::-webkit-inner-spin-button,
       &::-webkit-outer-spin-button {
-        background-color: var(--bew-fill-1);
-        opacity: 1;
+        margin: 0;
+        appearance: none;
       }
     }
   }

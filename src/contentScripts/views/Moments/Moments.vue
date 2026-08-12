@@ -7,11 +7,14 @@ import MomentCard from '~/components/MomentCard/MomentCard.vue'
 import type { DisplayForwardVideo, DisplayMoment, DisplayRichTextSegment, WatchLaterTarget } from '~/components/MomentCard/types'
 import {
   formatCount,
+  getCardPreviewText,
+  getMomentOriginalImageUrl,
   getMomentThumbnailUrl,
   getWatchLaterStateKey,
   isCompactPlainTextMoment,
 } from '~/components/MomentCard/utils'
 import { useBewlyApp } from '~/composables/useAppProvider'
+import { useLayoutEditMode } from '~/composables/useLayoutEditMode'
 import { useStorageLocal } from '~/composables/useStorageLocal'
 import { settings } from '~/logic'
 import { momentsPinnedUsers, momentsWantedUsers } from '~/logic/storage'
@@ -25,6 +28,7 @@ import { openLinkInBackground } from '~/utils/tabs'
 import { recordVideoVisit } from '~/utils/videoVisitHistory'
 
 const loadingGifUrl = browser.runtime.getURL('/assets/loading.gif')
+const { isLayoutEditing } = useLayoutEditMode()
 
 interface MomentsPortalUser {
   mid: string
@@ -153,18 +157,19 @@ const detailImageViewerRotation = ref(0)
 const detailImageViewerPanX = ref(0)
 const detailImageViewerPanY = ref(0)
 const detailImageViewerSource = shallowRef<Window | null>(null)
+let detailImageViewerTrigger: HTMLElement | null = null
 let detailLoadTimer: ReturnType<typeof setTimeout> | null = null
 const layoutRef = ref<HTMLElement | null>(null)
 const gridRef = ref<HTMLElement | null>(null)
-/** 按当前实际列数限制卡片最大宽度 */
+/** 按当前实际列数限制单张动态卡片的最大宽度。 */
+const GRID_GAP = 16
 const CARD_MAX_WIDTH_BY_COLUMNS = {
-  1: 720,
-  2: 600,
+  1: 730,
+  2: 610,
   3: 520,
 } as const
 const CARD_MIN_WIDTH = 360
 const CARD_COMPACT_MIN_WIDTH = 260
-const GRID_GAP = 16
 const SIDEBAR_WIDTH = 248
 const SIDEBAR_MIN_LAYOUT_WIDTH = SIDEBAR_WIDTH + GRID_GAP + CARD_MIN_WIDTH
 const gridColumnCount = ref(1)
@@ -173,6 +178,7 @@ let rebalanceTimer: ReturnType<typeof setTimeout> | null = null
 const hoveredMediaId = ref('')
 const previewUrls = reactive<Record<string, string>>({})
 const likingMomentIds = reactive(new Set<string>())
+const reservationLoadingMomentIds = reactive(new Set<string>())
 const watchLaterMomentIds = reactive(new Set<string>())
 const watchLaterLoadingMomentIds = reactive(new Set<string>())
 const videoCidCache = new Map<string, number>()
@@ -193,17 +199,19 @@ interface VirtualColumn {
   items: DisplayMoment[]
 }
 const virtualColumns = ref<VirtualColumn[]>([])
-/** 单图宽高比（宽/高），仅用于详情视频的封面比例兜底和虚拟列表测量 */
+/** 单图宽高比（宽/高），用于图文卡片比例和详情视频的封面比例兜底 */
 const coverRatios = reactive<Record<string, number>>({})
-const MIN_SINGLE_IMAGE_RATIO = 1 / 2
+
+function getSafeImageRatio(width: number, height: number) {
+  const ratio = width / height
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : undefined
+}
 let gridObserver: ResizeObserver | undefined
 let liveFlvPlayer: any = null
 let liveHlsPlayer: any = null
 const isLoading = ref(false)
 const isInitialLoading = ref(true)
 const noMoreContent = ref(false)
-/** 最近一批过滤动态的保留率；未完成首批加载时保持未知 */
-const filteredMomentRetentionRate = ref<number | null>(null)
 const offset = ref('')
 const updateBaseline = ref('')
 /** 按 UP 主筛选时 feed/all 的 page，从 1 递增 */
@@ -214,10 +222,8 @@ const MAX_PREVIEW_CACHE = 12
 const MAX_VIDEO_CID_CACHE = 80
 const MAX_POST_LOAD_AUTOFILL_PAGES = 3
 const WANTED_SCAN_LIMIT = 100
-/** 开启类型过滤时单次最多扫描的原始动态条数，低保留率时避免自动连刷 */
-const FILTERED_SCAN_LIMIT = 100
-/** 过滤后保留率达到此阈值时，继续使用滚动自动加载 */
-const FILTERED_AUTO_LOAD_RETENTION_RATE = 0.6
+/** 开启类型过滤时单次最多请求的原始动态页数 */
+const FILTERED_MAX_REQUEST_PAGES = 2
 const MOMENTS_CACHE_MAX_ITEMS = 1000
 const MOMENTS_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000
 /** 虚拟瀑布流需要在全局哨兵进入视口前主动预取，避免高度修正后漏掉相交事件 */
@@ -456,8 +462,8 @@ function getAdditionalActionText(button: any) {
   if (!button || typeof button !== 'object')
     return '查看'
 
-  // 直播预约：1 为未预约，2 为已预约，必须按状态选择对应文案
-  if (Number(button.type) === 2) {
+  // 预约按钮：status 1 为未预约，2 为已预约。
+  if (Number(button.type) === 1 || Number(button.type) === 2) {
     return Number(button.status) === 2
       ? pickText(button.check?.text, '已预约')
       : pickText(button.uncheck?.text, '预约')
@@ -561,6 +567,12 @@ function getMomentContent(item: any) {
           && Number(additionalCard.button?.type) === 1,
         isLiveReservation: additional.type === 'ADDITIONAL_TYPE_RESERVE'
           && Number(additionalCard.button?.type) === 2,
+        reservationId: additional.type === 'ADDITIONAL_TYPE_RESERVE'
+          ? String(additionalCard.rid || '')
+          : '',
+        reservationTotal: Number(additionalCard.reserve_total || 0),
+        isReserved: additional.type === 'ADDITIONAL_TYPE_RESERVE'
+          && Number(additionalCard.button?.status) === 2,
       }
     : undefined
 
@@ -576,6 +588,9 @@ function getMomentContent(item: any) {
       isUpRecommendation: false,
       isVideoReservation: false,
       isLiveReservation: false,
+      reservationId: '',
+      reservationTotal: 0,
+      isReserved: false,
     }
   }
 
@@ -700,11 +715,16 @@ function getDimensionAspectRatio(dimension: any) {
   return width > 0 && height > 0 ? width / height : undefined
 }
 
-/** 图文：小红书 note 风格固定宽高；视频/直播：按视口比例缩放 */
+/** 图文保留自己的布局；播放器内容可在 iframe 内滚动。弹窗尺寸只参考 16:9 视口预算，不固定 Dialog 比例。 */
 const isOpusDetailMoment = computed(() => Boolean(selectedMoment.value && !isPlayerMoment(selectedMoment.value)))
 
-/** 播放器弹窗保持现有高度；横屏按 17:9 收窄，竖屏额外预留右侧页面布局宽度。 */
-const PLAYER_DIALOG_SCALE = 0.92
+/** 详情弹窗预留视口四边 32px 安全边距；极矮视口由外层 min() 保证不溢出。 */
+const PLAYER_DIALOG_WIDTH_SCALE = 0.92
+const DETAIL_VIEWPORT_GUTTER = 64
+const DETAIL_SAFE_WIDTH = `calc(100vw - ${DETAIL_VIEWPORT_GUTTER}px)`
+const DETAIL_REFERENCE_HEIGHT = 'min(88dvh, 49.5vw)'
+const DETAIL_SAFE_HEIGHT = `min(calc(100dvh - ${DETAIL_VIEWPORT_GUTTER}px), max(280px, ${DETAIL_REFERENCE_HEIGHT}))`
+const DETAIL_PLAYER_MAX_WIDTH = `min(92vw, calc(${PLAYER_DIALOG_WIDTH_SCALE * 100}dvh * 16 / 9), ${DETAIL_SAFE_WIDTH})`
 const selectedVideoAspectRatio = computed(() => {
   const moment = selectedMoment.value
   if (!moment?.isVideo || moment.isLive || moment.isPgc)
@@ -719,37 +739,24 @@ const isSelectedVerticalVideo = computed(() => {
 
 const detailDialogWidth = computed(() => {
   if (selectedMoment.value?.isLive)
-    return `${PLAYER_DIALOG_SCALE * 100}vw`
+    return DETAIL_PLAYER_MAX_WIDTH
   if (selectedMoment.value?.isVideo) {
     if (isSelectedVerticalVideo.value && settings.value.defaultVideoPlayerMode === 'bewlyWidescreen') {
       const ratio = Math.max(0.4, selectedVideoAspectRatio.value || 9 / 16)
-      return `min(max(960px, calc(${PLAYER_DIALOG_SCALE * 100}dvh * ${ratio} + 420px)), calc(100vw - 32px))`
+      return `min(max(960px, calc(${PLAYER_DIALOG_WIDTH_SCALE * 100}dvh * ${ratio} + 420px)), ${DETAIL_PLAYER_MAX_WIDTH})`
     }
-    return `min(calc(${PLAYER_DIALOG_SCALE * 100}dvh * 17 / 9), calc(100vw - 32px))`
+    return DETAIL_PLAYER_MAX_WIDTH
   }
   // 参考小红书 note-container: 1088px
-  return 'min(1088px, calc(100vw - 64px))'
+  return `min(1088px, ${DETAIL_SAFE_WIDTH})`
 })
 
 const detailDialogHeight = computed(() => {
-  if (isPlayerMoment(selectedMoment.value))
-    // 与宽度使用同一缩放比例，整体接近原网页可视区域比例
-    return `${PLAYER_DIALOG_SCALE * 100}dvh`
-  // 上下各 32px：height: calc(100% - 2 * 32px)
-  return 'calc(100dvh - 64px)'
-})
-
-const detailDialogTopOffset = computed(() => {
-  if (isPlayerMoment(selectedMoment.value))
-    return undefined
-  return 32
+  return DETAIL_SAFE_HEIGHT
 })
 
 const detailContentHeight = computed(() => {
-  if (isPlayerMoment(selectedMoment.value)) {
-    return `${PLAYER_DIALOG_SCALE * 100}dvh`
-  }
-  return 'calc(100dvh - 64px)'
+  return detailDialogHeight.value
 })
 
 const detailImageViewerUrl = computed(() => detailImageViewerUrls.value[detailImageViewerIndex.value] || '')
@@ -780,12 +787,34 @@ function showDetailImageViewerImage(index: number) {
   resetDetailImageViewerTransform()
 }
 
+function openDetailImageViewer(
+  value: unknown,
+  requestedIndex: unknown,
+  source: Window | null = null,
+  trigger: HTMLElement | null = null,
+) {
+  const { index, urls } = normalizeDetailImageViewerPayload(value, requestedIndex)
+  if (!urls.length)
+    return false
+
+  detailImageViewerUrls.value = urls
+  detailImageViewerIndex.value = index
+  detailImageViewerSource.value = source
+  detailImageViewerTrigger = trigger?.isConnected ? trigger : null
+  detailImageViewerOpen.value = true
+  resetDetailImageViewerTransform()
+  nextTick(() => detailImageViewerRef.value?.focus({ preventScroll: true }))
+  return true
+}
+
 function closeDetailImageViewer() {
   if (!detailImageViewerOpen.value)
     return
 
+  const source = detailImageViewerSource.value
+  const trigger = detailImageViewerTrigger
   try {
-    detailImageViewerSource.value?.postMessage({
+    source?.postMessage({
       type: 'BEWLY_OPUS_IMAGE_VIEWER_CLOSE',
       index: detailImageViewerIndex.value,
     }, '*')
@@ -796,9 +825,17 @@ function closeDetailImageViewer() {
   detailImageViewerOpen.value = false
   detailImageViewerUrls.value = []
   detailImageViewerSource.value = null
+  detailImageViewerTrigger = null
   detailImageViewerDragging.value = false
   resetDetailImageViewerTransform()
-  nextTick(() => detailIframeRef.value?.focus())
+  nextTick(() => {
+    if (source) {
+      detailIframeRef.value?.focus({ preventScroll: true })
+      return
+    }
+    if (trigger?.isConnected)
+      trigger.focus({ preventScroll: true })
+  })
 }
 
 function handleDetailImageViewerWheel(event: WheelEvent) {
@@ -889,6 +926,10 @@ function shouldOpenMomentExternally(moment: DisplayMoment) {
     || window.innerWidth <= DETAIL_DIALOG_MIN_WIDTH
 }
 
+function openMomentImagePreview(urls: string[], index: number, trigger: HTMLElement | null) {
+  openDetailImageViewer(urls, index, null, trigger)
+}
+
 function openMomentInNewTab(moment: DisplayMoment, background = false) {
   const url = resolveDetailUrl(moment) || moment.url
   if (!url)
@@ -902,6 +943,30 @@ function openMomentInNewTab(moment: DisplayMoment, background = false) {
     void openLinkInBackground(url)
   else
     window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+function openDetailFrameInNewTab() {
+  const url = detailFrameUrl.value
+  if (!url)
+    return
+
+  const popup = window.open('about:blank', '_blank')
+  if (!popup)
+    return
+
+  try {
+    popup.opener = null
+    popup.location.replace(url)
+    closeMomentDetail()
+  }
+  catch {
+    try {
+      popup.close()
+    }
+    catch {
+      // Ignore failures while closing a blocked or already navigated popup.
+    }
+  }
 }
 
 function openMomentDetail(moment: DisplayMoment, forceDialog = false) {
@@ -1225,7 +1290,8 @@ function estimateCardHeight(moment: DisplayMoment) {
       (total, line) => total + Math.max(1, Math.ceil(Array.from(line).length / charsPerLine)),
       0,
     )))
-    return 118 + lineCount * 21 + scaledTextBodyExtra + interactionHeight
+    const additionalHeight = moment.additional ? 68 : 0
+    return 118 + lineCount * 21 + additionalHeight + interactionHeight
   }
   if (moment.forward?.images?.length) {
     const introLines = Math.min(7, Math.max(1, Math.ceil((moment.text || '').length / 28)))
@@ -1251,24 +1317,59 @@ function estimateCardHeight(moment: DisplayMoment) {
   if (columnWidth < CARD_MIN_WIDTH) {
     if (moment.isLive)
       return Math.round(columnWidth * 9 / 16) + 210 + interactionHeight
-    if (moment.isVideo)
-      return Math.round((columnWidth - 32) * 9 / 16) + 210 + interactionHeight
+    if (moment.isVideo) {
+      const mediaWidth = Math.max(1, columnWidth - 32)
+      const charsPerLine = Math.max(12, Math.floor(mediaWidth / 14))
+      const titleLines = moment.title
+        ? Math.min(2, Math.max(1, Math.ceil(Array.from(moment.title).length / charsPerLine)))
+        : 0
+      const previewText = getCardPreviewText(moment)
+      const descLines = previewText
+        ? Math.min(3, Math.max(1, Math.ceil(Array.from(previewText).length / charsPerLine)))
+        : 0
+      const bodyHeight = titleLines * 22
+        + (titleLines && descLines ? 8 : 0)
+        + descLines * 24
+      return Math.round(mediaWidth * 9 / 16)
+        + 126
+        + bodyHeight
+        + (moment.additional ? 68 : 0)
+        + interactionHeight
+    }
   }
   if (moment.isLive)
     return Math.round((columnWidth - 32) * 9 / 16) + 190 + interactionHeight
   if (moment.isVideo) {
-    // 与卡片的左右 1:1 栏位和 16:9 视频封面保持一致。
-    const mediaWidth = Math.max(170, (columnWidth - 44) / 2)
-    return Math.round(mediaWidth * 9 / 16) + 120 + (moment.additional ? 68 : 0) + interactionHeight
+    // Regular video cards are stacked vertically: full-width cover followed
+    // by the clamped title/description block and footer.
+    const mediaWidth = Math.max(1, columnWidth - 32)
+    const charsPerLine = Math.max(12, Math.floor(mediaWidth / 14))
+    const titleLines = moment.title
+      ? Math.min(2, Math.max(1, Math.ceil(Array.from(moment.title).length / charsPerLine)))
+      : 0
+    const previewText = getCardPreviewText(moment)
+    const descLines = previewText
+      ? Math.min(3, Math.max(1, Math.ceil(Array.from(previewText).length / charsPerLine)))
+      : 0
+    const bodyHeight = titleLines * 22
+      + (titleLines && descLines ? 8 : 0)
+      + descLines * 24
+    return Math.round(mediaWidth * 9 / 16)
+      + 126
+      + bodyHeight
+      + (moment.additional ? 68 : 0)
+      + interactionHeight
   }
   if (moment.images.length && !moment.isVideo && !moment.isLive) {
-    const galleryRatio = moment.images.length <= 3
-      ? moment.images.length
-      : moment.images.length <= 4
-        ? 1
-        : moment.images.length <= 6
-          ? 3 / 2
-          : 1
+    const galleryRatio = moment.images.length === 1
+      ? Math.max(1, coverRatios[moment.id] || 1)
+      : moment.images.length <= 3
+        ? moment.images.length
+        : moment.images.length <= 4
+          ? 1
+          : moment.images.length <= 6
+            ? 3 / 2
+            : 1
     return Math.round((columnWidth - 32) / galleryRatio) + 220 + interactionHeight
   }
   return 230 + scaledTextBodyExtra + interactionHeight
@@ -1546,8 +1647,37 @@ function loadMoreFilteredMoments() {
   void loadMoments(false, 0, true)
 }
 
-/** 任一类型过滤开启时，低保留率改为「扫 100 条 + 手动加载」以免自动连刷 */
-function hasActiveMomentTypeFilters() {
+const blockedMomentKeywords = computed(() => Array.from(new Set(
+  settings.value.momentsBlockedKeywords
+    .split(/[\n,，;；]+/)
+    .map(keyword => keyword.trim().toLowerCase())
+    .filter(Boolean),
+)))
+
+function matchesBlockedMomentKeyword(moment: DisplayMoment) {
+  if (!settings.value.momentsEnableKeywordFilter || !blockedMomentKeywords.value.length)
+    return false
+
+  const searchableText = [
+    moment.author.name,
+    moment.title,
+    moment.text,
+    ...moment.richText.map(segment => segment.text),
+    moment.additional?.title,
+    moment.additional?.desc,
+    moment.forward?.author,
+    moment.forward?.title,
+    moment.forward?.text,
+  ]
+    .filter((value): value is string => Boolean(value))
+    .join('\n')
+    .toLowerCase()
+
+  return blockedMomentKeywords.value.some(keyword => searchableText.includes(keyword))
+}
+
+/** 想看分组和任一动态过滤都只允许通过按钮继续分页。 */
+function hasActiveMomentFilters() {
   return settings.value.momentsFilterUpRecommendation
     || settings.value.momentsHideChargeExclusive
     || settings.value.momentsHideVideoReservation
@@ -1559,18 +1689,16 @@ function hasActiveMomentTypeFilters() {
     || settings.value.momentsHideForwardDynamics
     || settings.value.momentsHidePgcDynamics
     || settings.value.momentsHideArticleDynamics
+    || (settings.value.momentsEnableKeywordFilter && blockedMomentKeywords.value.length > 0)
 }
 
 function requiresManualMomentPaging() {
-  if (activeMomentGroup.value === 'wanted')
-    return true
-  if (!hasActiveMomentTypeFilters())
-    return false
-  return filteredMomentRetentionRate.value === null
-    || filteredMomentRetentionRate.value < FILTERED_AUTO_LOAD_RETENTION_RATE
+  return activeMomentGroup.value === 'wanted' || hasActiveMomentFilters()
 }
 
 function passesMomentSettings(moment: DisplayMoment) {
+  if (matchesBlockedMomentKeyword(moment))
+    return false
   if (settings.value.momentsFilterUpRecommendation && moment.isUpRecommendation)
     return false
   if (settings.value.momentsHideChargeExclusive && moment.isChargeExclusive)
@@ -2095,14 +2223,15 @@ function handleCoverLoad(event: Event, momentId: string) {
     return
 
   readyCoverIds.add(momentId)
-  const ratio = img.naturalWidth / img.naturalHeight
+  const ratio = getSafeImageRatio(img.naturalWidth, img.naturalHeight)
+  if (!ratio)
+    return
   const moment = moments.value.find(item => item.id === momentId)
-  const nextRatio = Math.max(ratio, MIN_SINGLE_IMAGE_RATIO)
   const prevRatio = coverRatios[momentId]
-  coverRatios[momentId] = nextRatio
+  coverRatios[momentId] = ratio
 
   // 封面比例变化会改估算高度；若尚未实测稳定，用估算高度更新并补偿滚动
-  if (!settledHeights.has(momentId) && (!prevRatio || Math.abs(prevRatio - nextRatio) > 0.01)) {
+  if (!settledHeights.has(momentId) && (!prevRatio || Math.abs(prevRatio - ratio) > 0.01)) {
     if (moment && !cardHeights[momentId]) {
       commitCardHeight(momentId, estimateCardHeight(moment), { force: true })
       scheduleVirtualUpdate()
@@ -2129,8 +2258,9 @@ async function prepareMomentCovers(items: DisplayMoment[], requestToken: number)
     image.decoding = 'async'
     image.onload = async () => {
       if (requestToken === feedRequestToken && image.naturalWidth && image.naturalHeight) {
-        const ratio = image.naturalWidth / image.naturalHeight
-        coverRatios[item.id] = Math.max(ratio, MIN_SINGLE_IMAGE_RATIO)
+        const ratio = getSafeImageRatio(image.naturalWidth, image.naturalHeight)
+        if (ratio)
+          coverRatios[item.id] = ratio
       }
       try {
         await image.decode()
@@ -2143,7 +2273,9 @@ async function prepareMomentCovers(items: DisplayMoment[], requestToken: number)
       finish()
     }
     image.onerror = finish
-    image.src = getMomentThumbnailUrl(item.images[0])
+    image.src = item.images.length === 1 && !item.isVideo && !item.isLive
+      ? getMomentOriginalImageUrl(item.images[0])
+      : getMomentThumbnailUrl(item.images[0])
   })))
 }
 
@@ -2420,6 +2552,45 @@ async function toggleMomentLike(moment: DisplayMoment) {
   }
 }
 
+async function toggleMomentReservation(moment: DisplayMoment) {
+  const additional = moment.additional
+  const reservationId = additional?.reservationId
+  if (!additional || !reservationId || reservationLoadingMomentIds.has(moment.id))
+    return
+
+  const csrf = getCSRF()
+  if (!csrf) {
+    toast.warning('登录后才能预约')
+    return
+  }
+
+  const wasReserved = Boolean(additional.isReserved)
+  reservationLoadingMomentIds.add(moment.id)
+
+  try {
+    const response = wasReserved
+      ? await api.moment.cancelMomentReservation({ sid: reservationId, csrf })
+      : await api.moment.reserveMoment({ sid: reservationId, csrf })
+    if (response.code !== 0)
+      throw new Error(response.message || (wasReserved ? '取消预约失败' : '预约失败'))
+
+    additional.isReserved = !wasReserved
+    if (typeof additional.reservationTotal === 'number') {
+      additional.reservationTotal = Math.max(
+        0,
+        additional.reservationTotal + (additional.isReserved ? 1 : -1),
+      )
+    }
+    toast.success(additional.isReserved ? '预约成功' : '已取消预约')
+  }
+  catch (error) {
+    toast.error(error instanceof Error ? error.message : '预约操作失败，请稍后重试')
+  }
+  finally {
+    reservationLoadingMomentIds.delete(moment.id)
+  }
+}
+
 function isWatchLaterAdded(target: WatchLaterTarget) {
   const stateKey = getWatchLaterStateKey(target)
   return Boolean(stateKey && watchLaterMomentIds.has(stateKey))
@@ -2508,7 +2679,6 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
     cleanupLivePreviewPlayer()
     hoveredMediaId.value = ''
     isInitialLoading.value = true
-    filteredMomentRetentionRate.value = null
   }
   const requestToken = feedRequestToken
   const requestType = activeMomentFilter.value
@@ -2534,13 +2704,14 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
     if (requestHostMid) {
       // 按 UP 主筛选：走 feed/all + host_mid，不写入全局全部动态缓存
       let nextPage = momentsFeedPage.value
-      if (hasActiveMomentTypeFilters()) {
+      if (hasActiveMomentFilters()) {
         let scanOffset = offset.value
         let scanUpdateBaseline = updateBaseline.value
         let canContinue = true
         const scanned: DataItem[] = []
 
-        while (canContinue && scanned.length < FILTERED_SCAN_LIMIT) {
+        let requestPages = 0
+        while (canContinue && requestPages < FILTERED_MAX_REQUEST_PAGES) {
           const response = await api.moment.getMomentsByUp({
             host_mid: requestHostMid,
             type: requestType,
@@ -2560,6 +2731,7 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
 
           const pageItems = response.data?.items || []
           scanned.push(...pageItems)
+          requestPages += 1
           const responseOffset = response.data?.offset || ''
           scanUpdateBaseline = response.data?.update_baseline || ''
           canContinue = Boolean(response.data?.has_more)
@@ -2567,8 +2739,6 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
             && responseOffset !== scanOffset
           scanOffset = responseOffset
           nextPage += 1
-          if (scanned.length >= FILTERED_SCAN_LIMIT)
-            break
         }
 
         rawItems = scanned
@@ -2603,6 +2773,9 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
     }
     else if (requestGroup === 'wanted') {
       await momentsFeedCacheReady
+      // 类型过滤开启时，首批缓存刷新与后续填充共用两页请求预算。
+      const maxRequestPages = hasActiveMomentFilters() ? FILTERED_MAX_REQUEST_PAGES : Infinity
+      let requestPages = 0
       let cacheEntry = getValidMomentsCache(requestType) ?? {
         items: [],
         offset: '',
@@ -2627,7 +2800,12 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
           let canContinue = true
           let reachedCache = false
 
-          while (canContinue && freshItems.length < WANTED_SCAN_LIMIT && !reachedCache) {
+          while (
+            canContinue
+            && freshItems.length < WANTED_SCAN_LIMIT
+            && !reachedCache
+            && requestPages < maxRequestPages
+          ) {
             const response = await api.moment.getMoments({
               type: requestType,
               offset: scanOffset || undefined,
@@ -2642,6 +2820,7 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
             }
 
             const pageItems = (response.data?.items || []).map(mapMoment)
+            requestPages += 1
             reachedCache = pageItems.some(moment => existingIds.has(moment.id))
             freshItems.push(...pageItems)
             const responseOffset = response.data?.offset || ''
@@ -2680,6 +2859,7 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
           cacheEntry.items.length < batchEnd
           && cacheEntry.items.length < MOMENTS_CACHE_MAX_ITEMS
           && cacheEntry.hasMore
+          && requestPages < maxRequestPages
         ) {
           const response = await api.moment.getMoments({
             type: requestType,
@@ -2695,6 +2875,7 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
           }
 
           const pageItems = (response.data?.items || []).map(mapMoment)
+          requestPages += 1
           const responseOffset = response.data?.offset || ''
           const continuationIds = new Set(cacheEntry.continuation?.items.map(moment => moment.id) || [])
           const reachesContinuation = pageItems.some(moment => continuationIds.has(moment.id))
@@ -2740,14 +2921,15 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
           || (cacheEntry.hasMore && cacheEntry.items.length < MOMENTS_CACHE_MAX_ITEMS)
       }
     }
-    else if (hasActiveMomentTypeFilters()) {
-      // 过滤开启：单次最多扫描 FILTERED_SCAN_LIMIT 条原始动态，再交给本地过滤
+    else if (hasActiveMomentFilters()) {
+      // 过滤开启：单次最多请求两页原始动态，再交给本地过滤
       let scanOffset = offset.value
       let scanUpdateBaseline = updateBaseline.value
       let canContinue = true
       const scanned: DataItem[] = []
+      let requestPages = 0
 
-      while (canContinue && scanned.length < FILTERED_SCAN_LIMIT) {
+      while (canContinue && requestPages < FILTERED_MAX_REQUEST_PAGES) {
         const response = await api.moment.getMoments({
           type: requestType,
           offset: scanOffset || undefined,
@@ -2763,17 +2945,16 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
 
         const pageItems = response.data?.items || []
         scanned.push(...pageItems)
+        requestPages += 1
         const responseOffset = response.data?.offset || ''
         scanUpdateBaseline = response.data?.update_baseline || ''
         canContinue = Boolean(response.data?.has_more)
           && pageItems.length > 0
           && responseOffset !== scanOffset
         scanOffset = responseOffset
-        if (scanned.length >= FILTERED_SCAN_LIMIT)
-          break
       }
 
-      // 以整页推进 offset，本批原始条数可能略高于 100
+      // 以整页推进 offset，本批原始条数取决于服务端单页大小
       rawItems = scanned
       hasMore = canContinue
       nextOffset = scanOffset
@@ -2830,11 +3011,6 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
     await prepareMomentCovers(items, requestToken)
     if (!isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid)) {
       return
-    }
-    if (hasActiveMomentTypeFilters() && requestGroup !== 'wanted') {
-      filteredMomentRetentionRate.value = normalizedItems.length
-        ? items.length / normalizedItems.length
-        : 0
     }
     if (!reset)
       preservedPaginationScrollTop = scrollViewportRef.value?.scrollTop ?? null
@@ -2939,18 +3115,11 @@ function handleDetailFrameMessage(event: MessageEvent) {
   if (type === 'BEWLY_OPUS_IMAGE_VIEWER_OPEN') {
     if (event.source !== detailIframeRef.value?.contentWindow)
       return
-    const { index, urls } = normalizeDetailImageViewerPayload(event.data.urls, event.data.index)
-    if (!urls.length)
+    const source = event.source as Window
+    if (!openDetailImageViewer(event.data.urls, event.data.index, source))
       return
-
-    detailImageViewerUrls.value = urls
-    detailImageViewerIndex.value = index
-    detailImageViewerSource.value = event.source as Window
-    detailImageViewerOpen.value = true
-    resetDetailImageViewerTransform()
-    nextTick(() => detailImageViewerRef.value?.focus({ preventScroll: true }))
     try {
-      detailImageViewerSource.value.postMessage({ type: 'BEWLY_OPUS_IMAGE_VIEWER_ACK' }, '*')
+      source.postMessage({ type: 'BEWLY_OPUS_IMAGE_VIEWER_ACK' }, '*')
     }
     catch {
       // iframe 已销毁时忽略
@@ -3136,6 +3305,8 @@ watch(
     () => settings.value.momentsHideForwardDynamics,
     () => settings.value.momentsHidePgcDynamics,
     () => settings.value.momentsHideArticleDynamics,
+    () => settings.value.momentsEnableKeywordFilter,
+    () => settings.value.momentsBlockedKeywords,
   ],
   () => {
     if (scrollViewportRef.value)
@@ -3167,11 +3338,18 @@ watch(
     <div
       ref="layoutRef"
       class="moments-layout"
-      :class="{ 'moments-layout--without-sidebar': !showMomentsSidebar }"
+      :class="{ 'moments-layout--without-sidebar': !showMomentsSidebar && !isLayoutEditing }"
     >
-      <header class="moments-filter-header">
+      <header
+        class="moments-filter-header"
+        :class="{ 'moments-filter-header--center': settings.momentsTabsPosition === 'center' }"
+      >
         <section
           class="moments-filter-panel bew-segment-control bew-segment-control--surface"
+          data-layout-edit-target="moments-filter"
+          data-layout-settings-menu="BewlyPages"
+          data-layout-settings-page="moments"
+          data-layout-settings-title-key="settings.moments_tabs_position"
           :class="{
             'bew-segment-control--static': !settings.enableLiquidSegmentIndicator,
             'bew-segment-control--solid': !settings.enableFrostedGlass,
@@ -3200,8 +3378,12 @@ watch(
         </section>
       </header>
 
-      <aside v-if="showMomentsSidebar" class="moments-sidebar" aria-label="动态用户信息">
-        <div v-if="isPortalLoading" class="moments-sidebar-skeleton" aria-hidden="true">
+      <aside
+        v-if="showMomentsSidebar || isLayoutEditing"
+        class="moments-sidebar"
+        aria-label="动态用户信息"
+      >
+        <div v-if="isPortalLoading && !isLayoutEditing" class="moments-sidebar-skeleton" aria-hidden="true">
           <div v-if="settings.momentsSidebarShowUserCard" class="moments-sidebar-skeleton__profile">
             <span class="moments-sidebar-skeleton__avatar moments-skeleton-block" />
             <span class="moments-sidebar-skeleton__name moments-skeleton-block" />
@@ -3215,8 +3397,16 @@ watch(
           </div>
         </div>
         <template v-else>
-          <article v-if="settings.momentsSidebarShowUserCard && portalUser" class="moments-user-card">
+          <article
+            v-if="isLayoutEditing || (settings.momentsSidebarShowUserCard && portalUser)"
+            class="moments-user-card"
+            data-layout-edit-target="moments-sidebar-user-card"
+            data-layout-settings-menu="BewlyPages"
+            data-layout-settings-page="moments"
+            data-layout-settings-title-key="settings.moments_show_user_card"
+          >
             <a
+              v-if="portalUser"
               class="moments-user-card__profile"
               :href="`https://space.bilibili.com/${portalUser.mid}`"
               target="_blank"
@@ -3231,32 +3421,46 @@ watch(
                 </span>
               </span>
             </a>
-            <div class="moments-user-card__stats">
+            <div v-if="portalUser" class="moments-user-card__stats">
               <span><strong>{{ portalUser.following }}</strong><small>关注</small></span>
               <span><strong>{{ portalUser.follower }}</strong><small>粉丝</small></span>
               <span><strong>{{ portalUser.dyns }}</strong><small>动态</small></span>
             </div>
+            <div v-else class="moments-sidebar-editor-placeholder">
+              {{ $t('settings.moments_show_user_card') }}
+            </div>
           </article>
 
           <a
-            v-if="settings.momentsSidebarShowPublish"
+            v-if="isLayoutEditing || settings.momentsSidebarShowPublish"
             class="moments-publish-link"
             href="https://t.bilibili.com"
             target="_blank"
             rel="noopener noreferrer"
+            data-layout-edit-target="moments-sidebar-publish"
+            data-layout-settings-menu="BewlyPages"
+            data-layout-settings-page="moments"
+            data-layout-settings-title-key="settings.moments_show_publish"
           >
             <span i-tabler-edit />
             <span>发布动态</span>
             <span i-tabler-external-link />
           </a>
 
-          <section v-if="settings.momentsSidebarShowLive && portalLiveUsers.length" class="moments-live-card">
+          <section
+            v-if="isLayoutEditing || (settings.momentsSidebarShowLive && portalLiveUsers.length)"
+            class="moments-live-card"
+            data-layout-edit-target="moments-sidebar-live"
+            data-layout-settings-menu="BewlyPages"
+            data-layout-settings-page="moments"
+            data-layout-settings-title-key="settings.moments_show_live"
+          >
             <header>
               <strong>正在直播 <span>{{ portalLiveCount }}</span></strong>
             </header>
-            <div class="moments-live-card__list">
+            <div v-if="portalLiveUsers.length" class="moments-live-card__list">
               <a
-                v-for="liveUser in portalLiveUsers"
+                v-for="liveUser in isLayoutEditing ? portalLiveUsers.slice(0, 1) : portalLiveUsers"
                 :key="liveUser.room_id"
                 :href="liveUser.jump_url || `https://live.bilibili.com/${liveUser.room_id}`"
                 target="_blank"
@@ -3278,9 +3482,13 @@ watch(
 
       <main class="moments-content" :style="momentsContentStyle">
         <section
-          v-if="showMomentsUpList"
+          v-if="isLayoutEditing || showMomentsUpList"
           class="moments-up-list"
           aria-label="动态栏"
+          data-layout-edit-target="moments-up-list"
+          data-layout-settings-menu="BewlyPages"
+          data-layout-settings-page="moments"
+          data-layout-settings-title-key="settings.moments_show_up_list"
         >
           <div class="moments-up-list__start" role="list" aria-label="动态分组">
             <button
@@ -3301,9 +3509,13 @@ watch(
               <span class="moments-up-list__name">全部动态</span>
             </button>
             <button
-              v-if="settings.momentsEnableWantedFilter"
+              v-if="isLayoutEditing || settings.momentsEnableWantedFilter"
               type="button"
               class="moments-up-list__item"
+              data-layout-edit-target="moments-wanted-users"
+              data-layout-settings-menu="BewlyPages"
+              data-layout-settings-page="moments"
+              data-layout-settings-title-key="settings.group_moments_wanted_users"
               :class="{ 'moments-up-list__item--active': activeMomentGroup === 'wanted' }"
               role="listitem"
               :aria-pressed="activeMomentGroup === 'wanted'"
@@ -3410,12 +3622,23 @@ watch(
           </div>
 
           <div
-            v-if="momentsPinnedUsers.length"
+            v-if="isLayoutEditing || momentsPinnedUsers.length"
             class="moments-up-list__pinned"
             role="list"
             aria-label="固定 UP 主"
+            data-layout-edit-target="moments-pinned-users"
+            data-layout-settings-menu="BewlyPages"
+            data-layout-settings-page="moments"
+            data-layout-settings-title-key="settings.group_moments_pinned_users"
+            @wheel="handleUpListWheel"
           >
             <span class="moments-up-list__divider" aria-hidden="true" />
+            <span
+              v-if="isLayoutEditing && !momentsPinnedUsers.length"
+              class="moments-up-list__editor-placeholder"
+            >
+              {{ $t('settings.group_moments_pinned_users') }}
+            </span>
             <button
               v-for="user in momentsPinnedUsers"
               :key="user.mid"
@@ -3488,15 +3711,18 @@ watch(
               v-for="moment in column.items" :key="moment.id"
               :moment="moment"
               :card-width="gridCardWidth"
+              :image-ratio="coverRatios[moment.id]"
               :ready="readyCardIds.has(moment.id)"
               :entering="enteringCardIds.has(moment.id)"
               :preview-active="Boolean(hoveredMediaId === moment.id && previewUrls[moment.id])"
               :preview-url="previewUrls[moment.id]"
               :is-like-loading="likingMomentIds.has(moment.id)"
+              :is-reservation-loading="reservationLoadingMomentIds.has(moment.id)"
               :is-watch-later-added="isWatchLaterAdded"
               :is-watch-later-loading="isWatchLaterLoading"
               @card-element="element => bindCardEl(element, moment)"
               @open-detail="openMomentDetail"
+              @open-image-preview="openMomentImagePreview"
               @media-enter="handleMediaEnter"
               @media-leave="handleMediaLeave"
               @cover-load="(event, momentId) => handleCoverLoad(event, momentId)"
@@ -3505,6 +3731,7 @@ watch(
               @forward-video-click="handleForwardVideoClick"
               @toggle-watch-later="toggleMomentWatchLater"
               @toggle-like="toggleMomentLike"
+              @toggle-reservation="toggleMomentReservation"
             />
             <div v-if="column.bottomPad" class="moments-grid__spacer" :style="{ height: `${column.bottomPad}px` }" />
           </div>
@@ -3558,7 +3785,6 @@ watch(
       :desc="selectedMoment.isLive || selectedMoment.isVideo ? selectedMoment.title || selectedMoment.author.name : (selectedMoment.time || '动态详情')"
       :width="detailDialogWidth"
       :height="detailDialogHeight"
-      :top-offset="detailDialogTopOffset"
       :content-height="detailContentHeight"
       :content-max-height="detailContentHeight"
       @close="closeMomentDetail"
@@ -3591,7 +3817,7 @@ watch(
           :href="detailFrameUrl"
           target="_blank"
           rel="noopener noreferrer"
-          @click.stop
+          @click.prevent.stop="openDetailFrameInNewTab"
         >
           新建标签页打开
           <span i-tabler-external-link />
@@ -3715,8 +3941,8 @@ watch(
 }
 .moments-up-list__main {
   position: relative;
-  min-width: 0;
-  flex: 1 1 auto;
+  min-width: 64px;
+  flex: 1 1 0;
 }
 .moments-up-list__start {
   display: flex;
@@ -3800,11 +4026,10 @@ watch(
 }
 .moments-up-list__pinned {
   display: flex;
-  flex: 0 0 auto;
+  flex: 0 1 max-content;
   align-items: center;
   gap: var(--bew-space-1);
   min-width: 0;
-  max-width: min(40%, 320px);
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
@@ -3812,6 +4037,19 @@ watch(
 }
 .moments-up-list__pinned::-webkit-scrollbar {
   display: none;
+}
+.moments-up-list__editor-placeholder {
+  display: inline-flex;
+  min-width: 80px;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--bew-space-2);
+  color: var(--bew-text-2);
+  font-size: var(--bew-font-size-caption);
+  font-weight: var(--bew-font-weight-medium);
+  line-height: var(--bew-line-height-caption);
+  white-space: nowrap;
 }
 .moments-up-list__divider {
   flex: 0 0 auto;
@@ -3951,6 +4189,17 @@ watch(
 }
 .moments-user-card {
   padding: var(--bew-space-4);
+}
+.moments-sidebar-editor-placeholder {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  justify-content: center;
+  color: var(--bew-text-2);
+  font-size: var(--bew-font-size-control);
+  font-weight: var(--bew-font-weight-semibold);
+  line-height: var(--bew-line-height-control);
+  text-align: center;
 }
 .moments-user-card__profile {
   display: flex;
@@ -4360,6 +4609,9 @@ watch(
   width: 100%;
   min-width: 0;
 }
+.moments-filter-header--center {
+  justify-content: center;
+}
 .moments-layout--without-sidebar .moments-filter-header {
   grid-column: 1;
 }
@@ -4499,7 +4751,7 @@ watch(
   gap: var(--bew-space-2);
   min-width: 124px;
   height: var(--bew-control-height);
-  margin: var(--bew-space-5) auto 0;
+  margin: var(--bew-space-5) auto var(--bew-space-12);
   padding: 0 var(--bew-space-4);
   border: 1px solid var(--bew-border-color);
   border-radius: var(--bew-radius-full);
@@ -4543,10 +4795,11 @@ watch(
   background: var(--bew-bg);
 }
 .moment-detail-frame--player {
-  // 视频/直播：按视口/16:9 区域展示，内部页面可滚动
+  // 响应式 Dialog 约束高度，视频/直播详情在 iframe 内部滚动
   overflow: hidden;
   background: #000;
-  min-height: 280px;
+  min-height: 0;
+  max-height: 100%;
 }
 .moment-detail-frame--opus {
   // 图文：小红书 note 高容器，利于竖图展示

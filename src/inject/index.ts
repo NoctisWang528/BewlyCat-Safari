@@ -48,7 +48,7 @@ if (isElectronEnv) {
 }
 else if (pageWorldState) {
   try {
-  // 根据兼容性设置动态返回桌面 UA，默认保持浏览器原始值。
+    // 根据兼容性设置动态返回桌面 UA，默认保持浏览器原始值。
     if (isBilibiliWwwUrl(location.href)) {
       const originalNavigatorValues = {
         appVersion: navigator.appVersion,
@@ -141,9 +141,13 @@ else if (pageWorldState) {
     }
 
     const COMMENT_COMPONENT_PATCHED = Symbol('bewly-comment-component-patched')
+    const COMMENT_REPLY_PAGINATION_PATCHED = Symbol('bewly-comment-reply-pagination-patched')
     const pendingCommentEnhancements = new WeakSet<object>()
     const commentRepliesRenderers = new Set<any>()
     const commentReplyTreeStates = new WeakMap<object, CommentReplyTreeState>()
+    const commentReplyTreeEpochs = new WeakMap<object, number>()
+    const commentReplyPaginationStates = new WeakMap<object, CommentReplyPaginationState>()
+    const commentReplyPaginationModeStates = new WeakMap<object, boolean>()
     const MAX_COMMENT_REPLY_TREE_DEPTH = 10
     const MIN_COMMENT_REPLY_TREE_CONTENT_WIDTH = 150
     const COMPACT_COMMENT_REPLY_TREE_CONTAINER_WIDTH = 640
@@ -152,6 +156,7 @@ else if (pageWorldState) {
     const COMMENT_REPLY_TREE_INDENT_STEP = 'var(--bew-comment-reply-indent-step, var(--bew-space-8, 32px))'
     const COMMENT_REPLY_TREE_GUIDES_ID = 'bewly-comment-reply-tree-guides'
     const COMMENT_REPLY_TREE_ROOT_KEY = 'thread-root'
+    const WIDESCREEN_COMMENT_EMOJI_OPEN_ATTRIBUTE = 'data-bewly-comment-emoji-open'
     const SVG_NAMESPACE = 'http://www.w3.org/2000/svg'
 
     /** 楼中楼已见过的回复关系（跨分页保留，用于父节点不在当前页时回溯挂载） */
@@ -168,10 +173,10 @@ else if (pageWorldState) {
       collapsedNodeKeys: Set<string>
       /** 收起某条评论之后的全部同级评论（及子树） */
       collapsedTailKeys: Set<string>
-      /** 展开时缓存的分支收起按钮 Y，用于「不收起主评论」收起后留在原位 */
-      branchToggleYByKey: Map<string, number>
-      /** 展开时缓存的平级收起按钮 Y，收起后保持原位避免上缩断线 */
-      tailToggleYByKey: Map<string, number>
+      /** 展开时缓存的分支收起按钮相对父节点偏移，避免布局移动后复用过期绝对坐标 */
+      branchToggleOffsetByKey: Map<string, number>
+      /** 展开时缓存的平级收起按钮相对父节点偏移 */
+      tailToggleOffsetByKey: Map<string, number>
       /**
        * 按 rpid 缓存回复的 parent/root 等关系。
        * 楼中楼翻页后父评论可能不在当前 DOM，仍需靠此结构挂到最近可见祖先。
@@ -211,6 +216,21 @@ else if (pageWorldState) {
       directParentAuthorName: string | null
       /** 直接父回复正文摘要（跨页缓存） */
       directParentMessageText: string | null
+    }
+
+    interface CommentReplyPaginationState {
+      identity: string
+      pages: Map<number, any[]>
+      currentPage: number
+      mergedList?: any[]
+      collapsedList?: any[]
+      suppressInvalidatedResultRestore?: boolean
+      pending?: {
+        page: number
+        beforeList: any[]
+        layoutReservation?: CommentReplyLayoutReservation
+      }
+      loading?: Promise<any>
     }
 
     const COMMENT_REPLY_TREE_GUIDES_CSS = `
@@ -390,6 +410,10 @@ else if (pageWorldState) {
         #editor:not(:hover):not(.active) {
           border-color: var(--bew-comment-editor-border, var(--Ga1)) !important;
         }
+
+        :is(#pub button, button[data-v-risk="fingerprint"]):not(:hover, :active, .active) {
+          background-color: var(--bew-theme-color-60) !important;
+        }
       `,
       },
       'bili-comments-vote-card': {
@@ -410,6 +434,29 @@ else if (pageWorldState) {
       style.id = id
       style.textContent = css
       root.appendChild(style)
+    }
+
+    function updateWidescreenCommentEmojiOverflow(component: HTMLElement, root: ShadowRoot) {
+      const emojiPopover = root.querySelector<HTMLElement>('#emoji-popover')
+      const emojiPickerOpen = (component as HTMLElement & { showEmojiPicker?: boolean }).showEmojiPicker === true
+        || emojiPopover?.style.display === 'block'
+      const componentRoot = component.getRootNode()
+      const shadowHost = componentRoot instanceof ShadowRoot ? componentRoot.host : null
+      const panel = component.closest('.bewly-widescreen-panel')
+        ?? shadowHost?.closest('.bewly-widescreen-panel')
+
+      if (!(panel instanceof HTMLElement))
+        return
+
+      panel.toggleAttribute(WIDESCREEN_COMMENT_EMOJI_OPEN_ATTRIBUTE, emojiPickerOpen)
+
+      const panels = panel.parentElement
+      if (panels?.classList.contains('bewly-widescreen-panels')) {
+        panels.toggleAttribute(
+          WIDESCREEN_COMMENT_EMOJI_OPEN_ATTRIBUTE,
+          Boolean(panels.querySelector(`.bewly-widescreen-panel[${WIDESCREEN_COMMENT_EMOJI_OPEN_ATTRIBUTE}]`)),
+        )
+      }
     }
 
     function findCommentComponentLifecycleMethod(
@@ -521,6 +568,13 @@ else if (pageWorldState) {
       ['pushState'],
       (...args: any[]) => {
         window.dispatchEvent(new CustomEvent('pushstate', { detail: args }))
+      },
+    )
+    injectFunction(
+      window.history,
+      ['replaceState'],
+      (...args: any[]) => {
+        window.dispatchEvent(new CustomEvent('replacestate', { detail: args }))
       },
     )
 
@@ -748,6 +802,441 @@ else if (pageWorldState) {
       return candidates.find(candidate => candidate && typeof candidate === 'object') ?? null
     }
 
+    function findCommentPropertyDescriptor(
+      prototype: object,
+      property: string,
+    ): PropertyDescriptor | null {
+      let current: object | null = prototype
+      while (current && current !== Object.prototype) {
+        const descriptor = Object.getOwnPropertyDescriptor(current, property)
+        if (descriptor)
+          return descriptor
+        current = Object.getPrototypeOf(current)
+      }
+      return null
+    }
+
+    function getCommentReplyPaginationIdentity(renderer: any): string {
+      const data = getCommentReplyData(renderer) ?? {}
+      const oid = toIdString(renderer.oid) ?? getReplyOid(data)
+      const type = toIdString(renderer.type) ?? toIdString(data.type ?? data.business)
+      const root = toIdString(renderer.root) ?? getReplyRpid(data) ?? getReplyRootRpid(data)
+      return [oid ?? '', type ?? '', root ?? ''].join('|')
+    }
+
+    function isCommentReplyLoadMoreEnabled(): boolean {
+      return getCommentReplyTreeMode() !== null
+        && currentSettings?.commentReplyPaginationMode !== 'pagination'
+    }
+
+    function getCommentReplyInvisibleIds(renderer: any): Set<string> {
+      if (!renderer.invisibleID || typeof renderer.invisibleID !== 'object')
+        return new Set()
+      return new Set(
+        Object.keys(renderer.invisibleID).filter(rpid => renderer.invisibleID[rpid]),
+      )
+    }
+
+    function clearCommentReplyPaginationState(renderer: any, restoreCurrentPage: boolean) {
+      const state = commentReplyPaginationStates.get(renderer)
+      if (!state)
+        return
+      const original = state.pages.get(state.currentPage)
+      if (restoreCurrentPage && state.mergedList && renderer.list === state.mergedList && original) {
+        renderer.list = original.slice()
+        renderer.requestUpdate?.()
+      }
+      releaseCommentReplyLayoutReservation(state.pending?.layoutReservation)
+      state.pending = undefined
+      state.loading = undefined
+      state.pages.clear()
+      commentReplyPaginationStates.delete(renderer)
+      // 切换分页模式或评论身份时立即刷新，不再等旧 Promise 结算。
+      renderer.requestUpdate?.()
+    }
+
+    /**
+     * 结束当前「加载更多」的 UI 会话，但保留已累计页。请求本身由 B 站
+     * 组件持有，无法可靠 abort；树分支收起时可恢复迟到结果，原生收起则必须忽略它。
+     */
+    function invalidateCommentReplyPaginationLoading(renderer: any) {
+      const state = commentReplyPaginationStates.get(renderer)
+      if (!state || (!state.pending && !state.loading))
+        return
+
+      releaseCommentReplyLayoutReservation(state.pending?.layoutReservation)
+      if (!state.mergedList && state.pages.size > 0)
+        state.mergedList = mergeCommentReplyPaginationPages(state)
+      if (state.mergedList)
+        renderer.list = state.mergedList
+      state.pending = undefined
+      state.loading = undefined
+      renderer.requestUpdate?.()
+    }
+
+    function suspendCommentReplyPaginationForNativeCollapse(
+      renderer: any,
+      captureCollapsedList: boolean,
+    ) {
+      const state = commentReplyPaginationStates.get(renderer)
+      if (!state)
+        return
+      state.suppressInvalidatedResultRestore = true
+      if (captureCollapsedList && Array.isArray(renderer.list))
+        state.collapsedList = renderer.list.slice()
+      invalidateCommentReplyPaginationLoading(renderer)
+    }
+
+    function getCommentReplyPaginationState(renderer: any): CommentReplyPaginationState {
+      const identity = getCommentReplyPaginationIdentity(renderer)
+      const existing = commentReplyPaginationStates.get(renderer)
+      if (existing && existing.identity === identity)
+        return existing
+      if (existing)
+        clearCommentReplyPaginationState(renderer, false)
+      const state: CommentReplyPaginationState = {
+        identity,
+        pages: new Map(),
+        currentPage: Number(renderer.currentPage) || 1,
+      }
+      commentReplyPaginationStates.set(renderer, state)
+      return state
+    }
+
+    function mergeCommentReplyPaginationPages(state: CommentReplyPaginationState): any[] {
+      return mergeCommentReplyLists(
+        ...[...state.pages.entries()]
+          .sort(([a], [b]) => a - b)
+          .map(([, page]) => page),
+      )
+    }
+
+    function mergeCommentReplyLists(...lists: any[][]): any[] {
+      const merged: any[] = []
+      const seen = new Set<string>()
+      lists.forEach((list) => {
+        list.forEach((reply) => {
+          const rpid = getReplyRpid(reply)
+          if (rpid) {
+            if (seen.has(rpid))
+              return
+            seen.add(rpid)
+          }
+          merged.push(reply)
+        })
+      })
+      return merged
+    }
+
+    function getNewCommentReplyPage(beforeList: any[], loadedList: any[]): any[] {
+      const existingRpids = new Set(
+        beforeList.map(getReplyRpid).filter((rpid): rpid is string => Boolean(rpid)),
+      )
+      const existingReplies = new Set(beforeList)
+      const newRpids = new Set<string>()
+      return loadedList.filter((reply) => {
+        const rpid = getReplyRpid(reply)
+        if (rpid) {
+          if (existingRpids.has(rpid) || newRpids.has(rpid))
+            return false
+          newRpids.add(rpid)
+          return true
+        }
+        return !existingReplies.has(reply)
+      })
+    }
+
+    interface CommentReplyLayoutReservation {
+      appliedMinHeight: string
+      anchorHost: HTMLElement
+      container: HTMLElement
+      previousMinHeight: string
+      previousOverflowAnchor: string
+    }
+
+    const activeCommentReplyLayoutReservations = new WeakMap<HTMLElement, CommentReplyLayoutReservation>()
+
+    function reserveCommentReplyLayoutHeight(renderer: any): CommentReplyLayoutReservation | undefined {
+      const root = renderer?.shadowRoot as ShadowRoot | null | undefined
+      const container = root?.querySelector<HTMLElement>('#expander-contents')
+      if (!container)
+        return undefined
+
+      const height = Math.ceil(container.getBoundingClientRect().height)
+      if (height <= 0)
+        return undefined
+
+      const existingReservation = activeCommentReplyLayoutReservations.get(container)
+      const anchorHost = renderer instanceof HTMLElement ? renderer : container
+      const reservation = {
+        appliedMinHeight: `${height}px`,
+        anchorHost,
+        container,
+        previousMinHeight: existingReservation?.previousMinHeight ?? container.style.minHeight,
+        previousOverflowAnchor: existingReservation?.previousOverflowAnchor
+          ?? anchorHost.style.getPropertyValue('overflow-anchor'),
+      }
+      container.style.minHeight = reservation.appliedMinHeight
+      anchorHost.style.setProperty('overflow-anchor', 'none')
+      activeCommentReplyLayoutReservations.set(container, reservation)
+      return reservation
+    }
+
+    function releaseCommentReplyLayoutReservation(
+      reservation: CommentReplyLayoutReservation | undefined,
+    ) {
+      if (!reservation)
+        return
+      const {
+        anchorHost,
+        appliedMinHeight,
+        container,
+        previousMinHeight,
+        previousOverflowAnchor,
+      } = reservation
+      if (activeCommentReplyLayoutReservations.get(container) !== reservation)
+        return
+      activeCommentReplyLayoutReservations.delete(container)
+      if (container.style.minHeight === appliedMinHeight)
+        container.style.minHeight = previousMinHeight
+      if (anchorHost.style.getPropertyValue('overflow-anchor') === 'none') {
+        if (previousOverflowAnchor)
+          anchorHost.style.setProperty('overflow-anchor', previousOverflowAnchor)
+        else
+          anchorHost.style.removeProperty('overflow-anchor')
+      }
+    }
+
+    function scheduleCommentReplyPaginationTreeUpdate(
+      renderer: any,
+      layoutReservation?: CommentReplyLayoutReservation,
+    ) {
+      const treeEpoch = commentReplyTreeEpochs.get(renderer) ?? 0
+      try {
+        renderer.requestUpdate?.()
+      }
+      catch (error) {
+        releaseCommentReplyLayoutReservation(layoutReservation)
+        throw error
+      }
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        try {
+          if (
+            renderer.isConnected
+            && getCommentReplyTreeMode() !== null
+            && (commentReplyTreeEpochs.get(renderer) ?? 0) === treeEpoch
+          ) {
+            updateCommentReplyTree(renderer)
+          }
+        }
+        finally {
+          releaseCommentReplyLayoutReservation(layoutReservation)
+        }
+      }))
+    }
+
+    function patchCommentReplyPaginationPrototype(classConstructor: any) {
+      const prototype = classConstructor?.prototype as object | undefined
+      if (!prototype || (prototype as any)[COMMENT_REPLY_PAGINATION_PATCHED])
+        return
+      const getListDescriptor = findCommentPropertyDescriptor(prototype, 'getList')
+      const originalGetList = getListDescriptor?.value
+      if (typeof originalGetList === 'function') {
+        Object.defineProperty(prototype, 'getList', {
+          configurable: true,
+          writable: true,
+          value(this: any, ...args: any[]) {
+            if (!isCommentReplyLoadMoreEnabled()) {
+              clearCommentReplyPaginationState(this, true)
+              return Reflect.apply(originalGetList, this, args)
+            }
+            const state = getCommentReplyPaginationState(this)
+            if (state.loading)
+              return state.loading
+            // 重新展开后进入了新的加载会话，不再受上次原生收起限制。
+            state.suppressInvalidatedResultRestore = false
+            state.collapsedList = undefined
+            const invisibleIds = getCommentReplyInvisibleIds(this)
+            if (invisibleIds.size) {
+              state.pages.forEach((page, pageNumber) => {
+                state.pages.set(pageNumber, page.filter(reply => !invisibleIds.has(getReplyRpid(reply) ?? '')))
+              })
+              if (state.mergedList) {
+                state.mergedList = state.mergedList
+                  .filter(reply => !invisibleIds.has(getReplyRpid(reply) ?? ''))
+              }
+            }
+            // 原生组件可能替换 list，也可能原地改写。请求前先保存独立的
+            // 累计列表快照，后续始终以它为基础追加新页。
+            const currentList = Array.isArray(this.list)
+              ? this.list.filter(reply => !invisibleIds.has(getReplyRpid(reply) ?? ''))
+              : []
+            const beforeList = mergeCommentReplyLists(state.mergedList ?? [], currentList)
+            state.mergedList = beforeList
+            const pending = {
+              page: Number(this.currentPage) || 1,
+              beforeList,
+              layoutReservation: reserveCommentReplyLayoutHeight(this),
+            }
+            state.pending = pending
+            let result: any
+            try {
+              result = Reflect.apply(originalGetList, this, args)
+            }
+            catch (error) {
+              if (state.pending === pending) {
+                releaseCommentReplyLayoutReservation(pending.layoutReservation)
+                state.pending = undefined
+                state.loading = undefined
+              }
+              throw error
+            }
+            const promise = Promise.resolve(result).then((value) => {
+              if (state.pending === pending) {
+                state.pending = undefined
+                state.loading = undefined
+                if (isCommentReplyLoadMoreEnabled()
+                  && state.identity === getCommentReplyPaginationIdentity(this)
+                  && Array.isArray(this.list)) {
+                  const latestInvisibleIds = getCommentReplyInvisibleIds(this)
+                  const retainedBeforeList = pending.beforeList
+                    .filter(reply => !latestInvisibleIds.has(getReplyRpid(reply) ?? ''))
+                  const loadedList = this.list
+                    .filter(reply => !latestInvisibleIds.has(getReplyRpid(reply) ?? ''))
+                  const page = getNewCommentReplyPage(retainedBeforeList, loadedList)
+                  state.pages.forEach((cachedPage, pageNumber) => {
+                    state.pages.set(
+                      pageNumber,
+                      cachedPage.filter(reply => !latestInvisibleIds.has(getReplyRpid(reply) ?? '')),
+                    )
+                  })
+                  // pages 始终保存原生完整单页，供切回「分页」模式时恢复。
+                  state.pages.set(pending.page, loadedList)
+                  state.currentPage = pending.page
+                  const merged = mergeCommentReplyLists(retainedBeforeList, page)
+                  state.mergedList = merged
+                  this.list = merged
+                  scheduleCommentReplyPaginationTreeUpdate(this, pending.layoutReservation)
+                }
+                else {
+                  releaseCommentReplyLayoutReservation(pending.layoutReservation)
+                }
+              }
+              else if (
+                commentReplyPaginationStates.get(this) === state
+                && state.identity === getCommentReplyPaginationIdentity(this)
+              ) {
+                if (state.suppressInvalidatedResultRestore && state.collapsedList) {
+                // 原生收起后迟到的请求会先将 list 改成单页，立即恢复收起态缓存。
+                  this.list = state.collapsedList
+                  this.requestUpdate?.()
+                }
+                else if (
+                  !state.pending
+                  && !state.loading
+                  && state.mergedList
+                ) {
+                // 树分支折叠后的迟到请求恢复折叠前累计列表。
+                  this.list = state.mergedList
+                  scheduleCommentReplyPaginationTreeUpdate(this)
+                }
+              }
+              return value
+            }, (error) => {
+              if (state.pending === pending) {
+                releaseCommentReplyLayoutReservation(pending.layoutReservation)
+                state.pending = undefined
+                state.loading = undefined
+              }
+              throw error
+            })
+            state.loading = promise
+            return promise
+          },
+        })
+      }
+
+      const changePageDescriptor = findCommentPropertyDescriptor(prototype, 'handleChangePage')
+      const originalChangePage = changePageDescriptor?.value
+      if (typeof originalChangePage === 'function') {
+        Object.defineProperty(prototype, 'handleChangePage', {
+          configurable: true,
+          writable: true,
+          value(this: any, ...args: any[]) {
+            if (!isCommentReplyLoadMoreEnabled())
+              return Reflect.apply(originalChangePage, this, args)
+            const state = getCommentReplyPaginationState(this)
+            if (state.loading)
+              return state.loading
+            const currentPage = Number(this.currentPage) || 1
+            if (!state.pages.has(currentPage)
+              && Array.isArray(this.list)
+              && this.list !== state.mergedList) {
+              state.pages.set(currentPage, this.list.slice())
+              state.currentPage = currentPage
+            }
+            return Reflect.apply(originalChangePage, this, args)
+          },
+        })
+      }
+
+      const paginationDescriptor = findCommentPropertyDescriptor(prototype, 'paginationItems')
+      const originalPaginationItems = paginationDescriptor?.get
+      if (typeof originalPaginationItems === 'function') {
+        Object.defineProperty(prototype, 'paginationItems', {
+          configurable: true,
+          get(this: any) {
+            const items = Reflect.apply(originalPaginationItems, this, [])
+            if (!isCommentReplyLoadMoreEnabled() || this.showPagination !== true || !Array.isArray(items))
+              return items
+            const state = getCommentReplyPaginationState(this)
+            const currentPage = Number(this.currentPage) || 1
+            if (state.loading) {
+              return [{ text: '加载中…', idx: currentPage, clickable: false }]
+            }
+            const hasNext = items.some(item => Number(item?.idx) === currentPage && item?.clickable !== false)
+            return [{
+              text: hasNext ? '加载更多' : '没有更多回复',
+              idx: currentPage,
+              clickable: hasNext,
+            }]
+          },
+        })
+      }
+
+      const revertDescriptor = findCommentPropertyDescriptor(prototype, 'handleRevert')
+      const originalRevert = revertDescriptor?.value
+      if (typeof originalRevert === 'function') {
+        Object.defineProperty(prototype, 'handleRevert', {
+          configurable: true,
+          writable: true,
+          value(this: any, ...args: any[]) {
+            const cleanup = (captureCollapsedList: boolean) => {
+            // 原生收起只结束未完成请求；已加载页必须留给下次展开继续追加。
+              suspendCommentReplyPaginationForNativeCollapse(this, captureCollapsedList)
+              clearCommentReplyTreeState(this)
+            }
+            cleanup(false)
+            let result: any
+            try {
+              result = Reflect.apply(originalRevert, this, args)
+            }
+            catch (error) {
+              cleanup(true)
+              throw error
+            }
+            // 原生收起会同步改写 list/展示状态，调用后再清一次布局会话。
+            cleanup(true)
+            return result
+          },
+        })
+      }
+      Object.defineProperty(prototype, COMMENT_REPLY_PAGINATION_PATCHED, {
+        configurable: true,
+        value: true,
+      })
+    }
+
     /** 从评论子组件向上找到所属的 bili-comment-replies-renderer */
     function findCommentRepliesRendererHost(component: HTMLElement | null | undefined): HTMLElement | null {
       let node: Node | null = component ?? null
@@ -786,8 +1275,8 @@ else if (pageWorldState) {
         state = {
           collapsedNodeKeys: new Set(),
           collapsedTailKeys: new Set(),
-          branchToggleYByKey: new Map(),
-          tailToggleYByKey: new Map(),
+          branchToggleOffsetByKey: new Map(),
+          tailToggleOffsetByKey: new Map(),
           replyMetaByRpid: new Map(),
           enabled: false,
           nextOriginalOrder: 0,
@@ -798,10 +1287,10 @@ else if (pageWorldState) {
       else {
         if (!state.collapsedTailKeys)
           state.collapsedTailKeys = new Set()
-        if (!state.branchToggleYByKey)
-          state.branchToggleYByKey = new Map()
-        if (!state.tailToggleYByKey)
-          state.tailToggleYByKey = new Map()
+        if (!state.branchToggleOffsetByKey)
+          state.branchToggleOffsetByKey = new Map()
+        if (!state.tailToggleOffsetByKey)
+          state.tailToggleOffsetByKey = new Map()
         if (!state.replyMetaByRpid)
           state.replyMetaByRpid = new Map()
       }
@@ -971,6 +1460,43 @@ else if (pageWorldState) {
     }
 
     /**
+     * 原生「收起回复」会在后续展开时复用组件实例。此时上一次展开的
+     * 折叠状态、父子关系和布局偏移都已失效，必须作为同一个会话整体清理。
+     */
+    function clearCommentReplyTreeState(component: any) {
+      commentReplyTreeEpochs.set(component, (commentReplyTreeEpochs.get(component) ?? 0) + 1)
+      const state = commentReplyTreeStates.get(component)
+      if (state)
+        disconnectCommentReplyTreeResizeObserver(state)
+
+      if (component instanceof HTMLElement) {
+        const root = component.shadowRoot
+        const replyContainer = root?.querySelector<HTMLElement>('#expander-contents')
+        if (replyContainer) {
+          removeCommentReplyTreeGuides(component, replyContainer)
+          Array.from(replyContainer.children)
+            .filter(isCommentReplyRenderer)
+            .forEach((renderer) => {
+              delete renderer.dataset.bewlyCommentReplyDepth
+              delete renderer.dataset.bewlyCommentReplyHidden
+              delete renderer.dataset.bewlyCommentReplyCollapsed
+              renderer.style.removeProperty('--bew-comment-reply-indent')
+              setCommentReplyAtPrefixHidden(renderer, false)
+              clearCommentReplyOffpageParentLabel(renderer)
+            })
+        }
+        getCommentReplyTreeRootRenderer(component)
+          ?.removeAttribute('data-bewly-comment-reply-collapsed')
+        component.removeAttribute('data-bewly-comment-reply-tree')
+        component.style.removeProperty('--bew-comment-reply-indent-step')
+      }
+
+      pendingCommentReplyTreeLayoutUpdates.delete(component)
+      commentReplyTreeStates.delete(component)
+      commentRepliesRenderers.delete(component)
+    }
+
+    /**
      * 主评论图文加载/展开会把楼中楼整体下推；仅 observe 回复容器时
      * ResizeObserver 不会因「上方变高导致位移」触发，线条会错位。
      * 同时监听楼层 host、主评论与回复容器，并在图片 load 后重算。
@@ -979,11 +1505,16 @@ else if (pageWorldState) {
       if (!component || pendingCommentReplyTreeLayoutUpdates.has(component))
         return
 
+      const treeEpoch = commentReplyTreeEpochs.get(component) ?? 0
       pendingCommentReplyTreeLayoutUpdates.add(component)
       requestAnimationFrame(() => {
         pendingCommentReplyTreeLayoutUpdates.delete(component)
-        if (!component?.isConnected)
+        if (
+          !component?.isConnected
+          || (commentReplyTreeEpochs.get(component) ?? 0) !== treeEpoch
+        ) {
           return
+        }
         updateCommentReplyTree(component)
       })
     }
@@ -1491,10 +2022,13 @@ else if (pageWorldState) {
       state: CommentReplyTreeState,
       branchKey: string,
     ) {
-      if (state.collapsedNodeKeys.has(branchKey))
+      if (state.collapsedNodeKeys.has(branchKey)) {
         state.collapsedNodeKeys.delete(branchKey)
-      else
+      }
+      else {
+        invalidateCommentReplyPaginationLoading(component)
         state.collapsedNodeKeys.add(branchKey)
+      }
       updateCommentReplyTree(component)
     }
 
@@ -1503,10 +2037,13 @@ else if (pageWorldState) {
       state: CommentReplyTreeState,
       tailKey: string,
     ) {
-      if (state.collapsedTailKeys.has(tailKey))
+      if (state.collapsedTailKeys.has(tailKey)) {
         state.collapsedTailKeys.delete(tailKey)
-      else
+      }
+      else {
+        invalidateCommentReplyPaginationLoading(component)
         state.collapsedTailKeys.add(tailKey)
+      }
       updateCommentReplyTree(component)
     }
 
@@ -1599,7 +2136,10 @@ else if (pageWorldState) {
         const afterAnchor = avatarAnchorByNode.get(afterSibling)
         if (afterAnchor) {
           const key = getCommentReplyTailCollapseKey(parentKey, getCommentReplyTreeNodeKey(afterSibling))
-          const cachedY = state.tailToggleYByKey.get(key)
+          const cachedOffset = state.tailToggleOffsetByKey.get(key)
+          const cachedY = cachedOffset === undefined
+            ? undefined
+            : parentAnchor.centerY + cachedOffset
           const fallbackY = afterAnchor.bottom + toggleHitRadius + 4
           // 缓存优先；至少略低于最后可见评论中心，保证仍落在主干上
           const y = cachedY !== undefined
@@ -1631,7 +2171,7 @@ else if (pageWorldState) {
 
         const key = getCommentReplyTailCollapseKey(parentKey, getCommentReplyTreeNodeKey(current))
         const y = currentAnchor.centerY + gap / 2
-        state.tailToggleYByKey.set(key, y)
+        state.tailToggleOffsetByKey.set(key, y - parentAnchor.centerY)
         tails.push({
           collapsed: false,
           hiddenCount: siblings.length - index - 1,
@@ -1892,10 +2432,16 @@ else if (pageWorldState) {
               branch.childAnchors,
               toggleHitRadius,
             )
-            state.branchToggleYByKey.set(branch.key, expandedToggleY)
+            state.branchToggleOffsetByKey.set(
+              branch.key,
+              expandedToggleY - branch.parentAnchor.bottom,
+            )
           }
 
-          const cachedToggleY = state.branchToggleYByKey.get(branch.key)
+          const cachedToggleOffset = state.branchToggleOffsetByKey.get(branch.key)
+          const cachedToggleY = cachedToggleOffset === undefined
+            ? undefined
+            : branch.parentAnchor.bottom + cachedToggleOffset
           const pathData = getCommentReplyBranchPath(
             branch,
             branchRadius,
@@ -2558,6 +3104,13 @@ else if (pageWorldState) {
 
       commentRepliesRenderers.add(component)
       const treeMode = getCommentReplyTreeMode()
+      const paginationEnabled = isCommentReplyLoadMoreEnabled()
+      if (commentReplyPaginationModeStates.get(component) !== paginationEnabled) {
+        commentReplyPaginationModeStates.set(component, paginationEnabled)
+        component.requestUpdate?.()
+      }
+      if (!paginationEnabled)
+        clearCommentReplyPaginationState(component, true)
       const existingState = commentReplyTreeStates.get(component)
       if (treeMode === null && !existingState?.enabled) {
         component.removeAttribute('data-bewly-comment-reply-tree')
@@ -2585,8 +3138,8 @@ else if (pageWorldState) {
         removeCommentReplyTreeGuides(component, replyContainer)
         state.collapsedNodeKeys.clear()
         state.collapsedTailKeys.clear()
-        state.branchToggleYByKey.clear()
-        state.tailToggleYByKey.clear()
+        state.branchToggleOffsetByKey.clear()
+        state.tailToggleOffsetByKey.clear()
         if (state.enabled) {
           const originalOrder = [...replyRenderers].sort((a, b) => (
             getCommentReplyOriginalOrder(state, a) - getCommentReplyOriginalOrder(state, b)
@@ -2611,8 +3164,8 @@ else if (pageWorldState) {
       if (!showGuides) {
         state.collapsedNodeKeys.clear()
         state.collapsedTailKeys.clear()
-        state.branchToggleYByKey.clear()
-        state.tailToggleYByKey.clear()
+        state.branchToggleOffsetByKey.clear()
+        state.tailToggleOffsetByKey.clear()
       }
 
       observeCommentReplyTreeLayout(component, state, replyContainer)
@@ -2706,10 +3259,9 @@ else if (pageWorldState) {
     function refreshCommentReplyTrees() {
       commentRepliesRenderers.forEach((component) => {
         if (!component?.isConnected) {
-          const state = commentReplyTreeStates.get(component)
-          if (state)
-            disconnectCommentReplyTreeResizeObserver(state)
-          commentRepliesRenderers.delete(component)
+        // 原生收起可能暂时移除同一组件实例，保留其已加载页。
+          suspendCommentReplyPaginationForNativeCollapse(component, true)
+          clearCommentReplyTreeState(component)
           return
         }
 
@@ -2923,6 +3475,9 @@ else if (pageWorldState) {
         if (typeof classConstructor !== 'function')
           return
 
+        if (name === 'bili-comment-replies-renderer')
+          patchCommentReplyPaginationPrototype(classConstructor)
+
         const shadowStylePatch = COMMENT_SHADOW_STYLE_PATCHES[name]
         if (shadowStylePatch) {
           try {
@@ -2947,6 +3502,9 @@ else if (pageWorldState) {
                 // 深链目标楼中楼刚挂载/更新时再结算一次
                 if (getCommentReplyDeepLinkId())
                   scheduleCommentReplyDeepLinkSettlement('hash')
+              }
+              else if (name === 'bili-comment-box') {
+                updateWidescreenCommentEmojiOverflow(component, root)
               }
             })
           }
@@ -3254,7 +3812,6 @@ else if (pageWorldState) {
       'buvid',
       'is_story_h5',
       'mid',
-      'p',
       'plat_id',
       'share_from',
       'timestamp',
@@ -3266,7 +3823,12 @@ else if (pageWorldState) {
     function cleanUrl(url: string): string {
       try {
         const urlObj = new URL(url)
-        if (!urlObj.hostname.includes('bilibili.com') && !urlObj.hostname.includes('b23.tv'))
+        const hostname = urlObj.hostname.toLowerCase()
+        const isBilibiliHost = hostname === 'bilibili.com'
+          || hostname === 'b23.tv'
+          || hostname.endsWith('.bilibili.com')
+          || hostname.endsWith('.b23.tv')
+        if (!isBilibiliHost)
           return url
         for (const param of BILIBILI_TRACKING_PARAMS)
           urlObj.searchParams.delete(param)

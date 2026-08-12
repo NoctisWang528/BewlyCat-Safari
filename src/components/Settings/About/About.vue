@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+import { useToast } from 'vue-toastification'
 import browser from 'webextension-polyfill'
 
+import Button from '~/components/Button.vue'
 import Radio from '~/components/Radio.vue'
 import {
   SAFARI_LATEST_RELEASE_API_URL,
@@ -11,6 +14,7 @@ import {
   UPSTREAM_REPOSITORY_URL,
 } from '~/constants/release'
 import { settings } from '~/logic'
+import { getBrowserInfo, parseBrowserInfo } from '~/utils/browserInfo'
 
 import Maintenance from '../Advanced/Maintenance.vue'
 import SettingsItem from '../components/SettingsItem.vue'
@@ -19,11 +23,16 @@ import SettingsSectionHeading from '../components/SettingsSectionHeading.vue'
 
 const hasNewVersion = ref<boolean>(false)
 const contributorsImageFailed = ref(false)
+const browserInfo = ref(parseBrowserInfo())
+const isCopyingEnvironmentInfo = ref(false)
+const { t } = useI18n()
+const toast = useToast()
 
 const isDev = computed((): boolean => import.meta.env.DEV)
 
-onMounted(() => {
+onMounted(async () => {
   checkGitHubRelease()
+  browserInfo.value = await getBrowserInfo()
 })
 
 async function checkGitHubRelease() {
@@ -43,6 +52,30 @@ async function checkGitHubRelease() {
 
 function handleContributorImageError() {
   contributorsImageFailed.value = true
+}
+
+async function handleCopyEnvironmentInfo() {
+  if (isCopyingEnvironmentInfo.value)
+    return
+
+  const unknownValue = t('settings.environment_info_unknown')
+  const text = [
+    `- 浏览器：${browserInfo.value.name ?? unknownValue}`,
+    `- 浏览器版本：${browserInfo.value.version ?? unknownValue}`,
+    `- BewlyCat-Safari 版本：${SAFARI_VERSION}`,
+  ].join('\n')
+
+  isCopyingEnvironmentInfo.value = true
+  try {
+    await navigator.clipboard.writeText(text)
+    toast.success(t('settings.environment_info_copied'))
+  }
+  catch {
+    toast.error(t('settings.environment_info_copy_failed'))
+  }
+  finally {
+    isCopyingEnvironmentInfo.value = false
+  }
 }
 </script>
 
@@ -87,6 +120,25 @@ function handleContributorImageError() {
       </section>
 
       <section class="about-maintenance">
+        <SettingsItemGroup :title="$t('settings.group_environment_info')">
+          <SettingsItem
+            :title="$t('settings.copy_environment_info')"
+            :desc="$t('settings.copy_environment_info_desc')"
+            right-width="auto"
+          >
+            <Button
+              type="secondary"
+              size="small"
+              :disabled="isCopyingEnvironmentInfo"
+              @click="handleCopyEnvironmentInfo"
+            >
+              <template #left>
+                <div i-tabler:copy />
+              </template>
+              {{ $t('settings.copy_environment_info') }}
+            </Button>
+          </SettingsItem>
+        </SettingsItemGroup>
         <SettingsItemGroup :title="$t('settings.group_version_reminder')">
           <SettingsItem
             :title="$t('settings.enable_version_reminder')"
@@ -131,7 +183,7 @@ function handleContributorImageError() {
               <div i-tabler:brand-github /> {{ $t('settings.upstream_github') }}
             </a>
             <a
-              href="https://space.bilibili.com/32487218/dynamic" target="_blank"
+              href="https://space.bilibili.com/34234421" target="_blank"
               class="link-card"
               bg="#fb7299 dark:#ffa7c0 !opacity-10 !hover:opacity-20"
               un-text="#fb7299 dark:#ffa7c0"
@@ -162,7 +214,7 @@ function handleContributorImageError() {
             class="contributors-image-link"
           >
             <img
-              src="https://contrib.rocks/image?repo=keleus/BewlyCat"
+              :src="browser.runtime.getURL('/assets/contributors.svg')"
               :alt="$t('settings.current_contributors')"
               loading="lazy"
               @error="handleContributorImageError"
@@ -175,11 +227,6 @@ function handleContributorImageError() {
 </template>
 
 <style lang="scss" scoped>
-.btn {
-  --b-button-color: var(--bew-fill-1);
-  --b-button-color-hover: var(--bew-fill-2);
-}
-
 .title {
   --uno: "fw-bold mb-2";
 }
