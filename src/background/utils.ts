@@ -193,7 +193,7 @@ async function doRequest(
     let targetParams = Object.assign({}, params)
     const targetBody = Object.assign({}, body)
     Object.keys(rest).forEach((key) => {
-      if (body && body[key] !== undefined)
+      if (body && Object.prototype.hasOwnProperty.call(body, key))
         targetBody[key] = rest[key]
       else
         targetParams[key] = rest[key]

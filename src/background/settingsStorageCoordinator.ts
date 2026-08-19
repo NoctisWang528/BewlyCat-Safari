@@ -36,6 +36,10 @@ let initialized = false
 let writeQueue: Promise<void> = Promise.resolve()
 let cloudSyncAvailable = true
 
+export function shouldUseSettingsCloudSync(value: unknown, available = cloudSyncAvailable) {
+  return available && isSettingsCloudSyncEnabled(value)
+}
+
 function createStorageId() {
   if (typeof crypto.randomUUID === 'function')
     return crypto.randomUUID()
@@ -137,8 +141,7 @@ async function importSettings(value: unknown): Promise<SettingsStoragePatchRespo
   const actualPatch = createTopLevelSettingsStoragePatch(currentValue, nextValue)
   const settingsChanged = !isSettingsStoragePatchEmpty(actualPatch)
   const syncFields = Object.keys(request.settings).filter(isSettingsCloudSyncField)
-  const syncEnabled = cloudSyncAvailable
-    && isSettingsCloudSyncEnabled(stored[SETTINGS_CLOUD_SYNC_ENABLED_KEY])
+  const syncEnabled = shouldUseSettingsCloudSync(stored[SETTINGS_CLOUD_SYNC_ENABLED_KEY])
 
   // A manual import is authoritative even when a field already has the same
   // rendered value. Once cloud sync has initialized, advance past the current
@@ -213,7 +216,7 @@ async function applyPatch(value: unknown): Promise<SettingsStoragePatchResponse>
     incrementRevision(currentMeta)
     if (cloudSyncAvailable && (
       currentMeta.cloudSyncInitialized
-      || isSettingsCloudSyncEnabled(stored[SETTINGS_CLOUD_SYNC_ENABLED_KEY])
+      || shouldUseSettingsCloudSync(stored[SETTINGS_CLOUD_SYNC_ENABLED_KEY])
     )) {
       const version = createNextCloudVersion(currentMeta)
       for (const field of [...Object.keys(actualPatch.set), ...actualPatch.remove]) {
@@ -321,7 +324,7 @@ export function reconcileSettingsCloudSyncSnapshot(
       SETTINGS_STORAGE_KEY,
       SETTINGS_STORAGE_META_KEY,
     ])
-    if (!isSettingsCloudSyncEnabled(stored[SETTINGS_CLOUD_SYNC_ENABLED_KEY]))
+    if (!shouldUseSettingsCloudSync(stored[SETTINGS_CLOUD_SYNC_ENABLED_KEY]))
       return { uploads: {} }
 
     const previousSettings = parseStoredSettings(stored[SETTINGS_STORAGE_KEY])
@@ -416,7 +419,7 @@ export function applySettingsCloudSyncChanges(
       SETTINGS_STORAGE_KEY,
       SETTINGS_STORAGE_META_KEY,
     ])
-    if (!isSettingsCloudSyncEnabled(stored[SETTINGS_CLOUD_SYNC_ENABLED_KEY]))
+    if (!shouldUseSettingsCloudSync(stored[SETTINGS_CLOUD_SYNC_ENABLED_KEY]))
       return { uploads: {} }
 
     const previousSettings = parseStoredSettings(stored[SETTINGS_STORAGE_KEY])
@@ -455,6 +458,9 @@ export function applySettingsCloudSyncChanges(
 /** Reads local entries for fields whose versions changed in the coordinator metadata. */
 export function collectSettingsCloudSyncEntries(fields: string[]) {
   return enqueueSettingsWrite(async () => {
+    if (!cloudSyncAvailable)
+      return {}
+
     const stored = await browser.storage.local.get([
       SETTINGS_STORAGE_KEY,
       SETTINGS_STORAGE_META_KEY,

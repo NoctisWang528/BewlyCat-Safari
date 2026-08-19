@@ -367,6 +367,7 @@ defineExpose({
                 <!-- 修改这里，使用 topBarStore.addedWatchLaterList -->
                 <div
                   v-if="moment.isVideo && getMomentWatchLaterKey(moment)"
+                  class="moment-watch-later-toggle"
                   opacity-0 group-hover:opacity-100
                   pos="absolute top-0 right-0"
                   m="1"

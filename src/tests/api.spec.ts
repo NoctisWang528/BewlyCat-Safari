@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import browser from 'webextension-polyfill'
 
+import { settings } from '~/logic'
 import api, { APIClient, shouldUsePageWatchLater } from '~/utils/api'
 
 const pageWatchLaterMocks = vi.hoisted(() => ({
@@ -19,6 +20,7 @@ describe('apiClient response validation', () => {
   beforeEach(() => {
     vi.mocked(browser.runtime.sendMessage).mockReset()
     pageWatchLaterMocks.request.mockReset()
+    settings.value.depersonalizeSearchResults = false
   })
 
   it('returns response when it has code property', async () => {
@@ -92,5 +94,24 @@ describe('apiClient response validation', () => {
     expect(shouldUsePageWatchLater('watchlater', 'clearAllWatchLater', true)).toBe(false)
     expect(shouldUsePageWatchLater('video', 'saveToWatchLater', true)).toBe(false)
     expect(shouldUsePageWatchLater('watchlater', 'saveToWatchLater', false)).toBe(false)
+  })
+
+  it('sends depersonalized searches through anonymous WBI signing', async () => {
+    vi.mocked(browser.runtime.sendMessage).mockResolvedValueOnce({ ok: true, data: { code: 0, data: [] } })
+    settings.value.depersonalizeSearchResults = true
+    const nonSafariApi = new APIClient(false)
+
+    await nonSafariApi.search.searchAll({ keyword: 'BewlyCat' })
+
+    const message = vi.mocked(browser.runtime.sendMessage).mock.calls[0]?.[0] as Record<string, unknown>
+    expect(message).toMatchObject({
+      type: 'searchAll',
+      data: {
+        bewlyNoCookie: true,
+        contentScriptQuery: 'searchAll',
+        keyword: 'BewlyCat',
+      },
+    })
+    expect((message.data as Record<string, unknown>).qv_id).toMatch(/^[0-9a-z]{32}$/i)
   })
 })
