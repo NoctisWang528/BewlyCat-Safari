@@ -8,6 +8,7 @@ import {
   isSettingsCloudSyncEnabled,
   isSettingsCloudSyncField,
   normalizeSettingsCloudSyncEntry,
+  parseSettingsCloudSyncKey,
   SETTINGS_CLOUD_SYNC_ENABLED_KEY,
 } from '~/utils/settingsCloudSyncProtocol'
 import type { SettingsStoragePatchResponse, SettingsStorageWriteMeta } from '~/utils/settingsStorageProtocol'
@@ -15,9 +16,11 @@ import {
   applySettingsStoragePatch,
   createTopLevelSettingsStoragePatch,
   isSettingsStoragePatchEmpty,
+  normalizeSettingsStorageImportRequest,
   normalizeSettingsStoragePatchRequest,
   normalizeSettingsStorageWriteMeta,
   parseStoredSettings,
+  SETTINGS_STORAGE_IMPORT_MESSAGE,
   SETTINGS_STORAGE_KEY,
   SETTINGS_STORAGE_META_KEY,
   SETTINGS_STORAGE_PATCH_MESSAGE,
@@ -31,6 +34,7 @@ export interface SettingsCloudSyncReconcileResult {
 
 let initialized = false
 let writeQueue: Promise<void> = Promise.resolve()
+let cloudSyncAvailable = true
 
 function createStorageId() {
   if (typeof crypto.randomUUID === 'function')
@@ -101,6 +105,71 @@ function createUpload(
     uploads[field] = createSettingsCloudSyncEntry(settings, field, version)
 }
 
+async function alignCloudClockWithCurrentSnapshot(meta: SettingsStorageWriteMeta) {
+  const cloudItems = await browser.storage.sync.get(null)
+  for (const [key, value] of Object.entries(cloudItems)) {
+    if (!parseSettingsCloudSyncKey(key))
+      continue
+
+    const entry = normalizeSettingsCloudSyncEntry(value)
+    if (entry)
+      meta.cloudClock = Math.max(meta.cloudClock, entry.version.counter)
+  }
+}
+
+async function importSettings(value: unknown): Promise<SettingsStoragePatchResponse> {
+  const request = normalizeSettingsStorageImportRequest(value)
+  if (!request)
+    throw new TypeError('Invalid settings storage import')
+
+  const stored = await browser.storage.local.get([
+    SETTINGS_CLOUD_SYNC_ENABLED_KEY,
+    SETTINGS_STORAGE_KEY,
+    SETTINGS_STORAGE_META_KEY,
+  ])
+  const currentValue = parseStoredSettings(stored[SETTINGS_STORAGE_KEY])
+  const { meta } = completeStorageMeta(stored[SETTINGS_STORAGE_META_KEY])
+  const nextValue = {
+    ...currentValue,
+    ...request.settings,
+  }
+  const serializedValue = JSON.stringify(nextValue)
+  const actualPatch = createTopLevelSettingsStoragePatch(currentValue, nextValue)
+  const settingsChanged = !isSettingsStoragePatchEmpty(actualPatch)
+  const syncFields = Object.keys(request.settings).filter(isSettingsCloudSyncField)
+  const syncEnabled = cloudSyncAvailable
+    && isSettingsCloudSyncEnabled(stored[SETTINGS_CLOUD_SYNC_ENABLED_KEY])
+
+  // A manual import is authoritative even when a field already has the same
+  // rendered value. Once cloud sync has initialized, advance past the current
+  // remote clock before assigning one version to the complete imported snapshot.
+  if (syncEnabled && meta.cloudSyncInitialized && syncFields.length > 0)
+    await alignCloudClockWithCurrentSnapshot(meta)
+
+  if (settingsChanged)
+    incrementRevision(meta)
+
+  if ((meta.cloudSyncInitialized || syncEnabled) && syncFields.length > 0) {
+    const version = createNextCloudVersion(meta)
+    for (const field of syncFields)
+      meta.fieldVersions[field] = version
+  }
+
+  await browser.storage.local.set(settingsChanged
+    ? {
+        [SETTINGS_STORAGE_KEY]: serializedValue,
+        [SETTINGS_STORAGE_META_KEY]: meta,
+      }
+    : { [SETTINGS_STORAGE_META_KEY]: meta })
+
+  return {
+    accepted: true,
+    epoch: meta.epoch,
+    revision: meta.revision,
+    storedValue: serializedValue,
+  }
+}
+
 async function applyPatch(value: unknown): Promise<SettingsStoragePatchResponse> {
   const request = normalizeSettingsStoragePatchRequest(value)
   if (!request)
@@ -142,10 +211,10 @@ async function applyPatch(value: unknown): Promise<SettingsStoragePatchResponse>
 
   if (settingsChanged) {
     incrementRevision(currentMeta)
-    if (
+    if (cloudSyncAvailable && (
       currentMeta.cloudSyncInitialized
       || isSettingsCloudSyncEnabled(stored[SETTINGS_CLOUD_SYNC_ENABLED_KEY])
-    ) {
+    )) {
       const version = createNextCloudVersion(currentMeta)
       for (const field of [...Object.keys(actualPatch.set), ...actualPatch.remove]) {
         if (isSettingsCloudSyncField(field))
@@ -430,12 +499,14 @@ function handleStorageReset(
   }).catch(error => console.error('[BewlyCat] Failed to rotate settings storage epoch:', error))
 }
 
-export function setupSettingsStorageCoordinator() {
+export function setupSettingsStorageCoordinator(options: { cloudSyncAvailable?: boolean } = {}) {
   if (initialized)
     return
 
+  cloudSyncAvailable = options.cloudSyncAvailable !== false
   initialized = true
   browser.storage.onChanged.addListener(handleStorageReset)
   onMessage(SETTINGS_STORAGE_READ_MESSAGE, () => enqueueSettingsWrite(readSettings))
   onMessage(SETTINGS_STORAGE_PATCH_MESSAGE, value => enqueueSettingsWrite(() => applyPatch(value)))
+  onMessage(SETTINGS_STORAGE_IMPORT_MESSAGE, value => enqueueSettingsWrite(() => importSettings(value)))
 }

@@ -2,6 +2,7 @@
 import { useMediaQuery, useMutationObserver } from '@vueuse/core'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
+import ProgressiveBlurSurface from '~/components/ProgressiveBlurSurface.vue'
 import { useBewlyApp } from '~/composables/useAppProvider'
 import { useLayoutEditMode } from '~/composables/useLayoutEditMode'
 import { AppPage } from '~/enums/appEnums'
@@ -13,17 +14,62 @@ import TopBarLogo from './TopBarLogo.vue'
 import TopBarRight from './TopBarRight.vue'
 import TopBarSearch from './TopBarSearch.vue'
 
-defineProps<{
+const props = defineProps<{
   reachTop: boolean
   isDark: boolean
 }>()
 
-const { forceWhiteIcon, handleNotificationsItemClick, showSearchBar } = useTopBarInteraction()
+const { forceWhiteIcon, handleNotificationsItemClick } = useTopBarInteraction()
 const { isLayoutEditing } = useLayoutEditMode()
 const { activatedPage } = useBewlyApp()
 const isNarrowLayout = useMediaQuery('(max-width: 767px)')
-const showTopBarSearchEditor = computed(() => showSearchBar.value
-  || (isLayoutEditing.value && activatedPage.value !== AppPage.Search))
+// 搜索控件常驻挂载，显隐交给 TopBarSearch 内部的 Transition 播放动画；
+// 若在此处跟随 showSearchBar 卸载整棵子树，内部的 slide-out 过渡会被同步卸载吞掉。
+// 仅布局编辑模式需要整体隐藏（搜索页本身有搜索框，不展示编辑目标）。
+const showTopBarSearchEditor = computed(() =>
+  !isLayoutEditing.value || activatedPage.value !== AppPage.Search)
+const usesProgressiveFog = computed(() => settings.value.topBarStyle === 'progressiveFog')
+
+const OVERLAY_HEIGHT = 'calc(var(--bew-top-bar-height) * 1.35)'
+const FOG_GAMMA = 0.7
+const FOG_STOP_COUNT = 10
+
+function fogStops(peak: number): [number, number][] {
+  return Array.from({ length: FOG_STOP_COUNT }, (_, index) => {
+    const t = index / (FOG_STOP_COUNT - 1)
+    const decay = ((1 + Math.cos(Math.PI * t)) / 2) ** FOG_GAMMA
+    return [+(t * 100).toFixed(1), peak * decay]
+  })
+}
+
+function fogGradient(color: string, peak: number) {
+  const stops = fogStops(peak).map(([position, alpha]) =>
+    `rgb(${color} / ${+alpha.toFixed(2)}%) ${position}%`)
+  return `linear-gradient(to bottom, ${stops.join(', ')})`
+}
+
+const progressiveFogTint = computed(() => {
+  return props.isDark
+    ? fogGradient('0 0 0', 75)
+    : fogGradient('255 255 255', 80)
+})
+
+// 毛玻璃开启时顶栏遮罩始终使用玻璃滤镜；关闭时本就无滤镜，仍走 opacity 过渡。
+const glassOverlayStyle = computed(() => {
+  if (settings.value.enableFrostedGlass) {
+    return {
+      backgroundColor: forceWhiteIcon.value && !props.reachTop
+        ? 'rgb(0 0 0 / 35%)'
+        : 'transparent',
+      backdropFilter: 'var(--bew-filter-glass-1)',
+    }
+  }
+  return {
+    backgroundColor: forceWhiteIcon.value ? 'rgb(0 0 0)' : 'var(--bew-bg)',
+    opacity: props.reachTop ? 0 : 0.9,
+    backdropFilter: 'none',
+  }
+})
 
 const leftSection = ref<HTMLElement | null>(null)
 const rightSection = ref<HTMLElement | null>(null)
@@ -145,43 +191,43 @@ function refreshSearchContent() {
     p="x-12" m-auto
     h="$bew-top-bar-height"
   >
-    <!-- Top bar mask -->
-    <Transition name="fade">
+    <!-- 1.7.4 的五层渐进雾化仅在用户明确选择时挂载，避免默认产生额外合成开销。 -->
+    <div
+      v-if="usesProgressiveFog"
+      class="top-bar-header__progressive-fog"
+      :style="{ height: OVERLAY_HEIGHT }"
+    >
+      <!-- 渐变样式保持固定雾化，不随滚动再叠一层遮罩 -->
+      <ProgressiveBlurSurface />
       <div
-        v-if="settings.enableTopBarGradient && !reachTop"
-        style="
-          mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1), rgba(0, 0, 0, 1) 24px, rgba(0, 0, 0, 0.9) 44px, transparent);
-          -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1), rgba(0, 0, 0, 1) 24px, rgba(0, 0, 0, 0.9) 44px, transparent);
-        "
-        pos="absolute top-0 left-0" w-full h="$bew-top-bar-height"
-        pointer-events-none
+        class="top-bar-header__progressive-fog-tint"
+        :style="{ background: progressiveFogTint }"
+      />
+    </div>
+
+    <template v-else>
+      <!-- 默认的低开销顶栏遮罩：常驻挂载，玻璃与恒等滤镜间插值（见 glassOverlayStyle） -->
+      <div class="top-bar-header__glass-overlay" :style="glassOverlayStyle" />
+
+      <div
+        pos="absolute top-0 left-0" w-full
+        pointer-events-none opacity-100 duration-300
         :style="{
-          backgroundColor: settings.enableFrostedGlass ? 'transparent' : 'var(--bew-bg)',
-          opacity: settings.enableFrostedGlass ? 1 : 0.9,
-          backdropFilter: settings.enableFrostedGlass ? 'var(--bew-filter-glass-1)' : 'none',
+          background: `linear-gradient(to bottom, ${
+            forceWhiteIcon
+              ? 'rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.4) calc(var(--bew-top-bar-height) / 2)'
+              : 'color-mix(in oklab, var(--bew-bg), transparent 20%), color-mix(in oklab, var(--bew-bg), transparent 40%) calc(var(--bew-top-bar-height) / 2)'
+          }, transparent)`,
+          opacity: reachTop ? 0.8 : 1,
+          height: 'var(--bew-top-bar-height)',
         }"
       />
-    </Transition>
-
-    <div
-      v-if="settings.enableTopBarGradient"
-      pos="absolute top-0 left-0" w-full
-      pointer-events-none opacity-100 duration-300
-      :style="{
-        background: `linear-gradient(to bottom, ${
-          forceWhiteIcon
-            ? 'rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.4) calc(var(--bew-top-bar-height) / 2)'
-            : 'color-mix(in oklab, var(--bew-bg), transparent 20%), color-mix(in oklab, var(--bew-bg), transparent 40%) calc(var(--bew-top-bar-height) / 2)'
-        }, transparent)`,
-        opacity: reachTop ? 0.8 : 1,
-        height: 'var(--bew-top-bar-height)',
-      }"
-    />
+    </template>
 
     <!-- Top bar theme color gradient -->
     <Transition name="fade">
       <div
-        v-if="settings.enableTopBarGradient && settings.showTopBarThemeColorGradient && !forceWhiteIcon && reachTop && isDark"
+        v-if="!usesProgressiveFog && settings.showTopBarThemeColorGradient && !forceWhiteIcon && reachTop && isDark"
         pos="absolute top-0 left-0" w-full h="$bew-top-bar-height" pointer-events-none
         :style="{ background: 'linear-gradient(to bottom, var(--bew-theme-color-10), transparent)' }"
       />
@@ -238,6 +284,41 @@ function refreshSearchContent() {
 
 .top-bar-header--editing {
   background: transparent;
+}
+
+.top-bar-header__progressive-fog {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  pointer-events: none;
+}
+
+.top-bar-header__progressive-fog-tint {
+  position: absolute;
+  inset: 0;
+  transition: opacity var(--bew-duration-moderate) var(--bew-ease-standard);
+}
+
+.top-bar-header__glass-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: var(--bew-top-bar-height);
+  pointer-events: none;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1), rgba(0, 0, 0, 1) 24px, rgba(0, 0, 0, 0.9) 44px, transparent);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 1),
+    rgba(0, 0, 0, 1) 24px,
+    rgba(0, 0, 0, 0.9) 44px,
+    transparent
+  );
+  transition:
+    opacity var(--bew-duration-moderate) var(--bew-ease-standard),
+    background-color var(--bew-duration-moderate) var(--bew-ease-standard),
+    backdrop-filter var(--bew-duration-moderate) var(--bew-ease-standard);
 }
 
 .top-bar-header__side {

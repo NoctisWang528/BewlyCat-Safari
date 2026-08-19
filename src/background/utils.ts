@@ -16,12 +16,7 @@ export class ApiRiskControlError extends Error {
   }
 }
 
-/**
- * Auth strategy for API requests:
- * - 'none': no APP auth needed (web APIs)
- * - 'inject': inject fresh access_token from background memory
- * - 'inject+sign': inject access_token and re-sign with TV APP credentials
- */
+/** APP 接口的鉴权策略。 */
 export type AuthStrategy = 'none' | 'inject' | 'inject+sign'
 
 type FetchAfterHandler = ((data: Response) => Promise<any>) | ((data: any) => any)
@@ -72,6 +67,7 @@ const AHS: {
 
 interface Message {
   contentScriptQuery: string
+  bewlyNoCookie?: boolean
   [key: string]: any
 }
 
@@ -114,20 +110,19 @@ function apiListenerFactory(API_MAP: APIMAP) {
     const authStrategy: AuthStrategy = api.auth ?? 'none'
     let appAccessToken: string | undefined
 
-    // Only refresh tokens for APIs that need APP auth
     if (authStrategy !== 'none') {
       const token = await ensureFreshTokensOnDemand()
       if (!token) {
-        const err = new Error('APP access token 不可用，请重新授权')
-        ;(err as any).code = 'ERR_APP_AUTH_REQUIRED'
-        throw err
+        const error = new Error('APP access token 不可用，请重新授权')
+        ;(error as any).code = 'ERR_APP_AUTH_REQUIRED'
+        throw error
       }
       appAccessToken = token
     }
 
     // eslint-disable-next-line node/prefer-global/process
     if (process.env.FIREFOX && sender && sender.tab?.id) {
-      if (api._fetch.credentials === 'omit')
+      if (api._fetch.credentials === 'omit' || typedMessage.bewlyNoCookie === true)
         return await doRequest(typedMessage, api, undefined, undefined, authStrategy, appAccessToken)
 
       // 获取tab信息以获取正确的cookieStoreId
@@ -177,20 +172,28 @@ export async function applyAppAuthToParams(
   return authenticatedParams
 }
 
-async function doRequest(message: Message, api: API, sendResponse?: (response?: any) => void, cookies?: Browser.Cookies.Cookie[], authStrategy: AuthStrategy = 'none', appAccessToken?: string) {
+async function doRequest(
+  message: Message,
+  api: API,
+  sendResponse?: (response?: any) => void,
+  cookies?: Browser.Cookies.Cookie[],
+  authStrategy: AuthStrategy = 'none',
+  appAccessToken?: string,
+) {
   try {
-    let { contentScriptQuery, ...rest } = message
+    let { contentScriptQuery, bewlyNoCookie = false, ...rest } = message
     // rest above two part body or params
     rest = rest || {}
 
     let { _fetch, url, params = {}, afterHandle } = api
-    const { method, headers = {}, body, credentials = 'include' } = _fetch as _FETCH
+    const { method, headers = {}, body, credentials: configuredCredentials = 'include' } = _fetch as _FETCH
+    const credentials: RequestCredentials = bewlyNoCookie ? 'omit' : configuredCredentials
     const isGET = method.toLocaleLowerCase() === 'get'
     // merge params and body
     let targetParams = Object.assign({}, params)
     const targetBody = Object.assign({}, body)
     Object.keys(rest).forEach((key) => {
-      if (body && Object.prototype.hasOwnProperty.call(body, key))
+      if (body && body[key] !== undefined)
         targetBody[key] = rest[key]
       else
         targetParams[key] = rest[key]

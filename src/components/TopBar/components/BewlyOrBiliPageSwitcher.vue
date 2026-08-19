@@ -155,6 +155,7 @@ function switchPage(nextUseOriginalBiliPage: boolean) {
     iframe.contentWindow.postMessage({
       type: IFRAME_TOP_BAR_CHANGE,
       useOriginalBilibiliTopBar: settings.value.useOriginalBilibiliTopBar,
+      showTopBar: settings.value.showTopBar,
     }, '*')
   }
 }
@@ -219,6 +220,10 @@ function switchPage(nextUseOriginalBiliPage: boolean) {
   --bew-control-label-weight: var(--bew-control-brand-label-weight);
 
   flex: none;
+
+  &.bew-segment-control--solid {
+    --bew-segment-surface-background: var(--bew-elevated-solid);
+  }
 
   &--white:not(.bew-segment-control--solid) {
     --bew-segment-surface-background: var(--bew-control-background-white);

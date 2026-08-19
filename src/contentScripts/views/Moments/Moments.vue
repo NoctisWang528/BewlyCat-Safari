@@ -5,17 +5,23 @@ import Dialog from '~/components/Dialog.vue'
 import LiquidSegmentIndicator from '~/components/LiquidSegmentIndicator.vue'
 import MomentCard from '~/components/MomentCard/MomentCard.vue'
 import type { DisplayForwardVideo, DisplayMoment, DisplayRichTextSegment, WatchLaterTarget } from '~/components/MomentCard/types'
+import type { MomentLinkKind } from '~/components/MomentCard/utils'
 import {
+  classifyMomentLink,
   formatCount,
   getCardPreviewText,
   getMomentOriginalImageUrl,
   getMomentThumbnailUrl,
+  getPortraitThumbnailRatio,
   getWatchLaterStateKey,
   isCompactPlainTextMoment,
+  isForwardPortraitMomentLayout,
+  isOwnPortraitMomentLayout,
 } from '~/components/MomentCard/utils'
 import { useBewlyApp } from '~/composables/useAppProvider'
 import { useLayoutEditMode } from '~/composables/useLayoutEditMode'
 import { useStorageLocal } from '~/composables/useStorageLocal'
+import { DRAWER_VIDEO_ENTER_PAGE_FULL, DRAWER_VIDEO_EXIT_PAGE_FULL } from '~/constants/globalEvents'
 import { settings } from '~/logic'
 import { momentsPinnedUsers, momentsWantedUsers } from '~/logic/storage'
 import { recordUploaderLatestVideoTimes } from '~/logic/uploaderLatestVideoTimes'
@@ -148,6 +154,7 @@ const selectedMoment = ref<DisplayMoment | null>(null)
 const detailFrameUrl = ref('')
 const detailFrameLoaded = ref(false)
 const detailIframeRef = ref<HTMLIFrameElement | null>(null)
+const detailPlayerImmersive = ref(false)
 const detailImageViewerRef = ref<HTMLElement | null>(null)
 const detailImageViewerOpen = ref(false)
 const detailImageViewerUrls = ref<string[]>([])
@@ -380,11 +387,54 @@ function parseLiveInfo(content?: string) {
 }
 
 function extractImageUrl(image: any) {
+  return extractImageMeta(image).url
+}
+
+function normalizeImageIdentity(url = '') {
+  return httpsUrl(url).replace(/@[^/?#]*/, '').replace(/[?#].*$/, '')
+}
+
+function extractImageMeta(image: any): { url: string, width?: number, height?: number } {
   if (!image)
-    return ''
+    return { url: '' }
   if (typeof image === 'string')
-    return image
-  return image.src || image.url || image.img_src || image.live_cover || ''
+    return { url: image }
+
+  const width = Number(image.width || image.img_width)
+  const height = Number(image.height || image.img_height)
+  return {
+    url: image.src || image.url || image.img_src || image.live_cover || '',
+    width: Number.isFinite(width) && width > 0 ? width : undefined,
+    height: Number.isFinite(height) && height > 0 ? height : undefined,
+  }
+}
+
+function collectContentImages(
+  drawItems: any[],
+  opus: any,
+  articleCovers: any[],
+  cover = '',
+) {
+  const sources = [
+    ...drawItems,
+    ...(opus?.pics || opus?.images || []),
+    ...articleCovers,
+  ].map(extractImageMeta).filter(item => item.url)
+
+  const seen = new Set<string>()
+  const unique: { url: string, width?: number, height?: number }[] = []
+  for (const item of sources) {
+    const key = normalizeImageIdentity(item.url)
+    if (!key || seen.has(key))
+      continue
+    seen.add(key)
+    unique.push(item)
+  }
+
+  if (!unique.length && cover)
+    unique.push({ url: cover })
+
+  return unique
 }
 
 function pickText(...values: any[]) {
@@ -430,9 +480,13 @@ function extractRichTextSegments(...nodeLists: any[]): DisplayRichTextSegment[] 
       }]
     }
 
+    const isAtMention = node?.type === 'RICH_TEXT_NODE_TYPE_AT'
     const isSupportedLink = node?.type === 'RICH_TEXT_NODE_TYPE_TOPIC'
       || node?.type === 'RICH_TEXT_NODE_TYPE_WEB'
-    const url = isSupportedLink ? normalizeRichTextJumpUrl(node?.jump_url) : ''
+      || isAtMention
+    const rawJumpUrl = node?.jump_url
+      || (isAtMention && node?.rid ? `https://space.bilibili.com/${node.rid}` : '')
+    const url = isSupportedLink ? normalizeRichTextJumpUrl(rawJumpUrl) : ''
     if (text && url)
       return [{ type: 'link' as const, text, url }]
 
@@ -489,10 +543,7 @@ function getMomentContent(item: any) {
   const drawItems = major.draw?.items || []
   const opusImages = extractOpusImages(major.opus)
   const articleCovers = major.article?.covers || []
-  const images = [...drawItems, ...opusImages, ...articleCovers]
-    .map(extractImageUrl)
-    .filter(Boolean)
-    .filter((url: string, index: number, list: string[]) => list.indexOf(url) === index)
+  const imageMetas = collectContentImages(drawItems, major.opus, articleCovers)
 
   const live = parseLiveInfo(major.live_rcmd?.content) || major.live || null
   // ugc_season：合集订阅更新，字段形态接近 archive（bvid/aid/cover/jump_url）
@@ -613,12 +664,24 @@ function getMomentContent(item: any) {
     || drawItems.length > 0
     || opusImages.length > 0
   )
+  const resolvedImageMetas: { url: string, width?: number, height?: number }[] = imageMetas.length
+    ? imageMetas
+    : (cover ? [{ url: cover }] : [])
+  const images = resolvedImageMetas
+    .map(item => httpsUrl(item.url))
+    .filter(Boolean)
+    .filter((url: string, index: number, list: string[]) => list.indexOf(url) === index)
+  const firstImage = resolvedImageMetas[0]
+  const firstImageRatio = firstImage
+    ? getSafeImageRatio(Number(firstImage.width || 0), Number(firstImage.height || 0))
+    : undefined
 
   return {
     title: pickText(live?.title, opus.title, archive.title, article.title, common.title),
     text,
     richText,
-    images: [...images, ...(cover ? [cover] : [])].map(httpsUrl).filter(Boolean).filter((url: string, index: number, list: string[]) => list.indexOf(url) === index),
+    images,
+    firstImageRatio,
     isVideo: isRegularVideo || isUgcSeason,
     isRegularVideo,
     isUgcSeason,
@@ -704,6 +767,161 @@ function clearDetailLoadTimer() {
 
 function isPlayerMoment(moment: DisplayMoment | null | undefined) {
   return Boolean(moment?.isVideo || moment?.isLive)
+}
+
+const DETAIL_WEB_FULLSCREEN_BTN_SELECTOR = '.bpx-player-ctrl-web, .bilibili-player-video-web-fullscreen, .squirtle-video-pagefullscreen'
+const DETAIL_FULLSCREEN_BTN_SELECTOR = '.bpx-player-ctrl-full, .bilibili-player-video-btn-fullscreen, .squirtle-video-fullscreen'
+let stopDetailPlayerModeWatch: (() => void) | null = null
+
+function getDocumentFullscreenElement(doc: Document) {
+  return doc.fullscreenElement
+    || (doc as Document & { webkitFullscreenElement?: Element | null }).webkitFullscreenElement
+    || null
+}
+
+function isEnteredControl(el: Element | null) {
+  return !!el?.classList.contains('bpx-state-entered')
+}
+
+function isIframePlayerImmersive(doc: Document) {
+  if (getDocumentFullscreenElement(doc))
+    return true
+  if (doc.querySelector('[data-screen="web"], [data-screen="full"]'))
+    return true
+  return isEnteredControl(doc.querySelector(DETAIL_WEB_FULLSCREEN_BTN_SELECTOR))
+    || isEnteredControl(doc.querySelector(DETAIL_FULLSCREEN_BTN_SELECTOR))
+}
+
+function setDetailPlayerImmersive(value: boolean) {
+  detailPlayerImmersive.value = value
+}
+
+function syncDetailPlayerImmersiveFromIframe() {
+  const iframe = detailIframeRef.value
+  if (!iframe || !isPlayerMoment(selectedMoment.value)) {
+    setDetailPlayerImmersive(false)
+    return
+  }
+
+  if (getDocumentFullscreenElement(document) === iframe) {
+    setDetailPlayerImmersive(true)
+    return
+  }
+
+  try {
+    const doc = iframe.contentDocument
+    if (!doc) {
+      setDetailPlayerImmersive(false)
+      return
+    }
+    setDetailPlayerImmersive(isIframePlayerImmersive(doc))
+  }
+  catch {
+    // 跨域直播页无法读取播放器状态，保持现有按钮可见性
+  }
+}
+
+function clearDetailPlayerModeWatch() {
+  stopDetailPlayerModeWatch?.()
+  stopDetailPlayerModeWatch = null
+}
+
+function startDetailPlayerModeWatch(iframe: HTMLIFrameElement) {
+  clearDetailPlayerModeWatch()
+  if (!isPlayerMoment(selectedMoment.value)) {
+    setDetailPlayerImmersive(false)
+    return
+  }
+
+  let disposed = false
+  let listenersAttached = false
+  let retryTimer: ReturnType<typeof setInterval> | null = null
+  const observedTargets = new WeakSet<Element>()
+  const observer = new MutationObserver(() => {
+    if (!disposed)
+      syncDetailPlayerImmersiveFromIframe()
+  })
+
+  const onFullscreenChange = () => {
+    if (!disposed)
+      syncDetailPlayerImmersiveFromIframe()
+  }
+
+  const observeTarget = (el: Element | null) => {
+    if (!el || observedTargets.has(el))
+      return
+    observedTargets.add(el)
+    observer.observe(el, {
+      attributes: true,
+      attributeFilter: ['class', 'data-screen'],
+    })
+  }
+
+  const attach = () => {
+    if (disposed)
+      return true
+
+    try {
+      const win = iframe.contentWindow
+      const doc = iframe.contentDocument
+      if (!win || !doc)
+        return false
+
+      if (!listenersAttached) {
+        win.addEventListener('fullscreenchange', onFullscreenChange)
+        doc.addEventListener('fullscreenchange', onFullscreenChange)
+        win.addEventListener('webkitfullscreenchange', onFullscreenChange)
+        listenersAttached = true
+      }
+
+      observeTarget(doc.querySelector(DETAIL_WEB_FULLSCREEN_BTN_SELECTOR))
+      observeTarget(doc.querySelector(DETAIL_FULLSCREEN_BTN_SELECTOR))
+      observeTarget(doc.querySelector('.bpx-player-container, #bilibili-player, .bilibili-player, [data-screen]'))
+      syncDetailPlayerImmersiveFromIframe()
+      return Boolean(
+        doc.querySelector(DETAIL_WEB_FULLSCREEN_BTN_SELECTOR)
+        || doc.querySelector('.bpx-player-container, #bilibili-player, .bilibili-player'),
+      )
+    }
+    catch {
+      return true
+    }
+  }
+
+  document.addEventListener('fullscreenchange', onFullscreenChange)
+  document.addEventListener('webkitfullscreenchange', onFullscreenChange)
+
+  if (!attach()) {
+    let retries = 0
+    retryTimer = setInterval(() => {
+      retries++
+      if ((attach() || retries >= 40) && retryTimer) {
+        clearInterval(retryTimer)
+        retryTimer = null
+      }
+    }, 250)
+  }
+
+  stopDetailPlayerModeWatch = () => {
+    disposed = true
+    if (retryTimer) {
+      clearInterval(retryTimer)
+      retryTimer = null
+    }
+    observer.disconnect()
+    document.removeEventListener('fullscreenchange', onFullscreenChange)
+    document.removeEventListener('webkitfullscreenchange', onFullscreenChange)
+    try {
+      const win = iframe.contentWindow
+      const doc = iframe.contentDocument
+      win?.removeEventListener('fullscreenchange', onFullscreenChange)
+      doc?.removeEventListener('fullscreenchange', onFullscreenChange)
+      win?.removeEventListener('webkitfullscreenchange', onFullscreenChange)
+    }
+    catch {
+      // iframe 已卸载或跨域时忽略
+    }
+  }
 }
 
 function getDimensionAspectRatio(dimension: any) {
@@ -919,10 +1137,72 @@ function handleDetailImageViewerKeydown(event: KeyboardEvent) {
   }
 }
 
-function shouldOpenMomentExternally(moment: DisplayMoment) {
+type ResolvedMomentOpenMode = 'dialog' | 'currentTab' | 'newTab' | 'background'
+
+function resolveMomentOpenMode(moment: DisplayMoment): ResolvedMomentOpenMode {
+  const videoCardOpenMode = settings.value.momentsVideoCardOpenMode
+  if (moment.isVideo && !moment.isPgc && videoCardOpenMode !== 'inherit')
+    return videoCardOpenMode
+
+  return settings.value.momentsCardOpenMode
+}
+
+function resolveLinkOpenMode(kind: MomentLinkKind): ResolvedMomentOpenMode {
+  if (kind === 'video') {
+    const videoMode = settings.value.momentsVideoCardOpenMode
+    return videoMode === 'inherit' ? settings.value.momentsCardOpenMode : videoMode
+  }
+  if (kind === 'moment')
+    return settings.value.momentsCardOpenMode
+
+  const mode = settings.value.momentsCardOpenMode
+  return mode === 'dialog' ? 'newTab' : mode
+}
+
+function createLinkMoment(url: string, kind: Extract<MomentLinkKind, 'video' | 'moment'>, video?: DisplayForwardVideo): DisplayMoment {
+  const bvid = video?.bvid || url.match(/\/video\/(BV\w+)/i)?.[1]
+  const aid = video?.aid || url.match(/\/video\/av(\d+)/i)?.[1]
+  return {
+    id: `link-${kind}-${bvid || aid || url}`,
+    author: { mid: '', name: '', face: '' },
+    publishedAt: 0,
+    title: video?.title || '',
+    text: '',
+    richText: [],
+    images: video?.cover ? [video.cover] : [],
+    time: '',
+    likeCount: 0,
+    isLiked: false,
+    isLikeDisabled: true,
+    commentCount: 0,
+    url,
+    isVideo: kind === 'video',
+    isRegularVideo: kind === 'video',
+    isUgcSeason: false,
+    isDraw: false,
+    isPgc: false,
+    isLive: false,
+    isChargeExclusive: false,
+    isForward: false,
+    isArticle: false,
+    isUpRecommendation: false,
+    isVideoReservation: false,
+    isLiveReservation: false,
+    mediaMeta: video?.duration || '',
+    liveArea: '',
+    livePopularity: '',
+    duration: video?.duration || '',
+    videoPlay: video?.play || '',
+    videoDanmaku: video?.danmaku || '',
+    aid,
+    bvid,
+    videoUrl: kind === 'video' ? (video?.url || url) : undefined,
+  }
+}
+
+function shouldOpenMomentExternally(moment: DisplayMoment, openMode: ResolvedMomentOpenMode) {
   return moment.isLive
-    || settings.value.momentsCardOpenMode === 'newTab'
-    || settings.value.momentsCardOpenMode === 'background'
+    || openMode !== 'dialog'
     || window.innerWidth <= DETAIL_DIALOG_MIN_WIDTH
 }
 
@@ -930,7 +1210,7 @@ function openMomentImagePreview(urls: string[], index: number, trigger: HTMLElem
   openDetailImageViewer(urls, index, null, trigger)
 }
 
-function openMomentInNewTab(moment: DisplayMoment, background = false) {
+function openMomentExternally(moment: DisplayMoment, openMode: Exclude<ResolvedMomentOpenMode, 'dialog'>) {
   const url = resolveDetailUrl(moment) || moment.url
   if (!url)
     return
@@ -939,8 +1219,10 @@ function openMomentInNewTab(moment: DisplayMoment, background = false) {
   cleanupLivePreviewPlayer()
   if (previewUrls[moment.id])
     delete previewUrls[moment.id]
-  if (background)
+  if (openMode === 'background')
     void openLinkInBackground(url)
+  else if (openMode === 'currentTab')
+    window.open(url, '_top')
   else
     window.open(url, '_blank', 'noopener,noreferrer')
 }
@@ -973,9 +1255,12 @@ function openMomentDetail(moment: DisplayMoment, forceDialog = false) {
   if (moment.isVideo && !moment.isLive)
     recordVideoVisit(moment)
 
-  // 小屏、直播与「新标签/后台标签」设置：外部打开，避免狭窄 Dialog 与跨域直播占用
-  if (!forceDialog && shouldOpenMomentExternally(moment)) {
-    openMomentInNewTab(moment, settings.value.momentsCardOpenMode === 'background')
+  const openMode = forceDialog ? 'dialog' : resolveMomentOpenMode(moment)
+
+  // 小屏、直播与外部打开设置：离开详情 Dialog，避免狭窄 Dialog 与跨域直播占用。
+  // 弹窗模式在小屏和直播动态上回退为新标签页。
+  if (!forceDialog && shouldOpenMomentExternally(moment, openMode)) {
+    openMomentExternally(moment, openMode === 'dialog' ? 'newTab' : openMode)
     return
   }
 
@@ -989,6 +1274,7 @@ function openMomentDetail(moment: DisplayMoment, forceDialog = false) {
   selectedMoment.value = moment
   detailFrameUrl.value = resolveDetailUrl(moment)
   detailFrameLoaded.value = false
+  setDetailPlayerImmersive(false)
   // 打开详情时释放悬停预览资源
   hoveredMediaId.value = ''
   cleanupLivePreviewPlayer()
@@ -1031,6 +1317,9 @@ function handleDetailIframeLoad(event: Event) {
     }
   }
 
+  if (iframe)
+    startDetailPlayerModeWatch(iframe)
+
   // 视频/直播、转发：load 后立即显示，不做「整理动态」等待
   if (isPlayerMoment(selectedMoment.value) || selectedMoment.value?.isForward) {
     detailFrameLoaded.value = true
@@ -1045,6 +1334,9 @@ function handleDetailIframeLoad(event: Event) {
 
 /** 关闭详情时销毁 iframe 文档与媒体，避免内存堆积 */
 function destroyDetailIframe() {
+  clearDetailPlayerModeWatch()
+  setDetailPlayerImmersive(false)
+
   const iframe = detailIframeRef.value
   if (!iframe)
     return
@@ -1173,6 +1465,9 @@ function mapMoment(item: DataItem): DisplayMoment {
   const hotCommentText = normalizeDescText(commentInteraction)
   const hotCommentRichText = extractRichTextSegments(commentInteraction?.rich_text_nodes)
 
+  if (content.firstImageRatio && !coverRatios[id])
+    coverRatios[id] = content.firstImageRatio
+
   return {
     id,
     author: {
@@ -1237,6 +1532,7 @@ function mapMoment(item: DataItem): DisplayMoment {
     forward: isForward
       ? {
           author: forwardedAuthor.name || '原作者',
+          authorMid: String(forwardedAuthor.mid || ''),
           title: content.title,
           text: content.text,
           fallback: content.isChargeExclusive
@@ -1292,6 +1588,23 @@ function estimateCardHeight(moment: DisplayMoment) {
     )))
     const additionalHeight = moment.additional ? 68 : 0
     return 118 + lineCount * 21 + additionalHeight + interactionHeight
+  }
+  if (isOwnPortraitMomentLayout(moment, coverRatios[moment.id])) {
+    const mediaWidth = Math.min(180, Math.max(96, (columnWidth - 32) * 0.38))
+    const mediaHeight = Math.round(mediaWidth / getPortraitThumbnailRatio(coverRatios[moment.id]))
+    const textWidth = Math.max(1, columnWidth - 32 - 12 - mediaWidth)
+    const charsPerLine = Math.max(8, Math.floor(textWidth / 14))
+    const previewText = getCardPreviewText(moment)
+    const descLines = previewText
+      ? Math.min(7, Math.max(1, Math.ceil(Array.from(previewText).length / charsPerLine)))
+      : 0
+    return 72 + Math.max(mediaHeight, descLines * 24 + 24) + 52 + (moment.additional ? 68 : 0) + interactionHeight
+  }
+  if (isForwardPortraitMomentLayout(moment, coverRatios[moment.id])) {
+    const introLines = Math.min(7, Math.max(1, Math.ceil((moment.text || '').length / 28)))
+    const mediaWidth = Math.min(180, Math.max(96, (columnWidth - 58) * 0.38))
+    const mediaHeight = Math.round(mediaWidth / getPortraitThumbnailRatio(coverRatios[moment.id]))
+    return 117 + introLines * 21 + Math.max(mediaHeight, 80) + 24 + interactionHeight
   }
   if (moment.forward?.images?.length) {
     const introLines = Math.min(7, Math.max(1, Math.ceil((moment.text || '').length / 28)))
@@ -2240,7 +2553,7 @@ function handleCoverLoad(event: Event, momentId: string) {
 }
 
 async function prepareMomentCovers(items: DisplayMoment[], requestToken: number) {
-  const imageItems = items.filter(item => item.images[0])
+  const imageItems = items.filter(item => item.images[0] || item.forward?.images?.[0])
   await Promise.all(imageItems.map(item => new Promise<void>((resolve) => {
     const image = new Image()
     let finished = false
@@ -2273,9 +2586,18 @@ async function prepareMomentCovers(items: DisplayMoment[], requestToken: number)
       finish()
     }
     image.onerror = finish
-    image.src = item.images.length === 1 && !item.isVideo && !item.isLive
-      ? getMomentOriginalImageUrl(item.images[0])
-      : getMomentThumbnailUrl(item.images[0])
+    const coverUrl = item.images[0] || item.forward?.images?.[0] || ''
+    const isSingleStillImage = (
+      item.images.length === 1
+      && !item.isVideo
+      && !item.isLive
+    ) || (
+      !item.images.length
+      && item.forward?.images?.length === 1
+    )
+    image.src = isSingleStillImage
+      ? getMomentOriginalImageUrl(coverUrl)
+      : getMomentThumbnailUrl(coverUrl)
   })))
 }
 
@@ -2492,8 +2814,31 @@ function handleMediaLeave(moment: DisplayMoment) {
     delete previewUrls[moment.id]
 }
 
-function handleForwardVideoClick(video: DisplayForwardVideo) {
-  recordVideoVisit(video)
+function openClassifiedLink(url: string, kind: MomentLinkKind, video?: DisplayForwardVideo) {
+  if (!url)
+    return
+
+  if (kind === 'video' && video)
+    recordVideoVisit(video)
+
+  const mode = resolveLinkOpenMode(kind)
+  if (mode === 'dialog' && kind !== 'other') {
+    openMomentDetail(createLinkMoment(url, kind, video))
+    return
+  }
+
+  hoveredMediaId.value = ''
+  cleanupLivePreviewPlayer()
+  if (mode === 'background')
+    void openLinkInBackground(url)
+  else if (mode === 'currentTab')
+    window.open(url, '_top')
+  else
+    window.open(url, '_blank', 'noopener,noreferrer')
+}
+
+function handleOpenLink(payload: { url: string, kind: MomentLinkKind, video?: DisplayForwardVideo }) {
+  openClassifiedLink(payload.url, payload.kind || classifyMomentLink(payload.url), payload.video)
 }
 
 function bindPreviewVideo(el: Element | null, moment: DisplayMoment) {
@@ -3111,6 +3456,18 @@ function refresh() {
 }
 
 function handleDetailFrameMessage(event: MessageEvent) {
+  const messageType = event.data && typeof event.data === 'object' ? event.data.type : event.data
+  if (
+    (messageType === DRAWER_VIDEO_ENTER_PAGE_FULL || messageType === DRAWER_VIDEO_EXIT_PAGE_FULL)
+    && event.source === detailIframeRef.value?.contentWindow
+  ) {
+    if (messageType === DRAWER_VIDEO_ENTER_PAGE_FULL)
+      setDetailPlayerImmersive(true)
+    else
+      syncDetailPlayerImmersiveFromIframe()
+    return
+  }
+
   const type = event.data?.type
   if (type === 'BEWLY_OPUS_IMAGE_VIEWER_OPEN') {
     if (event.source !== detailIframeRef.value?.contentWindow)
@@ -3728,7 +4085,7 @@ watch(
               @cover-load="(event, momentId) => handleCoverLoad(event, momentId)"
               @preview-video="bindPreviewVideo"
               @preview-canplay="playPreview"
-              @forward-video-click="handleForwardVideoClick"
+              @open-link="handleOpenLink"
               @toggle-watch-later="toggleMomentWatchLater"
               @toggle-like="toggleMomentLike"
               @toggle-reservation="toggleMomentReservation"
@@ -3814,7 +4171,10 @@ watch(
         />
         <a
           class="moment-detail-frame__open"
+          :class="{ 'is-hidden': detailPlayerImmersive }"
           :href="detailFrameUrl"
+          :aria-hidden="detailPlayerImmersive ? 'true' : undefined"
+          :tabindex="detailPlayerImmersive ? -1 : 0"
           target="_blank"
           rel="noopener noreferrer"
           @click.prevent.stop="openDetailFrameInNewTab"
@@ -4868,10 +5228,15 @@ watch(
   opacity: 1;
   transform: translateY(-1px);
 }
+.moment-detail-frame__open.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+}
 .moment-image-viewer {
   position: fixed;
   inset: 0;
-  z-index: 10010;
+  z-index: var(--bew-z-image-viewer);
   overflow: hidden;
   color: #fff;
   background: rgb(18 18 18 / 76%);

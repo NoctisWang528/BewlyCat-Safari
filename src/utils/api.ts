@@ -1,8 +1,33 @@
 import type { API_COLLECTION } from '~/background/messageListeners/api'
+import { isSearchResultApiMethod } from '~/constants/searchApi'
 import { settings } from '~/logic'
 import { sendMessage } from '~/utils/messaging'
-import { isPageNoCookieSearchMethod, requestPageNoCookieSearch } from '~/utils/pageNoCookieSearch'
 import { isPageWatchLaterMethod, requestPageWatchLater } from '~/utils/pageWatchLater'
+
+const SEARCH_QUERY_ID_CHARACTERS = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
+const searchQueryIds = new Map<string, string>()
+
+function createSearchQueryId(): string {
+  return Array.from({ length: 32 }, () => {
+    const index = Math.floor(Math.random() * SEARCH_QUERY_ID_CHARACTERS.length)
+    return SEARCH_QUERY_ID_CHARACTERS[index]
+  }).join('')
+}
+
+function getSearchQueryId(method: string, options?: object): string {
+  const keyword = String((options as Record<string, unknown> | undefined)?.keyword ?? '')
+  const cacheKey = `${method}:${keyword}`
+  const cached = searchQueryIds.get(cacheKey)
+  if (cached)
+    return cached
+
+  if (searchQueryIds.size >= 100)
+    searchQueryIds.clear()
+
+  const id = createSearchQueryId()
+  searchQueryIds.set(cacheKey, id)
+  return id
+}
 
 type CamelCase<S extends string> = S extends `${infer P1}_${infer P2}${infer P3}`
   ? `${Lowercase<P1>}${Uppercase<P2>}${CamelCase<P3>}`
@@ -30,16 +55,16 @@ export function shouldUsePageWatchLater(
 
 function assertApiResponse(value: unknown, namespace: string | symbol, method: string | symbol) {
   if (!value || typeof value !== 'object') {
-    const err = new Error(`Invalid API response from ${String(namespace)}.${String(method)}: response is ${value}`)
-    ;(err as any).code = 'ERR_INVALID_API_RESPONSE'
-    throw err
+    const error = new Error(`Invalid API response from ${String(namespace)}.${String(method)}: response is ${value}`)
+    ;(error as any).code = 'ERR_INVALID_API_RESPONSE'
+    throw error
   }
 
   if (!('code' in value)) {
-    const err = new Error(`Invalid API response from ${String(namespace)}.${String(method)}: missing code`)
-    ;(err as any).code = 'ERR_INVALID_API_RESPONSE'
-    ;(err as any).response = value
-    throw err
+    const error = new Error(`Invalid API response from ${String(namespace)}.${String(method)}: missing code`)
+    ;(error as any).code = 'ERR_INVALID_API_RESPONSE'
+    ;(error as any).response = value
+    throw error
   }
 
   return value
@@ -66,19 +91,21 @@ export class APIClient {
                     .then(response => assertApiResponse(response, namespace, p))
                 }
 
-                if (
-                  namespace === 'search'
+                const isSearchResultRequest = namespace === 'search'
                   && typeof p === 'string'
-                  && settings.value.depersonalizeSearchResults
-                  && isPageNoCookieSearchMethod(p)
-                ) {
-                  return requestPageNoCookieSearch(p, options as Record<string, unknown> | undefined)
-                }
+                  && isSearchResultApiMethod(p)
+                const requestOptions = isSearchResultRequest
+                  ? { qv_id: getSearchQueryId(p, options), ...options }
+                  : options
 
                 const message: Record<string, any> = {
                   contentScriptQuery: p as string,
-                  ...options,
+                  ...requestOptions,
                 }
+
+                // 去个性化搜索仍经后台获取匿名 WBI key 并签名，只省略 Cookie。
+                if (isSearchResultRequest && settings.value.depersonalizeSearchResults)
+                  message.bewlyNoCookie = true
 
                 return sendMessage(p as string, message)
                   .then(response => assertApiResponse(response, namespace, p))

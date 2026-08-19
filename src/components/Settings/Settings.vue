@@ -3,6 +3,7 @@ import { useEventListener } from '@vueuse/core'
 import type { CSSProperties } from 'vue'
 import { useI18n } from 'vue-i18n'
 
+import ProgressiveBlurSurface from '~/components/ProgressiveBlurSurface.vue'
 import { useBewlyApp } from '~/composables/useAppProvider'
 import { settings } from '~/logic'
 import { createTransformer } from '~/utils/transformer'
@@ -102,6 +103,7 @@ const searchInputRef = ref<HTMLInputElement>()
 const searchPopoverStyle = ref<CSSProperties>({})
 const isSearchFocused = ref(false)
 const { mainAppRef, pendingSettingsNavigation } = useBewlyApp()
+const useProgressiveFog = computed(() => settings.value.topBarStyle === 'progressiveFog')
 
 function handleSearchBlur() {
   isSearchFocused.value = false
@@ -557,8 +559,13 @@ function changeMenuItem(menuItem: MenuType) {
             text-shadow: 0 0 10px var(--bew-elevated-solid), 0 0 15px var(--bew-elevated-solid)
           "
         >
+          <div v-if="useProgressiveFog" class="settings-header__progressive-fog" aria-hidden="true">
+            <ProgressiveBlurSurface />
+            <div class="settings-header__progressive-fog-tint" />
+          </div>
           <!-- Mask -->
           <div
+            v-else
             pos="absolute top-0 left-0" w-inherit h-inherit pointer-events-none
             :style="{
               maskImage: settings.enableFrostedGlass
@@ -619,6 +626,7 @@ function changeMenuItem(menuItem: MenuType) {
             }"
             text="!16px hover:$bew-theme-color" w="32px" h="32px"
             flex="~ items-center justify-center shrink-0"
+            relative z-1
             bg="$bew-elevated dark:$bew-fill-1 hover:$bew-theme-color-30"
             rounded-8 cursor="pointer" border="1 $bew-border-color" box-border
             duration-300
@@ -630,11 +638,15 @@ function changeMenuItem(menuItem: MenuType) {
         <div
           ref="scrollViewportRef"
           :style="{
-            maskImage: settings.enableFrostedGlass ? 'linear-gradient(to bottom, transparent 0%, black 92px 30%)' : 'none',
-            WebkitMaskImage: settings.enableFrostedGlass ? 'linear-gradient(to bottom, transparent 0%, black 92px 30%)' : 'none',
+            maskImage: settings.enableFrostedGlass || useProgressiveFog ? 'linear-gradient(to bottom, transparent 0%, black 92px 30%)' : 'none',
+            WebkitMaskImage: settings.enableFrostedGlass || useProgressiveFog ? 'linear-gradient(to bottom, transparent 0%, black 92px 30%)' : 'none',
             scrollbarGutter: 'stable',
             overflowAnchor: 'none',
             overscrollBehavior: 'contain',
+            // 隔离内容控件的层叠上下文（如 .bew-segment-control__item 的 z-1），
+            // 避免毛玻璃关闭时与同 z-index 的 .settings-header 落入同一上下文、
+            // 因 DOM 顺序靠后而绘制到头部之上。
+            isolation: 'isolate',
           }"
           h-inherit of-y-auto of-x-hidden
           style="padding-top: 92px;"
@@ -666,7 +678,7 @@ function changeMenuItem(menuItem: MenuType) {
             searchPopoverStyle,
             {
               backgroundColor: settings.enableFrostedGlass ? 'var(--bew-elevated-alt)' : 'var(--bew-elevated-alt-solid)',
-              zIndex: 10010,
+              zIndex: 'var(--bew-z-settings-popover)',
             },
           ]"
         >
@@ -696,6 +708,26 @@ function changeMenuItem(menuItem: MenuType) {
 <style lang="scss" scoped>
 .menu-item-activated {
   --uno: "text-$bew-text-auto bg-$bew-theme-color-auto";
+}
+
+.settings-header__progressive-fog {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.settings-header__progressive-fog-tint {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    var(--bew-elevated-alt-solid),
+    color-mix(in oklab, var(--bew-elevated-alt-solid), transparent 22%) 55%,
+    transparent
+  );
 }
 
 // Animate from the capsule's real geometric radius instead of `radius-full`.
@@ -771,6 +803,8 @@ function changeMenuItem(menuItem: MenuType) {
 }
 
 .settings-breadcrumb {
+  position: relative;
+  z-index: 1;
   display: flex;
   overflow: hidden;
   gap: var(--bew-space-2);

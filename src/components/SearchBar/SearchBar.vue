@@ -162,6 +162,11 @@ watch(() => props.modelValue, (value) => {
   if (next !== keyword.value) {
     resetKeyboardSelection()
     keyword.value = next
+
+    if (isFocus.value)
+      queueSearchSuggestions(next)
+    else
+      invalidateSearchSuggestions()
   }
 })
 
@@ -340,27 +345,88 @@ onKeyStroke('Escape', (e: KeyboardEvent) => {
   console.log('[SearchBar] Blurred search input')
 }, { target: keywordRef })
 
-const handleKeywordInput = useDebounceFn(() => {
-  if (keyword.value.trim().length > 0) {
-    api.search.getSearchSuggestion({
-      term: keyword.value,
-    })
-      .then((res: SuggestionResponse) => {
-        if (!res || (res && res.code !== 0))
-          return
-        Object.assign(suggestions, res.result.tag)
-      })
+let suggestionRequestGeneration = 0
+let resolvedSuggestionTerm = ''
+
+function invalidateSearchSuggestions() {
+  suggestionRequestGeneration++
+  resolvedSuggestionTerm = ''
+  suggestions.length = 0
+}
+
+async function loadSearchSuggestions(term: string, generation: number) {
+  // A queued request may already be obsolete before the debounce expires.
+  if (generation !== suggestionRequestGeneration || keyword.value.trim() !== term)
+    return
+
+  try {
+    const res: SuggestionResponse = await api.search.getSearchSuggestion({ term })
+
+    // Only the response for the current input may update the list. Without this
+    // guard, a slower request for a shorter term can overwrite newer highlights.
+    if (generation !== suggestionRequestGeneration || keyword.value.trim() !== term)
+      return
+
+    if (!res || res.code !== 0) {
+      resolvedSuggestionTerm = ''
+      return
+    }
+
+    const nextSuggestions = Array.isArray(res.result?.tag) ? res.result.tag : []
+    suggestions.splice(0, suggestions.length, ...nextSuggestions)
+    resolvedSuggestionTerm = term
   }
-  else {
-    suggestions.length = 0
+  catch (error) {
+    if (generation === suggestionRequestGeneration) {
+      resolvedSuggestionTerm = ''
+      suggestions.length = 0
+    }
+    console.error('Failed to load search suggestions:', error)
   }
+}
+
+const requestSearchSuggestions = useDebounceFn((term: string, generation: number) => {
+  void loadSearchSuggestions(term, generation)
 }, 200)
+
+function queueSearchSuggestions(value: string) {
+  const term = value.trim()
+  if (!term) {
+    invalidateSearchSuggestions()
+    return
+  }
+
+  if (term === resolvedSuggestionTerm && suggestions.length > 0)
+    return
+
+  const generation = ++suggestionRequestGeneration
+  resolvedSuggestionTerm = ''
+  suggestions.length = 0
+  requestSearchSuggestions(term, generation)
+}
 
 function handleNativeInput(event: Event) {
   const value = (event.target as HTMLInputElement).value
   resetKeyboardSelection()
   keyword.value = value
-  handleKeywordInput()
+
+  if ((event as InputEvent).isComposing) {
+    invalidateSearchSuggestions()
+    return
+  }
+
+  queueSearchSuggestions(value)
+}
+
+function handleCompositionEnd(event: CompositionEvent) {
+  const value = (event.target as HTMLInputElement).value
+  keyword.value = value
+  queueSearchSuggestions(value)
+}
+
+function handleInputFocus() {
+  isFocus.value = true
+  queueSearchSuggestions(keyword.value)
 }
 
 function buildKeywordHref(keyword: string) {
@@ -553,7 +619,7 @@ function handleFocusOut(event: FocusEvent) {
 function handleClearKeyword() {
   resetKeyboardSelection()
   keyword.value = ''
-  suggestions.length = 0
+  invalidateSearchSuggestions()
 }
 </script>
 
@@ -601,7 +667,7 @@ function handleClearKeyword() {
         <img
           v-show="resolvedFocusedCharacter && isFocus" :src="resolvedFocusedCharacter"
           class="focus-character-image"
-          width="100" object-contain pos="absolute right-0 bottom-40px"
+          width="100" object-contain
         >
       </Transition>
 
@@ -619,8 +685,9 @@ function handleClearKeyword() {
         h-inherit
         spellcheck="false"
         un-border="1 solid $bew-border-color"
-        @focus="isFocus = true"
+        @focus="handleInputFocus"
         @input="handleNativeInput"
+        @compositionend="handleCompositionEnd"
         @keydown.enter.stop="handleKeyEnter"
         @keyup.up.stop.passive="handleKeyUp"
         @keyup.down.stop.passive="handleKeyDown"
@@ -826,15 +893,23 @@ function handleClearKeyword() {
   --b-search-bar-normal-text-color: var(--bew-text-1);
   --b-search-bar-hover-text-color: var(--bew-text-1);
   --b-search-bar-focus-text-color: var(--bew-text-1);
+  --b-search-bar-normal-placeholder-color: var(--bew-text-3);
+  --b-search-bar-hover-placeholder-color: var(--bew-text-3);
+  --b-search-bar-focus-placeholder-color: var(--bew-text-3);
 
   @mixin card-content {
     --uno: "text-base outline-none w-full bg-$b-search-bar-normal-color border-1 border-$bew-border-color";
     --uno: "shadow-[var(--bew-shadow-2),var(--bew-shadow-edge-glow-1)]";
-    backdrop-filter: var(--bew-filter-glass-1);
+    // --b-search-bar-glass 由外部（如顶栏的 slide-out 过渡）覆盖为恒等滤镜，
+    // 让玻璃与透明度动画同步渐变，避免 Chromium 丢弃 backdrop-filter 造成饱和度跳变
+    backdrop-filter: var(--b-search-bar-glass, var(--bew-filter-glass-1));
   }
 
   .search-bar {
     .focus-character-image {
+      position: absolute;
+      right: 0;
+      bottom: var(--bew-space-10);
       pointer-events: none;
       z-index: 0;
     }
@@ -859,11 +934,13 @@ function handleClearKeyword() {
         color var(--bew-duration-normal) var(--bew-ease-standard),
         opacity var(--bew-duration-normal) var(--bew-ease-standard),
         box-shadow var(--bew-duration-normal) var(--bew-ease-standard),
+        backdrop-filter var(--bew-duration-moderate) var(--bew-ease-standard),
         border-radius var(--bew-duration-moderate) var(--bew-ease-standard);
 
       &::placeholder {
-        color: inherit;
-        opacity: var(--b-search-bar-placeholder-opacity, 0.65);
+        color: var(--b-search-bar-normal-placeholder-color);
+        opacity: 1;
+        transition: color var(--bew-duration-normal) var(--bew-ease-standard);
       }
 
       &:focus {
@@ -874,10 +951,18 @@ function handleClearKeyword() {
     &:hover:not(:focus-within) input {
       color: var(--b-search-bar-hover-text-color);
       background: var(--b-search-bar-hover-color);
+
+      &::placeholder {
+        color: var(--b-search-bar-hover-placeholder-color);
+      }
     }
 
     &:focus-within input {
       color: var(--b-search-bar-focus-text-color);
+
+      &::placeholder {
+        color: var(--b-search-bar-focus-placeholder-color);
+      }
     }
 
     &.focus input {

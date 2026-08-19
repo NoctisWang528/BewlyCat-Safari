@@ -65,6 +65,7 @@ export interface ShortcutsSettings {
   danmuStatus?: BaseShortcutSetting
   webFullscreen?: BaseShortcutSetting
   widescreen?: BaseShortcutSetting
+  bewlyWidescreen?: BaseShortcutSetting
   shortStepBackward?: BaseShortcutSetting // J
   longStepBackward?: BaseShortcutSetting // Shift+J
   playPause?: BaseShortcutSetting // K
@@ -100,6 +101,7 @@ export type VideoCardFontSizeSetting = 'xs' | 'sm' | 'base' | 'lg'
 export type VideoCardLayoutSetting = 'modern' | 'old'
 export type TabsPosition = 'left' | 'center'
 export type TopBarLogoStyle = 'icon' | 'brand'
+export type TopBarStyle = 'default' | 'transparent' | 'frostedGlass' | 'progressiveFog'
 export type AutoPlayMode = 'default' | 'autoPlay' | 'autoPlayWithRecommend' | 'pauseAtEnd' | 'loop'
 export type RandomPlayOrder = 'sequential' | 'reverse' | 'random'
 export type DefaultCustomPlayOrder = RandomPlayOrder
@@ -124,6 +126,8 @@ export type RecommendationMode = 'web' | 'app' | 'webNoCookie'
  */
 export type CommentReplyTreeMode = 'lineCollapseMain' | 'lineKeepMain' | 'indentOnly'
 export type CommentReplyPaginationMode = 'loadMore' | 'pagination'
+export type MomentsCardOpenMode = 'dialog' | 'newTab' | 'background'
+export type MomentsVideoCardOpenMode = MomentsCardOpenMode | 'inherit' | 'currentTab'
 
 export interface ShadowCurvePoint {
   position: number
@@ -274,9 +278,7 @@ export interface Settings {
   autoHideTopBar: boolean
   showLayoutEditButton: boolean
   videoPageTopBarConfig: VideoPageTopBarConfig
-  alwaysUseTransparentTopBar: boolean
-  alwaysUseFrostedGlassTopBar: boolean
-  enableTopBarGradient: boolean
+  topBarStyle: TopBarStyle
   showTopBarThemeColorGradient: boolean
   showBewlyOrBiliPageSwitcher: boolean
   showBewlyOrBiliPageSwitcherOnMorePages: boolean
@@ -328,7 +330,9 @@ export interface Settings {
   momentsEnableKeywordFilter: boolean
   /** 逗号分隔的动态屏蔽关键词 */
   momentsBlockedKeywords: string
-  momentsCardOpenMode: 'dialog' | 'newTab' | 'background'
+  momentsCardOpenMode: MomentsCardOpenMode
+  /** 视频投稿动态卡片的独立点击行为；inherit 跟随通用动态卡片设置 */
+  momentsVideoCardOpenMode: MomentsVideoCardOpenMode
 
   alwaysUseDock: boolean
   autoHideDock: boolean
@@ -390,6 +394,7 @@ export interface Settings {
   autoSwitchRecommendationMode: boolean
 
   // filter setting
+  showRecommendationFilterRiskWarning: boolean
   disableFilterForFollowedUser: boolean
   filterOutVerticalVideos: boolean
   enableFilterByViewCount: boolean
@@ -410,8 +415,6 @@ export interface Settings {
   followingFilterDynamicVideos: boolean // 过滤动态视频
   useFollowingNewLayout: boolean
   collectedSeasonPlayAllMode: CollectedSeasonPlayAllMode // 订阅合集「播放全部」起播：开头 / 最新 / 上次观看
-  enableFollowingInactiveBlacklist: boolean // 启用不活跃名单
-  followingInactiveDays: number // UP主超过N天未更新则移至不活跃名单
 
   homePageTabVisibilityList: { page: HomeSubPage, visible: boolean }[]
   homeTabsPosition: TabsPosition
@@ -569,9 +572,7 @@ export const originalSettings: Settings = {
   autoHideTopBar: false,
   showLayoutEditButton: true,
   videoPageTopBarConfig: VideoPageTopBarConfig.ShowOnScroll,
-  alwaysUseTransparentTopBar: false,
-  alwaysUseFrostedGlassTopBar: false,
-  enableTopBarGradient: true,
+  topBarStyle: 'default',
   showTopBarThemeColorGradient: true,
   showBewlyOrBiliPageSwitcher: true,
   showBewlyOrBiliPageSwitcherOnMorePages: false,
@@ -625,6 +626,7 @@ export const originalSettings: Settings = {
   momentsEnableKeywordFilter: false,
   momentsBlockedKeywords: '',
   momentsCardOpenMode: 'dialog',
+  momentsVideoCardOpenMode: 'inherit',
 
   alwaysUseDock: false,
   autoHideDock: false,
@@ -686,6 +688,7 @@ export const originalSettings: Settings = {
   autoSwitchRecommendationMode: true,
 
   // filter setting
+  showRecommendationFilterRiskWarning: true,
   disableFilterForFollowedUser: false,
   filterOutVerticalVideos: false,
   enableFilterByViewCount: false,
@@ -706,8 +709,6 @@ export const originalSettings: Settings = {
   followingFilterDynamicVideos: false, // 默认不过滤动态视频
   useFollowingNewLayout: false, // 默认使用旧布局
   collectedSeasonPlayAllMode: 'beginning', // 默认从合集开头播放
-  enableFollowingInactiveBlacklist: true, // 默认启用不活跃名单
-  followingInactiveDays: 100, // 默认100天
 
   homePageTabVisibilityList: [],
   homeTabsPosition: 'left',
@@ -774,6 +775,7 @@ export const originalSettings: Settings = {
     danmuStatus: { key: 'Shift+D', enabled: true },
     webFullscreen: { key: 'Shift+W', enabled: true },
     widescreen: { key: 'T', enabled: true },
+    bewlyWidescreen: { key: 'Shift+T', enabled: true },
     shortStepBackward: { key: 'J', enabled: true },
     longStepBackward: { key: 'Shift+J', enabled: true },
     playPause: { key: 'K', enabled: true }, // 官方有 Space/⏯️，K 作为可选项
@@ -882,6 +884,23 @@ watch(
     const validTopBarLogoStyles: TopBarLogoStyle[] = ['icon', 'brand']
     if (!validTopBarLogoStyles.includes(record.topBarLogoStyle))
       record.topBarLogoStyle = originalSettings.topBarLogoStyle
+
+    const validTopBarStyles: TopBarStyle[] = ['default', 'transparent', 'frostedGlass', 'progressiveFog']
+    const hasLegacyTopBarStyle = 'alwaysUseTransparentTopBar' in record
+      || 'alwaysUseFrostedGlassTopBar' in record
+      || 'enableTopBarGradient' in record
+    if (hasLegacyTopBarStyle) {
+      record.topBarStyle = record.alwaysUseTransparentTopBar === true
+        ? 'transparent'
+        : record.alwaysUseFrostedGlassTopBar === true
+          ? 'frostedGlass'
+          : originalSettings.topBarStyle
+    }
+    if (!validTopBarStyles.includes(record.topBarStyle))
+      record.topBarStyle = originalSettings.topBarStyle
+    Reflect.deleteProperty(record, 'alwaysUseTransparentTopBar')
+    Reflect.deleteProperty(record, 'alwaysUseFrostedGlassTopBar')
+    Reflect.deleteProperty(record, 'enableTopBarGradient')
 
     if (typeof record.showLayoutEditButton !== 'boolean')
       record.showLayoutEditButton = originalSettings.showLayoutEditButton
@@ -1002,6 +1021,13 @@ watch(
     if (record.shortcuts?.webFullscreen?.key === 'W')
       record.shortcuts.webFullscreen.key = originalSettings.shortcuts.webFullscreen?.key
 
+    if (!record.shortcuts?.bewlyWidescreen) {
+      record.shortcuts = {
+        ...record.shortcuts,
+        bewlyWidescreen: { ...originalSettings.shortcuts.bewlyWidescreen },
+      }
+    }
+
     // 紧凑布局已由卡片元素显示设置替代
     if (record.videoCardLayout === 'compact')
       record.videoCardLayout = 'modern'
@@ -1115,6 +1141,14 @@ export interface GridLayout {
 export const gridLayout = useStorageLocal<GridLayout>('gridLayout', {
   home: 'adaptive',
 }, { mergeDefaults: true, writeDefaults: false })
+
+export type WatchLaterLayout = 'list' | 'grid'
+
+export const watchLaterLayout = useStorageLocal<WatchLaterLayout>(
+  'watchLaterLayout',
+  'list',
+  { mergeDefaults: true, writeDefaults: false },
+)
 
 export const gridColumns = useStorageLocal<GridColumnsConfig>(
   'gridColumns',

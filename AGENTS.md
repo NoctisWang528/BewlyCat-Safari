@@ -39,6 +39,9 @@ pnpm convert-safari   # compat alias for package-safari
 `pnpm package-safari` requires Xcode 27 Beta at
 `/Applications/Xcode-beta.app` with its developer directory selected.
 
+Git hooks run `pnpm lint-staged` before commits and `pnpm lint && pnpm
+typecheck` before pushes. Do not bypass them unless the user explicitly asks.
+
 Generated and ignored output directories are:
 
 - `extension-safari/` for the Safari WebExtension input

@@ -9,6 +9,7 @@ import { OVERLAY_SCROLL_BAR_SCROLL, TOP_BAR_VISIBILITY_CHANGE } from '~/constant
 import { gridLayout, settings } from '~/logic'
 import type { HomeTab } from '~/stores/mainStore'
 import { useMainStore } from '~/stores/mainStore'
+import { useTopBarStore } from '~/stores/topBarStore'
 import emitter from '~/utils/mitt'
 
 import VersionReminder from './components/VersionReminder.vue'
@@ -16,6 +17,7 @@ import type { GridLayoutIcon } from './types'
 import { HomeSubPage } from './types'
 
 const mainStore = useMainStore()
+const topBarStore = useTopBarStore()
 const { isLayoutEditing } = useLayoutEditMode()
 const {
   handleBackToTop,
@@ -82,6 +84,14 @@ watch(currentTabs, () => {
 watch(() => settings.value.enableGridLayoutSwitcher, (enabled) => {
   if (enabled)
     void gridIndicatorRef.value?.updateIndicator(true)
+})
+
+// Cookie changes are reconciled by the top bar store. Refresh the active home
+// tab when that reconciliation changes the session so data that previously
+// failed with -101 (for example after QR-code login) is fetched immediately.
+watch(() => topBarStore.isLogin, async () => {
+  await nextTick()
+  tabPageRef.value?.initData?.()
 })
 
 function getInitialTabScrollTop(): number {
@@ -413,16 +423,9 @@ function toggleTabContentLoading(loading: boolean) {
 }
 
 .glass-panel {
-  /* 毛玻璃关闭时 --bew-filter-glass-1 为 none；同时配合 --solid 去掉 surface 上的 filter */
-  backdrop-filter: var(--bew-filter-glass-1);
-  /* 关键优化：绘制隔离，防止重绘传播 */
-  contain: paint layout;
-  /* 创建独立堆叠上下文，减少合成压力 */
+  /* 毛玻璃模糊由 .bew-segment-control--surface 提供；这里只隔离内部绘制，
+     不能使用 contain: paint，否则 backdrop-filter 采不到背后内容。 */
   isolation: isolate;
-}
-
-.glass-panel.bew-segment-control--solid {
-  backdrop-filter: none;
 }
 
 .home-header {

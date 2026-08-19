@@ -33,7 +33,7 @@ function getConfiguredPageUrl(page: AppPage): string {
 export function useTopBarInteraction() {
   const topBarStore = useTopBarStore()
   const { closeAllPopups } = topBarStore
-  const topBarItemElements = reactive({})
+  const topBarItemElements: Record<string, Ref<HTMLElement | undefined>> = {}
   const topBarTransformers = reactive({})
 
   const isMouseOverPopup = reactive<Record<string, boolean>>({})
@@ -55,19 +55,19 @@ export function useTopBarInteraction() {
   useEventListener(window, 'pushstate', updateCurrentLocationHref)
   useEventListener(window, 'popstate', updateCurrentLocationHref)
 
-  // TopBar 相关计算属性
   const forceWhiteIcon = computed((): boolean => {
     if (!settings.value)
       return false
 
-    // 如果启用了"始终使用透明样式"，直接返回 true
-    if (settings.value.alwaysUseTransparentTopBar)
+    // 阴影：始终白图标，压住页面背景。
+    if (settings.value.topBarStyle === 'transparent')
       return true
 
-    // 强制使用无背景图首页的标准顶栏样式，不再根据页面壁纸切换为白色图标与阴影背景
-    if (settings.value.alwaysUseFrostedGlassTopBar)
+    // 渐变 / 白雾全页同一套外观，不按页面切阴影。
+    if (settings.value.topBarStyle !== 'default')
       return false
 
+    // 默认：按页面在白雾和阴影之间切换。
     if (
       (isHomePage() && settings.value.useOriginalBilibiliHomepage)
       || (CHANNEL_PAGE_URL.test(location.href) && !VIDEO_PAGE_URL.test(location.href))
@@ -80,33 +80,28 @@ export function useTopBarInteraction() {
     if (!isHomePage())
       return false
 
-    // 确保 activatedPage.value 存在
     if (!activatedPage?.value)
       return false
 
     if (activatedPage.value === AppPage.Search) {
-      if (settings.value.individuallySetSearchPageWallpaper) {
-        if (settings.value.searchPageWallpaper)
-          return true
-        return false
-      }
+      if (settings.value.individuallySetSearchPageWallpaper)
+        return !!settings.value.searchPageWallpaper
       return !!settings.value.wallpaper
     }
-    else if (activatedPage.value === AppPage.SearchResults) {
-      // 搜索结果页使用全局壁纸设置
+
+    if (activatedPage.value === AppPage.SearchResults)
       return !!settings.value.wallpaper
-    }
-    else {
+
+    if (settings.value.wallpaper)
+      return true
+
+    if (settings.value.useSearchPageModeOnHomePage) {
+      if (settings.value.individuallySetSearchPageWallpaper && !!settings.value.searchPageWallpaper)
+        return true
       if (settings.value.wallpaper)
         return true
-
-      if (settings.value.useSearchPageModeOnHomePage) {
-        if (settings.value.individuallySetSearchPageWallpaper && !!settings.value.searchPageWallpaper)
-          return true
-        else if (settings.value.wallpaper)
-          return true
-      }
     }
+
     return false
   })
 
@@ -166,7 +161,11 @@ export function useTopBarInteraction() {
 
   // 设置顶栏项变换器
   function setupTopBarItemTransformer(key: string, targetRef?: any) {
-    const transformer = createTransformer(topBarItemElements[key], {
+    const trigger = topBarItemElements[key]
+    if (!trigger)
+      return
+
+    const transformer = createTransformer(trigger, {
       x: '0px',
       y: '50px',
       centerTarget: {
@@ -177,12 +176,16 @@ export function useTopBarInteraction() {
     // 如果提供了targetRef，将其存储但不修改transformer的内部逻辑
     if (targetRef) {
       topBarTransformers[key] = targetRef
-      // 监听targetRef的变化，当targetRef有值时，将其设置为transformer的target
-      watch(targetRef, (newVal) => {
-        if (newVal) {
-          transformer.value = newVal
-        }
-      }, { immediate: true })
+      watch(
+        [targetRef, () => topBarStore.popupVisible[key]],
+        ([el, visible]) => {
+          if (!visible || !el)
+            return
+          transformer.value = el
+          transformer.applyPosition()
+        },
+        { immediate: true, flush: 'post' },
+      )
       return targetRef
     }
 

@@ -35,6 +35,9 @@
 .slide-out-leave-to,
 .slide-out-enter-from {
   --uno: "transform important:-translate-y-4 opacity-0";
+  // 搜索框自带玻璃滤镜，出场/入场时把滤镜过渡到恒等值，
+  // 与 opacity 动画同步，避免 Chromium 丢弃 backdrop-filter 造成饱和度跳变（crbug.com/40877283）
+  --b-search-bar-glass: blur(0px) saturate(100%);
 }
 
 .fade-enter-active,
@@ -129,14 +132,14 @@
   .unread-num-dot {
     // The controls grew from 34px to 36px; keep the badge on the same visual edge.
     --uno: "absolute top--2px right--2px";
-    --uno: "important:px-1 rounded-full";
+    --uno: "important:px-1 rounded-$bew-badge-radius";
     --uno: "text-xs leading-none z-6 min-w-14px h-14px";
     --uno: "grid place-items-center";
     --uno: "bg-$bew-theme-color text-white shadow-$bew-shadow-1";
   }
 
   .unread-dot {
-    --uno: "w-8px h-8px bg-$bew-theme-color rounded-8px absolute right-2px top-2px";
+    --uno: "w-8px h-8px bg-$bew-theme-color rounded-$bew-badge-radius absolute right-2px top-2px";
   }
 
   .right-side-item {
@@ -152,15 +155,19 @@
       filter: drop-shadow(0 0 4px var(--bew-bg));
     }
 
-    &.active a,
-    & a:hover,
+    &.active > a,
+    &.active > .top-bar-item-editor > a,
+    & > a:hover,
+    & > .top-bar-item-editor > a:hover,
     & .notifications:hover,
     & .notifications:active {
       --uno: "bg-$bew-fill-2";
     }
 
-    &.active a.white-icon,
-    & a:hover.white-icon,
+    &.active > a.white-icon,
+    &.active > .top-bar-item-editor > a.white-icon,
+    & > a:hover.white-icon,
+    & > .top-bar-item-editor > a:hover.white-icon,
     & .notifications:hover.white-icon,
     & .notifications:active.white-icon {
       --uno: "bg-white bg-opacity-20";

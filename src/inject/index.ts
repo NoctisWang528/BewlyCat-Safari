@@ -1,6 +1,6 @@
 // 由于是浏览器环境，所以引入的ts不能使用webextension-polyfill相关api，包含获取本地Storage，获取的是网页的localStorage
-import { PAGE_NO_COOKIE_SEARCH_REQUEST, PAGE_NO_COOKIE_SEARCH_RESPONSE } from '~/constants/api'
 import { BEWLY_PAGE_WORLD_GLOBAL_KEY } from '~/constants/pageWorld'
+import { isSearchResultApiPath } from '~/constants/searchApi'
 import type { Settings } from '~/logic/storage'
 import { BILIBILI_DESKTOP_USER_AGENT, isBilibiliWwwUrl } from '~/utils/bilibiliDesktopNavigation'
 import { isElectron } from '~/utils/main'
@@ -48,7 +48,7 @@ if (isElectronEnv) {
 }
 else if (pageWorldState) {
   try {
-    // 根据兼容性设置动态返回桌面 UA，默认保持浏览器原始值。
+  // 根据兼容性设置动态返回桌面 UA，默认保持浏览器原始值。
     if (isBilibiliWwwUrl(location.href)) {
       const originalNavigatorValues = {
         appVersion: navigator.appVersion,
@@ -153,6 +153,8 @@ else if (pageWorldState) {
     const COMPACT_COMMENT_REPLY_TREE_CONTAINER_WIDTH = 640
     const DEFAULT_COMMENT_REPLY_TREE_INDENT_STEP = 32
     const COMPACT_COMMENT_REPLY_TREE_INDENT_STEP = 24
+    const COMMENT_REPLY_TREE_MIN_GUIDE_GAP = 4
+    const COMMENT_REPLY_TREE_FALLBACK_AVATAR_RADIUS = 12
     const COMMENT_REPLY_TREE_INDENT_STEP = 'var(--bew-comment-reply-indent-step, var(--bew-space-8, 32px))'
     const COMMENT_REPLY_TREE_GUIDES_ID = 'bewly-comment-reply-tree-guides'
     const COMMENT_REPLY_TREE_ROOT_KEY = 'thread-root'
@@ -294,7 +296,7 @@ else if (pageWorldState) {
 
     #${COMMENT_REPLY_TREE_GUIDES_ID} .bewly-comment-reply-branch__node,
     #${COMMENT_REPLY_TREE_GUIDES_ID} .bewly-comment-reply-tail__node {
-      fill: var(--bew-bg, var(--bg1, #fff));
+      fill: var(--bg1, var(--bew-bg, #fff));
       stroke: var(--bew-comment-tree-line-color, var(--line_regular, rgba(148, 153, 160, 0.28)));
       stroke-width: var(--bew-space-0-5, 2px);
     }
@@ -358,6 +360,10 @@ else if (pageWorldState) {
         css: `
         #spinner {
           background: var(--bew-comment-replies-mask-bg, rgba(var(--bg1_rgb), 0.85)) !important;
+        }
+
+        #pagination {
+          color: var(--bew-text-3) !important;
         }
 
         :host([data-bewly-comment-reply-tree]) {
@@ -829,6 +835,25 @@ else if (pageWorldState) {
         && currentSettings?.commentReplyPaginationMode !== 'pagination'
     }
 
+    function updateCommentReplyPaginationHead(component: any, currentPage: number) {
+      const head = component?.shadowRoot?.querySelector('#pagination-head') as HTMLElement | null | undefined
+      if (!head)
+        return
+      const prefix = `第${currentPage}页，共`
+      const first = head.firstChild
+      if (first && first.nodeType === Node.TEXT_NODE && first.textContent !== prefix)
+        first.textContent = prefix
+    }
+
+    function restoreCommentReplyPaginationHead(component: any) {
+      const head = component?.shadowRoot?.querySelector('#pagination-head') as HTMLElement | null | undefined
+      if (!head)
+        return
+      const first = head.firstChild
+      if (first && first.nodeType === Node.TEXT_NODE && first.textContent !== '共')
+        first.textContent = '共'
+    }
+
     function getCommentReplyInvisibleIds(renderer: any): Set<string> {
       if (!renderer.invisibleID || typeof renderer.invisibleID !== 'object')
         return new Set()
@@ -1194,12 +1219,12 @@ else if (pageWorldState) {
             if (state.loading) {
               return [{ text: '加载中…', idx: currentPage, clickable: false }]
             }
-            const hasNext = items.some(item => Number(item?.idx) === currentPage && item?.clickable !== false)
-            return [{
-              text: hasNext ? '加载更多' : '没有更多回复',
-              idx: currentPage,
-              clickable: hasNext,
-            }]
+            const totalPage = Number(this.totalPage) || 0
+            const hasNext = currentPage < totalPage
+            queueMicrotask(() => updateCommentReplyPaginationHead(this, currentPage))
+            return hasNext
+              ? [{ text: '加载更多', idx: currentPage, clickable: true }]
+              : []
           },
         })
       }
@@ -1667,19 +1692,35 @@ else if (pageWorldState) {
       return `calc(${Array.from({ length: depth }, () => COMMENT_REPLY_TREE_INDENT_STEP).join(' + ')})`
     }
 
-    function getCommentReplyTreeIndentStep(replyContainer: HTMLElement): number {
-      return replyContainer.clientWidth <= COMPACT_COMMENT_REPLY_TREE_CONTAINER_WIDTH
+    function getCommentReplyTreeIndentStep(
+      replyContainer: HTMLElement,
+      orderedNodes: Array<{ depth: number, node: CommentReplyTreeNode }>,
+    ): number {
+      const preferredIndentStep = replyContainer.clientWidth <= COMPACT_COMMENT_REPLY_TREE_CONTAINER_WIDTH
         ? COMPACT_COMMENT_REPLY_TREE_INDENT_STEP
         : DEFAULT_COMMENT_REPLY_TREE_INDENT_STEP
-    }
+      const maxDepth = orderedNodes.reduce((maximum, { depth }) => Math.max(maximum, depth), 0)
+      if (maxDepth <= 0)
+        return preferredIndentStep
 
-    function getCommentReplyTreeDepthLimit(replyContainer: HTMLElement, indentStep: number): number {
       const availableIndentWidth = Math.max(
         0,
         replyContainer.clientWidth - MIN_COMMENT_REPLY_TREE_CONTENT_WIDTH,
       )
+      const fittedIndentStep = availableIndentWidth / maxDepth
+      const minimumGuideIndentStep = orderedNodes.reduce((minimum, { node }) => {
+        const avatar = node.renderer.shadowRoot?.querySelector<HTMLElement>('#user-avatar')
+          ?? node.renderer.shadowRoot?.querySelector<HTMLElement>('bili-avatar')
+        const avatarWidth = avatar?.getBoundingClientRect().width ?? 0
+        const avatarRadius = avatarWidth > 0
+          ? avatarWidth / 2
+          : COMMENT_REPLY_TREE_FALLBACK_AVATAR_RADIUS
+        return Math.max(minimum, avatarRadius + COMMENT_REPLY_TREE_MIN_GUIDE_GAP)
+      }, COMMENT_REPLY_TREE_FALLBACK_AVATAR_RADIUS + COMMENT_REPLY_TREE_MIN_GUIDE_GAP)
 
-      return Math.min(MAX_COMMENT_REPLY_TREE_DEPTH, Math.floor(availableIndentWidth / indentStep))
+      // 优先保留正文最小宽度；空间不足时也至少让子头像位于父头像中心右侧，
+      // 否则深层节点会落在同一列，引导线会因没有水平分支空间而消失。
+      return Math.max(minimumGuideIndentStep, Math.min(preferredIndentStep, fittedIndentStep))
     }
 
     interface CommentReplyAvatarAnchor {
@@ -3109,8 +3150,10 @@ else if (pageWorldState) {
         commentReplyPaginationModeStates.set(component, paginationEnabled)
         component.requestUpdate?.()
       }
-      if (!paginationEnabled)
+      if (!paginationEnabled) {
         clearCommentReplyPaginationState(component, true)
+        restoreCommentReplyPaginationHead(component)
+      }
       const existingState = commentReplyTreeStates.get(component)
       if (treeMode === null && !existingState?.enabled) {
         component.removeAttribute('data-bewly-comment-reply-tree')
@@ -3198,13 +3241,11 @@ else if (pageWorldState) {
       const rootNodes = orderedNodes
         .filter(({ depth }) => depth === 0)
         .map(({ node }) => node)
-      const indentStep = getCommentReplyTreeIndentStep(replyContainer)
-      const depthLimit = getCommentReplyTreeDepthLimit(replyContainer, indentStep)
+      const indentStep = getCommentReplyTreeIndentStep(replyContainer, orderedNodes)
       component.style.setProperty('--bew-comment-reply-indent-step', `${indentStep}px`)
       orderedNodes.forEach(({ depth, node }) => {
-        const visualDepth = Math.min(depth, depthLimit)
-        node.renderer.dataset.bewlyCommentReplyDepth = String(visualDepth)
-        node.renderer.style.setProperty('--bew-comment-reply-indent', getCommentReplyIndent(visualDepth))
+        node.renderer.dataset.bewlyCommentReplyDepth = String(depth)
+        node.renderer.style.setProperty('--bew-comment-reply-indent', getCommentReplyIndent(depth))
       })
       updateCommentReplyTreeVisibility(component, state, orderedNodes, rootNodes, collapseParentBody)
       reorderCommentReplyRenderers(
@@ -3667,12 +3708,6 @@ else if (pageWorldState) {
       type: 'BEWLY_REQUEST_SETTINGS',
     }, '*')
 
-    const SEARCH_RESULT_API_PATHS = [
-      '/x/web-interface/wbi/search/all',
-      '/x/web-interface/wbi/search/type',
-      '/x/web-interface/search/type',
-    ]
-
     function getFetchInputUrl(input: RequestInfo | URL): string {
       if (typeof input === 'string')
         return input
@@ -3688,7 +3723,7 @@ else if (pageWorldState) {
       try {
         const requestUrl = new URL(getFetchInputUrl(input), window.location.href)
         return requestUrl.hostname === 'api.bilibili.com'
-          && SEARCH_RESULT_API_PATHS.some(path => requestUrl.pathname.startsWith(path))
+          && isSearchResultApiPath(requestUrl.pathname)
       }
       catch {
         return false
@@ -3698,71 +3733,6 @@ else if (pageWorldState) {
     const originalFetch = window.fetch
     installPageWatchLaterBridge({
       fetchImpl: originalFetch.bind(window),
-    })
-
-    function isAllowedPageNoCookieSearchUrl(url: string): boolean {
-      try {
-        const requestUrl = new URL(url, window.location.href)
-        return requestUrl.hostname === 'api.bilibili.com'
-          && SEARCH_RESULT_API_PATHS.some(path => requestUrl.pathname.startsWith(path))
-      }
-      catch {
-        return false
-      }
-    }
-
-    async function handlePageNoCookieSearchRequest(data: any) {
-      const id = data?.id
-      const url = data?.url
-      if (typeof id !== 'string' || typeof url !== 'string')
-        return
-
-      try {
-        if (!isAllowedPageNoCookieSearchUrl(url))
-          throw new Error('Unsupported no-cookie search request')
-
-        const response = await originalFetch.call(window, url, {
-          method: 'GET',
-          credentials: 'omit',
-        })
-        const text = await response.text()
-        let parsedResponse: unknown
-
-        try {
-          parsedResponse = text ? JSON.parse(text) : null
-        }
-        catch {
-          throw new Error('Invalid no-cookie search response')
-        }
-
-        window.postMessage({
-          type: PAGE_NO_COOKIE_SEARCH_RESPONSE,
-          data: {
-            id,
-            ok: response.ok,
-            status: response.status,
-            response: parsedResponse,
-          },
-        }, '*')
-      }
-      catch (error) {
-        window.postMessage({
-          type: PAGE_NO_COOKIE_SEARCH_RESPONSE,
-          data: {
-            id,
-            error: error instanceof Error ? error.message : String(error),
-          },
-        }, '*')
-      }
-    }
-
-    window.addEventListener('message', (event) => {
-      if (event.source !== window)
-        return
-
-      const { type, data } = event.data || {}
-      if (type === PAGE_NO_COOKIE_SEARCH_REQUEST)
-        void handlePageNoCookieSearchRequest(data)
     })
 
     function fetchWithSearchSettings(thisArg: unknown, input: RequestInfo | URL, init?: RequestInit) {

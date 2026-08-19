@@ -85,6 +85,15 @@ function showNextConfirmDialog() {
   activeConfirmDialog.value = confirmDialogQueue.shift()
 }
 
+const confirmDialogPanelStyle = computed(() => {
+  const frostedGlass = settings.value.enableFrostedGlass
+  return {
+    backdropFilter: frostedGlass ? 'var(--bew-filter-glass-2)' : 'none',
+    WebkitBackdropFilter: frostedGlass ? 'var(--bew-filter-glass-2)' : 'none',
+    backgroundColor: frostedGlass ? 'var(--bew-elevated-alt)' : 'var(--bew-elevated-alt-solid)',
+  }
+})
+
 function showConfirmDialog(message: string): Promise<boolean> {
   return new Promise((resolve) => {
     const request: ConfirmDialogRequest = {
@@ -1205,19 +1214,39 @@ watch([() => showTopBar.value, () => activatedPage.value], () => {
 // Setup necessary settings watchers
 setupNecessarySettingsWatchers()
 let scrollingEmitted = false
+let isAppMounted = false
+let stopHomeKeyStroke: (() => void) | null = null
+let stopLoadMoreIntersectionObserver: (() => void) | null = null
+
+function handleMetaHomeKeydown(e: KeyboardEvent) {
+  if (e.key === 'ArrowUp' && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
+    handleThrottledBackToTop()
+    focusScrollViewport({ force: true })
+    e.preventDefault()
+  }
+}
+
+function handleDocumentScroll() {
+  reachTop.value = window.scrollY <= 0
+}
 
 onMounted(() => {
+  isAppMounted = true
   window.dispatchEvent(new CustomEvent(BEWLY_MOUNTED))
 
   // ✅ 设置 IntersectionObserver 用于无限滚动底部检测（仅在首页且使用Bewly页面时）
   // 避免在每次滚动时读取 scrollHeight/clientHeight
   if (isHomePage() && !settings.value.useOriginalBilibiliHomepage) {
     nextTick(() => {
+      if (!isAppMounted)
+        return
+
       const viewport = scrollViewportRef.value
       if (!viewport)
         return
 
-      useIntersectionObserver(
+      stopLoadMoreIntersectionObserver?.()
+      const { stop } = useIntersectionObserver(
         loadMoreSentinelRef,
         ([{ isIntersecting }]) => {
           if (isIntersecting && !isHomeTabSwitching.value) {
@@ -1230,6 +1259,7 @@ onMounted(() => {
           threshold: 0,
         },
       )
+      stopLoadMoreIntersectionObserver = stop
     })
   }
 
@@ -1240,29 +1270,17 @@ onMounted(() => {
     focusScrollViewport()
 
     // Windows/Linux: 监听 Home 键
-    onKeyStroke('Home', (e) => {
+    stopHomeKeyStroke = onKeyStroke('Home', (e) => {
       handleThrottledBackToTop()
       focusScrollViewport({ force: true })
       e.preventDefault()
     })
 
     // macOS: 使用原生事件监听 Command+↑ 组合键
-    document.addEventListener('keydown', (e) => {
-      // 确保只有同时按下 Command 和 ArrowUp 键时才触发
-      if (e.key === 'ArrowUp' && e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey) {
-        handleThrottledBackToTop()
-        focusScrollViewport({ force: true })
-        e.preventDefault()
-      }
-    })
+    document.addEventListener('keydown', handleMetaHomeKeydown)
   }
 
-  document.addEventListener('scroll', () => {
-    if (window.scrollY > 0)
-      reachTop.value = false
-    else
-      reachTop.value = true
-  })
+  document.addEventListener('scroll', handleDocumentScroll, { passive: true })
 })
 
 function handleDockItemClick(dockItem: DockItem) {
@@ -1357,7 +1375,7 @@ function handleOsScroll(_instance: any, event: Event) {
     const scrollTop = latestScrollTop
 
     emitter.emit(OVERLAY_SCROLL_BAR_SCROLL, scrollTop)
-    if (settings.value.useOriginalBilibiliTopBar)
+    if (settings.value.showTopBar && settings.value.useOriginalBilibiliTopBar)
       setOriginalBilibiliTopBarScrolled(document, scrollTop > 0)
 
     // 只在滚动距离超过阈值时更新状态
@@ -1400,6 +1418,33 @@ function handleNativeScroll(event: Event) {
   handleOsScroll(null, event)
 }
 
+onUnmounted(() => {
+  isAppMounted = false
+  stopHomeKeyStroke?.()
+  stopHomeKeyStroke = null
+  stopLoadMoreIntersectionObserver?.()
+  stopLoadMoreIntersectionObserver = null
+  document.removeEventListener('keydown', handleMetaHomeKeydown)
+  document.removeEventListener('scroll', handleDocumentScroll)
+
+  if (rafId !== null) {
+    cancelAnimationFrame(rafId)
+    rafId = null
+  }
+  if (scrollStateTimer) {
+    clearTimeout(scrollStateTimer)
+    scrollStateTimer = null
+  }
+  if (scrollEndTimer) {
+    clearTimeout(scrollEndTimer)
+    scrollEndTimer = null
+  }
+  if (scrollingEmitted) {
+    emitter.emit(OVERLAY_SCROLL_STATE_CHANGE, false)
+    scrollingEmitted = false
+  }
+})
+
 function openIframeDrawer(url: string) {
   const isSameOrigin = (origin: URL, destination: URL) =>
     origin.protocol === destination.protocol && origin.host === destination.host && origin.port === destination.port
@@ -1436,27 +1481,31 @@ async function haveScrollbar() {
   return viewport.scrollHeight > viewport.clientHeight
 }
 
-// In drawer video, watch btn className changed and post message to parent
+// In drawer/dialog video, watch btn className changed and post message to parent
 watchEffect(async (onCleanUp) => {
   if (!isInIframe())
     return null
 
+  const webFullscreenBtnSelector = '.bpx-player-ctrl-web, .bilibili-player-video-web-fullscreen, .squirtle-video-pagefullscreen'
+
+  function notifyDrawerPageFullscreen(el: HTMLElement) {
+    const entered = el.classList.contains('bpx-state-entered')
+      || !!document.querySelector('[data-screen="web"]')
+    parent.postMessage(entered ? DRAWER_VIDEO_ENTER_PAGE_FULL : DRAWER_VIDEO_EXIT_PAGE_FULL)
+  }
+
   const observer = new MutationObserver(([{ target: el }]) => {
     if (!(el instanceof HTMLElement))
-      return null
-    if (el.classList.contains('bpx-state-entered')) {
-      parent.postMessage(DRAWER_VIDEO_ENTER_PAGE_FULL)
-    }
-    else {
-      parent.postMessage(DRAWER_VIDEO_EXIT_PAGE_FULL)
-    }
+      return
+    notifyDrawerPageFullscreen(el)
   })
 
   const abort = new AbortController()
-  queryDomUntilFound('.bpx-player-ctrl-btn.bpx-player-ctrl-web', 500, abort).then((openVideo2WebFullBtn) => {
+  queryDomUntilFound(webFullscreenBtnSelector, 500, abort).then((openVideo2WebFullBtn) => {
     if (!openVideo2WebFullBtn)
       return
-    observer.observe(openVideo2WebFullBtn, { attributes: true })
+    notifyDrawerPageFullscreen(openVideo2WebFullBtn)
+    observer.observe(openVideo2WebFullBtn, { attributes: true, attributeFilter: ['class'] })
   })
 
   onCleanUp(() => {
@@ -1655,7 +1704,7 @@ if (settings.value.cleanUrlArgument) {
       'dark': isDark,
       'bewly-wrapper--viewport': isHomePage() && !settings.useOriginalBilibiliHomepage,
     }"
-    text="$bew-text-1 size-$bew-base-font-size"
+    text="$bew-text-1"
     @pointerdown.capture="blockOriginalLayoutInteraction"
     @click.capture="blockOriginalLayoutInteraction"
     @auxclick.capture="blockOriginalLayoutInteraction"
@@ -1670,7 +1719,11 @@ if (settings.value.cleanUrlArgument) {
 
     <!-- Settings -->
     <KeepAlive>
-      <Settings v-if="showSettings" z-10004 @close="showSettings = false" />
+      <Settings
+        v-if="showSettings"
+        style="z-index: var(--bew-z-settings);"
+        @close="showSettings = false"
+      />
     </KeepAlive>
 
     <Transition name="fade">
@@ -1732,6 +1785,7 @@ if (settings.value.cleanUrlArgument) {
     <div
       v-if="isLayoutEditing"
       class="layout-edit-helper"
+      :class="{ 'layout-edit-helper--dock-left': settings.dockPosition === 'left' }"
       data-layout-edit-control
     >
       <div
@@ -1876,7 +1930,7 @@ if (settings.value.cleanUrlArgument) {
               <div
                 p="t-[calc(var(--bew-top-bar-height)+10px)]" m-auto
                 w="lg:[calc(100%-200px)] [calc(100%-150px)]"
-                :style="settings.useOriginalBilibiliTopBar && !reachTop
+                :style="settings.showTopBar && settings.useOriginalBilibiliTopBar && !reachTop
                   ? { paddingTop: 'calc(var(--bew-top-bar-height) + 120px)' }
                   : undefined"
               >
@@ -1913,7 +1967,7 @@ if (settings.value.cleanUrlArgument) {
       :aria-label="$t('common.operation.confirm')"
     >
       <div class="bew-confirm-dialog__backdrop" @click="finishConfirmDialog(false)" />
-      <div class="bew-confirm-dialog__panel">
+      <div class="bew-confirm-dialog__panel" :style="confirmDialogPanelStyle">
         <header class="bew-confirm-dialog__header">
           <p class="bew-confirm-dialog__title">
             {{ $t('common.operation.confirm') }}
@@ -1933,11 +1987,11 @@ if (settings.value.cleanUrlArgument) {
           </p>
         </div>
         <footer class="bew-confirm-dialog__footer">
-          <Button type="tertiary" @click="finishConfirmDialog(false)">
-            {{ $t('common.operation.cancel') }}
-          </Button>
-          <Button type="primary" @click="finishConfirmDialog(true)">
+          <Button type="tertiary" @click="finishConfirmDialog(true)">
             {{ $t('common.operation.confirm') }}
+          </Button>
+          <Button type="primary" @click="finishConfirmDialog(false)">
+            {{ $t('common.operation.cancel') }}
           </Button>
         </footer>
       </div>
@@ -1999,6 +2053,12 @@ if (settings.value.cleanUrlArgument) {
   flex-direction: column;
   gap: var(--bew-space-2);
   pointer-events: auto;
+}
+
+.layout-edit-helper--dock-left {
+  right: max(var(--bew-space-4), env(safe-area-inset-right));
+  left: auto;
+  align-items: flex-end;
 }
 
 .layout-edit-quick-actions {
@@ -2093,7 +2153,7 @@ if (settings.value.cleanUrlArgument) {
 .bew-confirm-dialog {
   position: fixed;
   inset: 0;
-  z-index: 10002;
+  z-index: var(--bew-z-confirm-dialog);
   pointer-events: auto;
 }
 
@@ -2112,7 +2172,6 @@ if (settings.value.cleanUrlArgument) {
   width: 420px;
   max-width: calc(100vw - 32px);
   overflow: hidden;
-  background: var(--bew-elevated-alt-solid);
   border: 1px solid var(--bew-border-color);
   border-radius: var(--bew-modal-radius);
   box-shadow: var(--bew-shadow-4), var(--bew-shadow-edge-glow-2);

@@ -73,6 +73,7 @@ const configurableShortcutsGroups: ShortcutGroup[] = [
       { id: 'danmuStatus', name: t('settings.shortcuts.danmu_status'), description: t('settings.shortcuts.danmu_status_desc'), defaultKey: 'Shift+D' },
       { id: 'webFullscreen', name: t('settings.shortcuts.web_fullscreen'), description: t('settings.shortcuts.web_fullscreen_desc'), defaultKey: 'Shift+W' },
       { id: 'widescreen', name: t('settings.shortcuts.widescreen'), description: t('settings.shortcuts.widescreen_desc'), defaultKey: 'T' },
+      { id: 'bewlyWidescreen', name: t('settings.shortcuts.bewly_widescreen'), description: t('settings.shortcuts.bewly_widescreen_desc'), defaultKey: 'Shift+T' },
       { id: 'shortStepBackward', name: t('settings.shortcuts.short_step_backward'), description: t('settings.shortcuts.short_step_backward_desc'), defaultKey: 'J' },
       { id: 'longStepBackward', name: t('settings.shortcuts.long_step_backward'), description: t('settings.shortcuts.long_step_backward_desc'), defaultKey: 'Shift+J' },
       { id: 'playPause', name: t('settings.shortcuts.play_pause_ext'), description: t('settings.shortcuts.play_pause_ext_desc'), defaultKey: 'K' }, // Renamed to avoid conflict if 'playPause' is used for official
@@ -356,7 +357,7 @@ function resetAllShortcuts() {
 
     <!-- Configurable Extension Shortcuts -->
     <template v-for="group in configurableShortcutsGroups" :key="group.title">
-      <SettingsItemGroup :title="group.title" collapsible>
+      <SettingsItemGroup :title="group.title">
         <template v-for="shortcutDef in group.shortcuts" :key="shortcutDef.id">
           <SettingsItem :title="shortcutDef.name" :desc="shortcutDef.description" right-width="auto">
             <div class="shortcut-item-config">
@@ -431,11 +432,7 @@ function resetAllShortcuts() {
     </SettingsItemGroup>
 
     <!-- Official Bilibili Shortcuts (Read-only) -->
-    <SettingsItemGroup
-      :title="t('settings.shortcuts.group.official_bilibili')"
-      collapsible
-      default-collapsed
-    >
+    <SettingsItemGroup :title="t('settings.shortcuts.group.official_bilibili')">
       <SettingsItem
         v-for="shortcut in officialShortcuts"
         :key="shortcut.key"

@@ -18,6 +18,7 @@ interface BewlyWidescreenState {
   danmakuDock: HTMLElement
   sidebarEl: HTMLElement
   sidebarTop: HTMLElement
+  infoSlot: HTMLElement
   upSlot: HTMLElement
   toolbarSlot: HTMLElement
   descriptionSlot: HTMLElement
@@ -42,15 +43,18 @@ interface BewlyWidescreenState {
 
 const ROOT_ID = 'bewly-widescreen-root'
 const LOADING_ROOT_ID = 'bewly-widescreen-loading'
+const SWITCH_HINT_ID = 'bewly-widescreen-switch-hint'
 const BODY_CLASS = 'bewly-widescreen-active'
 const EMPTY_CLASS = 'bewly-widescreen-empty'
 const EPISODE_SECTION_CLASS = 'bewly-widescreen-episode-section'
-const EPISODE_ITEM_SELECTOR = '.video-pod__item, .multi-page__item, .page-item, .list-item, .episode-item, .section-item, .collect-item'
+const EPISODE_ITEM_SELECTOR = '.video-pod__item, .multi-page__item, .page-item, .list-item, .episode-item, .section-item, .collect-item, [class*="PlayerEpisodePanel_episodeRow"]'
 const SIDEBAR_NARROW_MIN_WIDTH = 360
 const SIDEBAR_NARROW_MAX_WIDTH = 460
 const MOBILE_BREAKPOINT = 900
 const LOAD_SETTLE_DELAY = 1200
 const LOADING_FADE_DURATION = 240
+const SWITCH_HINT_FADE_DURATION = 180
+const SWITCH_HINT_TIMEOUT = 6000
 const LOADING_EXIT_BUTTON_DELAY = 5000
 const PREPARED_LOADING_TIMEOUT = 30_000
 const READY_RETRY_INTERVAL = 500
@@ -63,6 +67,17 @@ const COMMENT_NESTED_UI_SELECTOR = '.reply-item, .sub-reply-item, bili-comment-r
 // Light-DOM markers only. Modern bili-comments mounts most UI in shadow roots,
 // so readiness must not require these descendants to exist.
 const COMMENT_CONTENT_MARKER_SELECTOR = 'bili-comments, bili-comment-box, bili-comment-renderer, .reply-list, .comment-list, .reply-box, .comment-header'
+const NATIVE_PLAYER_MODE_BUTTON_SELECTOR = [
+  '.bpx-player-ctrl-wide',
+  '.bilibili-player-video-btn-widescreen',
+  '.squirtle-video-widescreen',
+  '.bpx-player-ctrl-web',
+  '.bilibili-player-video-web-fullscreen',
+  '.squirtle-video-pagefullscreen',
+  '.bpx-player-ctrl-full',
+  '.bilibili-player-video-btn-fullscreen',
+  '.squirtle-video-fullscreen',
+].join(', ')
 
 let state: BewlyWidescreenState | null = null
 let loadingOverlay: HTMLElement | null = null
@@ -70,8 +85,12 @@ let loadingStyleEl: HTMLStyleElement | null = null
 let loadingFadeTimer: ReturnType<typeof setTimeout> | undefined
 let loadingExitButtonTimer: ReturnType<typeof setTimeout> | undefined
 let loadingPlaybackCleanup: (() => void) | undefined
+let loadingEscapeCleanup: (() => void) | undefined
 let loadingPreparationFallbackTimer: ReturnType<typeof setTimeout> | undefined
 let loadingSuppressedUntilExit = false
+let switchHint: HTMLElement | null = null
+let switchHintStyleEl: HTMLStyleElement | null = null
+let switchHintTimer: ReturnType<typeof setTimeout> | undefined
 let readyRetryTimer: ReturnType<typeof setTimeout> | undefined
 let loadFallbackTimer: ReturnType<typeof setTimeout> | undefined
 let sidebarRefreshTimer: ReturnType<typeof setTimeout> | undefined
@@ -79,6 +98,7 @@ let pageLoadHandler: (() => void) | undefined
 let readyRetryCount = 0
 let waitingForLoad = false
 let pendingSidebarPosition: 'left' | 'right' = 'right'
+let nativePlayerModeGuardInstalled = false
 
 const selectors = {
   player: [
@@ -96,6 +116,10 @@ const selectors = {
     '[class*="mediainfo_mediaTitle"]',
     '#viewbox_report .title',
     'h1[title]',
+  ],
+  info: [
+    '.video-info-detail-list',
+    '.video-info-detail-content',
   ],
   upPanel: [
     '.up-panel-container',
@@ -153,6 +177,10 @@ const selectors = {
     '.base-video-sections-v1',
     '.video-sections-v1',
     '.video-sections-content-list',
+    // The current bangumi page renders its episode list inside the player's
+    // native episode popover instead of a page-level eplist module. Keep this
+    // fallback last so existing page-level playlists remain preferred.
+    '[class*="PlayerEpisodePanel_panel"]',
   ],
   playlistControls: [
     '.auto-play',
@@ -425,6 +453,8 @@ function createSidebarToolbar() {
   closeButton.type = 'button'
   closeButton.className = 'bewly-widescreen-close'
   closeButton.textContent = '退出'
+  closeButton.title = '退出 Bewly 宽屏'
+  closeButton.setAttribute('aria-label', closeButton.title)
   closeButton.addEventListener('click', () => exitBewlyWidescreen())
 
   toolbar.append(createSidebarTitle(), closeButton)
@@ -458,6 +488,124 @@ function getLoadingGifUrl() {
   catch {
     return ''
   }
+}
+
+function removeSwitchHint(immediate = false) {
+  if (switchHintTimer) {
+    clearTimeout(switchHintTimer)
+    switchHintTimer = undefined
+  }
+
+  const hint = switchHint
+  const styleEl = switchHintStyleEl
+  switchHint = null
+  switchHintStyleEl = null
+  if (!hint && !styleEl)
+    return
+
+  const remove = () => {
+    hint?.remove()
+    styleEl?.remove()
+  }
+  if (immediate || !hint) {
+    remove()
+    return
+  }
+
+  hint.classList.add('is-leaving')
+  setTimeout(remove, SWITCH_HINT_FADE_DURATION)
+}
+
+export function showBewlyWidescreenSwitchHint(label: string) {
+  removeWidescreenLoading(true)
+
+  if (switchHint?.isConnected) {
+    const labelElement = switchHint.querySelector<HTMLElement>('.bewly-widescreen-switch-hint-label')
+    if (labelElement)
+      labelElement.textContent = label
+    switchHint.classList.remove('is-leaving')
+    switchHint.classList.add('is-visible')
+    if (switchHintTimer)
+      clearTimeout(switchHintTimer)
+    switchHintTimer = setTimeout(() => removeSwitchHint(), SWITCH_HINT_TIMEOUT)
+    return
+  }
+
+  removeSwitchHint(true)
+  document.querySelectorAll(`#${SWITCH_HINT_ID}`).forEach(element => element.remove())
+  switchHintStyleEl = injectCSS(`
+    #${SWITCH_HINT_ID} {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      z-index: 2147482999;
+      display: flex;
+      max-width: calc(100vw - 24px);
+      align-items: center;
+      gap: var(--bew-space-2, 8px);
+      padding: var(--bew-space-2, 8px);
+      color: #fff;
+      background: transparent;
+      border: 0;
+      font-family: var(--bew-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+      opacity: 0;
+      pointer-events: none;
+      transform: translate(-50%, calc(-50% + 4px));
+      transition: opacity ${SWITCH_HINT_FADE_DURATION}ms ease, transform ${SWITCH_HINT_FADE_DURATION}ms ease;
+    }
+
+    #${SWITCH_HINT_ID}.is-visible {
+      opacity: 1;
+      transform: translate(-50%, -50%);
+    }
+
+    #${SWITCH_HINT_ID}.is-leaving {
+      opacity: 0;
+      transform: translate(-50%, calc(-50% - 4px));
+    }
+
+    #${SWITCH_HINT_ID} .bewly-widescreen-switch-hint-icon {
+      width: 36px;
+      height: 36px;
+      flex: 0 0 auto;
+      object-fit: contain;
+    }
+
+    #${SWITCH_HINT_ID} .bewly-widescreen-switch-hint-label {
+      min-width: 0;
+      font-size: var(--bew-font-size-control, 13px);
+      font-weight: var(--bew-font-weight-medium, 500);
+      line-height: var(--bew-line-height-control, 18px);
+      overflow-wrap: anywhere;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 8px rgba(0, 0, 0, 0.72);
+    }
+  `)
+
+  const hint = document.createElement('div')
+  hint.id = SWITCH_HINT_ID
+  hint.setAttribute('role', 'status')
+  hint.setAttribute('aria-live', 'polite')
+
+  const loadingGifUrl = getLoadingGifUrl()
+  if (loadingGifUrl) {
+    const icon = document.createElement('img')
+    icon.className = 'bewly-widescreen-switch-hint-icon'
+    icon.src = loadingGifUrl
+    icon.alt = ''
+    icon.setAttribute('aria-hidden', 'true')
+    hint.appendChild(icon)
+  }
+
+  const labelElement = document.createElement('span')
+  labelElement.className = 'bewly-widescreen-switch-hint-label'
+  labelElement.textContent = label
+  hint.appendChild(labelElement)
+
+  const mountTarget = document.body ?? document.documentElement
+  mountTarget.appendChild(hint)
+  switchHint = hint
+  requestAnimationFrame(() => hint.classList.add('is-visible'))
+  switchHintTimer = setTimeout(() => removeSwitchHint(), SWITCH_HINT_TIMEOUT)
 }
 
 function showWidescreenLoading() {
@@ -587,6 +735,20 @@ function showWidescreenLoading() {
     document.removeEventListener('playing', handlePlaying, true)
     loadingPlaybackCleanup = undefined
   }
+
+  const handleEscapeKey = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape')
+      return
+
+    event.preventDefault()
+    event.stopPropagation()
+    exitBewlyWidescreen()
+  }
+  document.addEventListener('keydown', handleEscapeKey, true)
+  loadingEscapeCleanup = () => {
+    document.removeEventListener('keydown', handleEscapeKey, true)
+    loadingEscapeCleanup = undefined
+  }
 }
 
 function dismissWidescreenLoadingForPlaying() {
@@ -596,6 +758,7 @@ function dismissWidescreenLoadingForPlaying() {
 
 function removeWidescreenLoading(immediate = false) {
   loadingPlaybackCleanup?.()
+  loadingEscapeCleanup?.()
 
   if (loadingExitButtonTimer) {
     clearTimeout(loadingExitButtonTimer)
@@ -636,19 +799,79 @@ function removeWidescreenLoading(immediate = false) {
   loadingFadeTimer = setTimeout(remove, LOADING_FADE_DURATION)
 }
 
+function isBewlyWidescreenEngaged() {
+  return !!state || waitingForLoad || !!readyRetryTimer || !!loadingOverlay
+}
+
+function findNativePlayerModeButton(event: Event) {
+  const path = typeof event.composedPath === 'function' ? event.composedPath() : []
+  for (const node of path) {
+    if (node instanceof HTMLElement && node.matches(NATIVE_PLAYER_MODE_BUTTON_SELECTOR))
+      return node
+  }
+
+  return event.target instanceof Element
+    ? event.target.closest<HTMLElement>(NATIVE_PLAYER_MODE_BUTTON_SELECTOR)
+    : null
+}
+
+function isNativePlayerModeButtonEntered(button: HTMLElement) {
+  return button.classList.contains('bpx-state-entered')
+    || !!button.closest('[data-screen="web"], [data-screen="wide"]')
+    || !!document.fullscreenElement
+    || !!(document as Document & { webkitFullscreenElement?: Element | null }).webkitFullscreenElement
+}
+
+function handleNativePlayerModeInteraction(event: Event) {
+  if (!isBewlyWidescreenEngaged())
+    return
+  if (event instanceof MouseEvent && event.button !== 0)
+    return
+
+  const button = findNativePlayerModeButton(event)
+  if (!button)
+    return
+
+  const alreadyEntered = isNativePlayerModeButtonEntered(button)
+  const isBrowserFullscreenButton = button.matches('.bpx-player-ctrl-full, .bilibili-player-video-btn-fullscreen, .squirtle-video-fullscreen')
+
+  // Native web/wide/full modes cannot apply while Bewly widescreen owns the
+  // player layout. Exit first so the same gesture takes effect immediately.
+  exitBewlyWidescreen()
+
+  if (alreadyEntered || isBrowserFullscreenButton)
+    return
+
+  setTimeout(() => {
+    if (!button.isConnected || isNativePlayerModeButtonEntered(button))
+      return
+    button.click()
+  }, 0)
+}
+
+export function ensureNativePlayerModeGuard() {
+  if (nativePlayerModeGuardInstalled)
+    return
+
+  nativePlayerModeGuardInstalled = true
+  document.addEventListener('click', handleNativePlayerModeInteraction, true)
+}
+
 export function prepareBewlyWidescreenLoading() {
+  ensureNativePlayerModeGuard()
   if (state || loadingSuppressedUntilExit)
     return
 
-  showWidescreenLoading()
   const video = getVideoElement()
-  if (loadingOverlay
-    && video
+  if (video
     && !video.paused
     && !video.ended) {
-    dismissWidescreenLoadingForPlaying()
+    loadingSuppressedUntilExit = true
+    removeWidescreenLoading(true)
     return
   }
+
+  showWidescreenLoading()
 
   if (!loadingOverlay)
     return
@@ -684,13 +907,15 @@ function createRoot(sidebarPosition: 'left' | 'right' = 'right') {
 
   const sidebarTop = document.createElement('div')
   sidebarTop.className = 'bewly-widescreen-sidebar-top'
+  const infoSlot = document.createElement('div')
+  infoSlot.className = 'bewly-widescreen-info-slot'
   const upSlot = document.createElement('div')
   upSlot.className = 'bewly-widescreen-up-slot'
   const toolbarSlot = document.createElement('div')
   toolbarSlot.className = 'bewly-widescreen-action-slot'
   const descriptionSlot = document.createElement('div')
   descriptionSlot.className = 'bewly-widescreen-description-slot'
-  sidebarTop.append(createSidebarToolbar(), upSlot, toolbarSlot, descriptionSlot)
+  sidebarTop.append(createSidebarToolbar(), infoSlot, upSlot, toolbarSlot, descriptionSlot)
 
   const tablist = document.createElement('div')
   tablist.className = 'bewly-widescreen-tabs'
@@ -726,7 +951,7 @@ function createRoot(sidebarPosition: 'left' | 'right' = 'right') {
   root.appendChild(stage)
   document.body.appendChild(root)
 
-  return { root, playerSlot, playerFrame, danmakuDock, sidebarEl: sidebar, sidebarTop, upSlot, toolbarSlot, descriptionSlot, panels, tabButtons, sidebarToggleButton }
+  return { root, playerSlot, playerFrame, danmakuDock, sidebarEl: sidebar, sidebarTop, infoSlot, upSlot, toolbarSlot, descriptionSlot, panels, tabButtons, sidebarToggleButton }
 }
 
 function injectLayoutStyle() {
@@ -1097,35 +1322,36 @@ function injectLayoutStyle() {
       align-items: flex-start;
       justify-content: space-between;
       gap: 12px;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
 
     #${ROOT_ID} .bewly-widescreen-close {
       position: relative;
       display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border: 0;
-      border-radius: 50%;
       width: 28px;
       height: 28px;
+      flex: 0 0 auto;
+      align-items: center;
+      justify-content: center;
       padding: 0;
       color: var(--bewly-widescreen-text-secondary);
       background: var(--bewly-widescreen-control-bg);
+      border: 0;
+      border-radius: 50%;
       cursor: pointer;
       font-size: 0;
       line-height: 1;
-      flex: 0 0 auto;
+      transition: color 150ms ease, background-color 150ms ease;
     }
 
     #${ROOT_ID} .bewly-widescreen-close::before,
     #${ROOT_ID} .bewly-widescreen-close::after {
-      content: "";
       position: absolute;
       width: 13px;
       height: 2px;
       border-radius: 2px;
       background: currentColor;
+      content: "";
       transform: rotate(45deg);
     }
 
@@ -1136,6 +1362,11 @@ function injectLayoutStyle() {
     #${ROOT_ID} .bewly-widescreen-close:hover {
       color: var(--bewly-widescreen-text-primary);
       background: var(--bewly-widescreen-control-hover-bg);
+    }
+
+    #${ROOT_ID} .bewly-widescreen-close:focus-visible {
+      outline: 2px solid var(--bew-theme-color-40, rgba(0, 174, 236, 0.4));
+      outline-offset: 2px;
     }
 
     #${ROOT_ID} .bewly-widescreen-title {
@@ -1149,6 +1380,51 @@ function injectLayoutStyle() {
       font-size: 18px;
       font-weight: 600;
       line-height: 24px;
+    }
+
+    #${ROOT_ID} .bewly-widescreen-info-slot {
+      width: 100%;
+      min-width: 0;
+      min-height: 0;
+      margin-bottom: 8px;
+      overflow: hidden;
+    }
+
+    #${ROOT_ID} .bewly-widescreen-info-slot:empty {
+      display: none;
+    }
+
+    #${ROOT_ID} .bewly-widescreen-info-slot .video-info-meta,
+    #${ROOT_ID} .bewly-widescreen-info-slot .video-info-detail-list {
+      width: 100% !important;
+      min-width: 0 !important;
+      height: auto !important;
+      margin: 0 !important;
+    }
+
+    #${ROOT_ID} .bewly-widescreen-info-slot .video-info-detail-list {
+      display: flex !important;
+      align-items: center !important;
+      flex-wrap: wrap !important;
+      gap: 4px 12px !important;
+      color: var(--bewly-widescreen-text-muted) !important;
+      font-size: var(--bew-font-size-caption, 12px) !important;
+      line-height: var(--bew-line-height-caption, 16px) !important;
+    }
+
+    #${ROOT_ID} .bewly-widescreen-info-slot .video-info-detail-list > .item {
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 4px !important;
+      min-width: 0 !important;
+      margin: 0 !important;
+      white-space: nowrap !important;
+    }
+
+    #${ROOT_ID} .bewly-widescreen-info-slot .video-info-detail-list > .item svg {
+      width: var(--bew-icon-size-sm, 16px) !important;
+      height: var(--bew-icon-size-sm, 16px) !important;
+      flex: 0 0 auto !important;
     }
 
     #${ROOT_ID} .bewly-widescreen-action-slot {
@@ -1628,6 +1904,53 @@ function injectLayoutStyle() {
       overflow-y: auto !important;
       overscroll-behavior: contain;
       scrollbar-gutter: stable;
+    }
+
+    /* New bangumi pages keep the episode list in a hidden player popover.
+       Once moved into the sidebar, give the original virtualized list a
+       stable flex height and let its own scroll container remain in charge. */
+    #${ROOT_ID} .bewly-widescreen-panel-playlist [class*="PlayerEpisodePanel_panel"] {
+      display: flex !important;
+      flex-direction: column !important;
+      position: relative !important;
+      width: 100% !important;
+      height: min(52dvh, 560px) !important;
+      min-height: 0 !important;
+      max-height: min(52dvh, 560px) !important;
+      margin: 0 0 var(--bew-space-3, 12px) !important;
+      overflow: hidden !important;
+      color: var(--bewly-widescreen-text-primary) !important;
+      background: transparent !important;
+      visibility: visible !important;
+    }
+
+    #${ROOT_ID} .bewly-widescreen-panel-playlist [class*="PlayerEpisodePanel_episodeScrollFrame"] {
+      flex: 1 1 auto !important;
+      width: 100% !important;
+      height: auto !important;
+      min-height: 0 !important;
+    }
+
+    #${ROOT_ID} .bewly-widescreen-panel-playlist [class^="PlayerEpisodePanel_episodeScroll__"] {
+      width: 100% !important;
+      height: 100% !important;
+      min-height: 0 !important;
+    }
+
+    #${ROOT_ID} .bewly-widescreen-panel-playlist [class*="PlayerEpisodePanel_header"],
+    #${ROOT_ID} .bewly-widescreen-panel-playlist [class*="PlayerEpisodePanel_pageTab"],
+    #${ROOT_ID} .bewly-widescreen-panel-playlist [class*="PlayerEpisodePanel_episodeRow"] {
+      color: var(--bewly-widescreen-text-primary) !important;
+    }
+
+    #${ROOT_ID} .bewly-widescreen-panel-playlist [class*="PlayerEpisodePanel_pageTabActive"],
+    #${ROOT_ID} .bewly-widescreen-panel-playlist [class*="PlayerEpisodePanel_episodeRowActive"],
+    #${ROOT_ID} .bewly-widescreen-panel-playlist [class*="PlayerEpisodePanel_rowPlaying"] {
+      color: var(--bew-theme-color, #00aeec) !important;
+    }
+
+    #${ROOT_ID} .bewly-widescreen-panel-playlist [class*="PlayerEpisodePanel_episodeRow"]:hover {
+      background: var(--bewly-widescreen-control-bg) !important;
     }
 
     #${ROOT_ID} .bewly-widescreen-panel .video-page-card-small {
@@ -2119,6 +2442,8 @@ function fillSidebar(currentState: BewlyWidescreenState) {
   syncActionAnimationTheme(currentState)
   syncSidebarTitle(currentState)
 
+  moveOrReplaceNode(selectors.info, currentState.infoSlot, currentState.movedNodes)
+
   moveOrReplaceNode(selectors.toolbar, currentState.toolbarSlot, currentState.movedNodes)
 
   moveOrReplaceNode(selectors.upPanel, currentState.upSlot, currentState.movedNodes)
@@ -2217,6 +2542,10 @@ function cleanupState(currentState: BewlyWidescreenState) {
   currentState.root.remove()
   currentState.styleEl.remove()
   document.body.classList.remove(BODY_CLASS)
+  // Force a layout pass so the same click can apply Bilibili's native mode
+  // against the restored player instead of the widescreen frame.
+  void document.body.offsetHeight
+  setTimeout(() => window.dispatchEvent(new Event('resize')), 0)
 }
 
 function isReadyForLayout() {
@@ -2241,7 +2570,7 @@ function applyNow(sidebarPosition: 'left' | 'right' = 'right') {
   if (!player)
     return false
 
-  const { root, playerSlot, playerFrame, danmakuDock, sidebarEl, sidebarTop, upSlot, toolbarSlot, descriptionSlot, panels, tabButtons, sidebarToggleButton } = createRoot(sidebarPosition)
+  const { root, playerSlot, playerFrame, danmakuDock, sidebarEl, sidebarTop, infoSlot, upSlot, toolbarSlot, descriptionSlot, panels, tabButtons, sidebarToggleButton } = createRoot(sidebarPosition)
   const styleEl = injectLayoutStyle()
   const movedNodes: MovedNode[] = []
 
@@ -2252,6 +2581,7 @@ function applyNow(sidebarPosition: 'left' | 'right' = 'right') {
     danmakuDock,
     sidebarEl,
     sidebarTop,
+    infoSlot,
     upSlot,
     toolbarSlot,
     descriptionSlot,
@@ -2290,6 +2620,7 @@ function applyNow(sidebarPosition: 'left' | 'right' = 'right') {
   setupSidebarInteractionTracking(nextState)
   setupSidebarToggleAutoHide(nextState)
   setTimeout(() => window.dispatchEvent(new Event('resize')), 0)
+  removeSwitchHint()
   removeWidescreenLoading()
 
   return true
@@ -2372,12 +2703,16 @@ export function applyBewlyWidescreen(
   sidebarPosition: 'left' | 'right' = 'right',
   showLoading = true,
 ) {
+  ensureNativePlayerModeGuard()
   if (state || waitingForLoad || readyRetryTimer)
     return
 
   pendingSidebarPosition = sidebarPosition
-  if (showLoading)
-    showWidescreenLoading()
+  if (showLoading) {
+    const video = getVideoElement()
+    if (!video || video.paused || video.ended)
+      showWidescreenLoading()
+  }
 
   if (document.readyState === 'complete') {
     startAfterPageLoad(sidebarPosition)
@@ -2400,6 +2735,7 @@ export function exitBewlyWidescreen() {
   clearLoadFallbackTimer()
   clearPageLoadHandler()
   loadingSuppressedUntilExit = false
+  removeSwitchHint(true)
   removeWidescreenLoading(true)
   waitingForLoad = false
 

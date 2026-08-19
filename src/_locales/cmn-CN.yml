@@ -38,6 +38,7 @@ common:
   watch_later_operation_failed: 稍后再看操作失败
   performance_impact_warn: 这个功能可能会影响性能！
   no_data: 暂无数据
+  load_failed: 加载失败
   no_more_content: 没有更多内容了
   load_more: 加载更多
   operation:
@@ -258,7 +259,7 @@ settings:
   group_recommendation_filters_desc: |
     请勿将限制值设置得太大，不然可能会增加加载时间！频繁请求可能会导致 Bilibili 对 IP 的封禁!
   group_following: 正在关注
-  group_following_desc: 配置“正在关注”页面的布局、不活跃 UP 主名单、直播内容与视频过滤规则。
+  group_following_desc: 配置“正在关注”页面的布局、直播内容与视频过滤规则。
   group_favorites: 收藏
   group_search_page_mode: 搜索页模式
   group_home_tabs: 首页标签栏
@@ -322,6 +323,10 @@ settings:
     dialog: 弹窗
     new_tab: 新建标签页
     background: 后台标签
+  moments_video_card_open_mode: 视频投稿动态卡片点击行为
+  moments_video_card_open_mode_desc: 单独控制视频投稿动态卡片的打开位置；选择“跟随动态卡片”时使用上方设置。
+  moments_video_card_open_mode_opt:
+    inherit: 跟随动态卡片
   group_moments_wanted_users: 想看分组
   group_moments_wanted_users_desc: 管理想看的 UP 主；支持输入 UID 或昵称，名单仅保存在本地。
   moments_enable_wanted_filter: 启用想看筛选
@@ -344,7 +349,7 @@ settings:
   show_bewly_or_bili_page_switcher_desc: 在首页 Logo 旁显示切换器，用于在 BewlyCat 页面和 Bilibili 原版页面之间切换。
   show_bewly_or_bili_page_switcher_on_more_pages_desc: 在动态、搜索、番剧、收藏、历史和稍后再看等 Bilibili 原版页面显示切换器；切换到 BewlyCat 时会打开对应的插件页面。
   hide_lv6_last_login_location_in_top_bar_user_pop: 隐藏 LV6 等级最后登录信息显示
-  hide_lv6_last_login_location_in_top_bar_user_pop_desc: 开启后，顶栏头像弹窗中的 LV6 等级信息区域将不再显示最后登录时间和地点，也不会请求登录记录。
+  hide_lv6_last_login_location_in_top_bar_user_pop_desc: 开启后，顶栏头像弹窗中的 LV6 等级信息区域将不再显示最后登录时间和地点，也不会请求登录记录，改为显示满级经验进度。
   chk_box:
     show: 显示
     hidden: 隐藏
@@ -414,6 +419,8 @@ settings:
     web_fullscreen: 网页全屏
     widescreen: 宽屏
     bewly_widescreen: Bewly宽屏
+    exit_bewly_widescreen: 退出 Bewly 宽屏
+    switching_to_bewly_widescreen: 正在切换至 Bewly 宽屏，请稍候…
     enable_overrides: 启用按场景覆盖
     enable_overrides_desc: 开启后，下方各播放场景的显示模式设置才会生效。
     overrides: 场景显示模式
@@ -522,11 +529,13 @@ settings:
     alwaysHide: 总是隐藏
     showOnMouse: 鼠标显示
     showOnScroll: 滚动显示
-  always_use_transparent_top_bar: 顶栏始终使用透明(旧版)样式
-  always_use_frosted_glass_top_bar: 顶栏始终使用毛玻璃样式
-  always_use_frosted_glass_top_bar_desc: 即使页面有背景图，也始终使用与首页无背景图时相同的顶栏样式。
-  enable_top_bar_gradient: 启用顶栏渐变效果
-  enable_top_bar_gradient_desc: 开启后顶栏默认使用磨砂玻璃渐变，关闭后改为实色背景。
+  top_bar_style: 顶栏样式
+  top_bar_style_desc: 选择顶栏的背景效果。渐变会启用 1.7.4 的五层模糊，并同时应用到设置窗口顶部，可能显著增加 GPU 开销。
+  top_bar_style_opt:
+    default: 默认（白雾/阴影）
+    progressive_fog: 渐变（消耗性能）
+    transparent: 阴影
+    frosted_glass: 白雾
   show_top_bar_theme_color_gradient: 在顶栏显示主题色渐变（仅在暗色模式下有效）
   show_bewly_or_bili_page_switcher: 显示 BewlyCat/Bilibili 页面切换器
   show_bewly_or_bili_page_switcher_on_more_pages: 在更多页面显示 BewlyCat/Bilibili 页面切换器
@@ -706,6 +715,8 @@ settings:
     授权使用后能在首页推送 bilibili App 端算法的推荐视频，授权 key 有效期约为一个月，过后记得重新授权获取 access key。
   authorize_app_more_info_access_key: 关于 access key
   scan_qrcode_desc: 使用 Bilibili 移动应用程序扫描此二维码，以授权获取 access key。
+  show_recommendation_filter_risk_warning: 显示过滤风控警告
+  show_recommendation_filter_risk_warning_desc: 累计检查 100 条有效推荐后，如果设置中的过滤条件保留少于 50 条，则提示频繁请求的风控风险。
   disable_filters_for_followed_users: 关注的用户不受过滤条件限制
   disable_filters_for_followed_users_desc: |
     如果启用此选项，您关注的用户不受过滤条件限制。
@@ -749,10 +760,6 @@ settings:
   collected_season_play_all_mode_last_watched: 上次观看
   enable_version_reminder: 新版本提醒
   enable_version_reminder_desc: 在插件首页提醒尚未确认的新版本；每个版本只提醒一次。
-  enable_following_inactive_blacklist: 启用不活跃名单
-  enable_following_inactive_blacklist_desc: 当UP主超过指定天数未更新或无投稿时，将自动移至不活跃名单。在ALL视图中出现更新或点击该UP主时会自动移出不活跃名单
-  following_inactive_days: UP主不活跃天数
-  following_inactive_days_desc: 许用“使用正在关注新布局”后该功能生效。与自主添加的用户黑名单无关，仅更改“正在关注”页面推荐
   preserve_for_you_state: 留存个性推荐切换前状态
   preserve_for_you_state_desc: 当从dock栏切换到其他页面时，留存个性推荐页面的浏览状态，返回时保持切换前的内容
   use_search_page_mode: 首页使用搜索页模式
@@ -765,10 +772,11 @@ settings:
   always_show_tabs_on_home_page: 滚动隐藏首页标签栏
   fixed_home_tabs_on_home_page: 固定首页标签栏
   topbar_visibility: 顶栏可见性
-  topbar_visibility_desc: 如果您正在使用 Bilibili Evolved 的顶栏，您可以在这里关闭 BewlyCat 的顶栏。
+  topbar_visibility_desc: 开启后显示 BewlyCat 或 B 站原版顶栏；关闭后隐藏两者，交给 Bilibili Evolved 等第三方顶栏。
   use_original_bilibili_homepage: 使用原版 Bilibili 首页
   use_original_bilibili_homepage_desc: 在您更改此设置后，如果在首页上，页面将自动刷新！
   use_original_bilibili_topbar: 使用原版 Bilibili 顶栏
+  use_original_bilibili_topbar_desc: 仅在「顶栏可见性」开启时生效。开启后使用 B 站原版顶栏，关闭后使用 BewlyCat 顶栏。
   adapt_to_other_page_styles: 适应其他页面样式
   adapt_to_other_page_styles_desc: 适应一些常见页面，以与 BewlyCat 主题相匹配。
   prevent_mobile_redirect: 防止跳转移动端
@@ -831,6 +839,8 @@ settings:
     web_fullscreen_desc: 切换网页全屏模式
     widescreen: 宽屏模式
     widescreen_desc: 切换宽屏模式
+    bewly_widescreen: Bewly 宽屏
+    bewly_widescreen_desc: 切换 Bewly 宽屏模式
     short_step_backward: 快退
     short_step_backward_desc: 快退5秒
     long_step_backward: 长退
@@ -981,6 +991,7 @@ topbar:
     money: 硬币：
     b_coins: B币：
     exp_desc: 当前成长 {current_exp}，升级到 LV {level} 还需要 {need_exp}
+    exp_desc_max: 当前成长 {current_exp}，已满级
     following: 关注
     followers: 粉丝
     posts: 动态
@@ -1063,6 +1074,7 @@ video_card:
   watched: 已观看
   visited_recently: 近一个月内浏览过
 home:
+  recommendation_filter_risk_warning: 当前过滤条件在 100 条有效推荐中仅保留了 {count} 条，容易频繁请求并触发接口风控，建议适当放宽过滤条件。
   tell_us_why: 为什么这么做...
   not_interested_desc: >
     你可以使用 <kbd>↑</kbd> 和 <kbd>↓</kbd> 来选择原因，或者直接使用数字键选择原因，按 <kbd>Enter</kbd>
@@ -1189,6 +1201,8 @@ watch_later:
   play_video: 移除并进入视频页
   play_in_watch_later: 列表播放
   remove_from_watch_later: 移除
+  layout_list: 列表视图
+  layout_grid: 网格视图
 search_bar:
   history_title: 搜索历史
   hot_search_title: 热搜

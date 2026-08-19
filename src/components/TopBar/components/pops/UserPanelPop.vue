@@ -87,20 +87,39 @@ const otherLinks = computed((): { name: string, url: string, icon: string, code?
   ]
 })
 
+const isMaxLevel = computed(() => (props.userInfo.level_info?.current_level ?? 0) >= 6)
+
+const showLv6LastLoginInfo = computed(() => {
+  return isMaxLevel.value && !settings.value.hideTopBarUserPanelLv6LastLoginLocation
+})
+
+function toFiniteNumber(value: number | string | undefined, fallback: number): number {
+  const numeric = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(numeric) ? numeric : fallback
+}
+
+const remainingExp = computed(() => {
+  const { next_exp: nextExp = 0, current_exp: currentExp = 0 } = props.userInfo.level_info ?? {}
+  const nextExpNum = toFiniteNumber(nextExp, 0)
+  return Math.max(nextExpNum - currentExp, 0)
+})
+
 const levelProgressBarWidth = computed(() => {
+  if (isMaxLevel.value)
+    return '100%'
+
   // 登录态尚未初始化（瞬态故障后自动重查期间）时 userInfo 可能为空，兜底防止解引用崩溃
   const { next_exp: nextExp = 1, current_exp: currentExp = 0 } = props.userInfo.level_info ?? {}
+  const nextExpNum = toFiniteNumber(nextExp, 0)
+  if (nextExpNum <= 0)
+    return '100%'
 
-  const percentage = (currentExp / nextExp) * 100
+  const percentage = Math.min(Math.max((currentExp / nextExpNum) * 100, 0), 100)
   return `${percentage.toFixed(2)}%`
 })
 
 const userStat = reactive<UserStat>({} as UserStat)
 const loginLog = reactive<Partial<LoginLogItem>>({})
-
-const showLv6LastLoginInfo = computed(() => {
-  return !(props.userInfo?.level_info?.current_level >= 6 && settings.value.hideTopBarUserPanelLv6LastLoginLocation)
-})
 
 onMounted(() => {
   api.user.getUserStat()
@@ -171,14 +190,15 @@ function handleClickChannel() {
   <div
     style="backdrop-filter: var(--bew-filter-glass-1); overflow-y: auto;"
     w-300px max-h="[calc(100vh-120px)]" min-h-0
-    p-4 rounded="$bew-radius" z--1 bg="$bew-elevated-alt"
-    border="1 $bew-border-color"
-    shadow="[var(--bew-shadow-3),var(--bew-shadow-edge-glow-1)]"
-    class="userPanel-pop bew-popover"
+    z--1 bg="$bew-elevated"
+    border="1 $bew-popover-border-color"
+    shadow="$bew-shadow-3"
+    class="userPanel-pop bew-popover bew-popover-inset"
     data-key="userPanel"
   >
     <div
       text="xl" font-medium flex="~ items-center gap-2"
+      pt-4 pl-4
     >
       <Button
         v-if="settings.touchScreenOptimization"
@@ -192,12 +212,17 @@ function handleClickChannel() {
     </div>
     <div
       text="xs $bew-text-2"
-      m="t-1 b-2"
+      m="t-3"
+      flex="~ gap-1"
     >
       <ALink
-        class="group mr-4"
+        class="group"
         href="https://account.bilibili.com/account/coin"
         type="topBar"
+        p="x-4 y-1"
+        rounded="$bew-menu-item-radius"
+        duration-200
+        hover:bg="$bew-fill-1"
       >
         {{ $t('topbar.user_dropdown.money') + (userInfo.money ?? '-') }}
       </ALink>
@@ -205,6 +230,10 @@ function handleClickChannel() {
         class="group"
         href="https://pay.bilibili.com/pay-v2-web/bcoin_index"
         type="topBar"
+        p="x-4 y-1"
+        rounded="$bew-menu-item-radius"
+        duration-200
+        hover:bg="$bew-fill-1"
       >
         {{
           $t('topbar.user_dropdown.b_coins') + (userInfo.wallet?.bcoin_balance ?? '-')
@@ -213,10 +242,13 @@ function handleClickChannel() {
     </div>
 
     <ALink
-      v-if="userInfo?.level_info?.current_level < 6"
+      v-if="!showLv6LastLoginInfo"
       href="//account.bilibili.com/account/record?type=exp"
       type="topBar"
-      block mt-2 mb-2 w-full
+      class="bew-content-card"
+      block w-full p-2
+      duration-200
+      hover:bg="$bew-fill-1"
       flex="~ col justify-center items-start"
     >
       <div
@@ -226,11 +258,12 @@ function handleClickChannel() {
         <div
           flex="~ items-center"
           class="level"
-          v-html="DOMPurify.sanitize(getLvIcon(userInfo.level_info.current_level))"
+          :class="{ 'level--senior': isMaxLevel && userInfo.is_senior_member }"
+          v-html="DOMPurify.sanitize(getLvIcon(userInfo.level_info?.current_level ?? 0, userInfo.is_senior_member))"
         />
         <div relative w="full" h="2px" bg="$bew-fill-3">
           <div
-            pos="absolute top-0 left-0" h-2px
+            pos="absolute top-0 left-0"
             h="2px"
             rounded="$bew-radius-full"
             bg="$bew-warning-color"
@@ -238,19 +271,29 @@ function handleClickChannel() {
           />
         </div>
         <div
+          v-if="!isMaxLevel"
           class="level level-next"
           flex="~ items-center"
-          v-html="DOMPurify.sanitize(getLvIcon(userInfo.level_info.current_level + 1))"
+          v-html="DOMPurify.sanitize(getLvIcon((userInfo.level_info?.current_level ?? 0) + 1))"
         />
       </div>
       <div w-full text="xs $bew-text-3">
-        {{
-          $t('topbar.user_dropdown.exp_desc', {
-            current_exp: userInfo.level_info.current_exp,
-            level: userInfo.level_info.current_level + 1,
-            need_exp: userInfo.level_info.next_exp - userInfo.level_info.current_exp || 0,
-          })
-        }}
+        <template v-if="isMaxLevel">
+          {{
+            $t('topbar.user_dropdown.exp_desc_max', {
+              current_exp: userInfo.level_info?.current_exp ?? 0,
+            })
+          }}
+        </template>
+        <template v-else>
+          {{
+            $t('topbar.user_dropdown.exp_desc', {
+              current_exp: userInfo.level_info?.current_exp,
+              level: (userInfo.level_info?.current_level ?? 0) + 1,
+              need_exp: remainingExp,
+            })
+          }}
+        </template>
       </div>
     </ALink>
 
@@ -258,19 +301,17 @@ function handleClickChannel() {
       v-else
       href="//account.bilibili.com/account/record?type=exp"
       type="topBar"
-      mt-2 mb-2
-      duration-300
+      duration-200
       flex="~ items-center gap-2"
-      class="lv6-entry"
-      :class="showLv6LastLoginInfo ? 'lv6-entry--card' : 'lv6-entry--compact'"
+      class="lv6-entry lv6-entry--card bew-content-card"
     >
       <div
-        :style="{ width: userInfo?.is_senior_member ? '36px' : '28px' }"
+        :style="{ width: userInfo.is_senior_member ? '36px' : '28px' }"
         class="level"
         h-20px
-        v-html="DOMPurify.sanitize(getLvIcon(userInfo?.level_info?.current_level, userInfo?.is_senior_member))"
+        v-html="DOMPurify.sanitize(getLvIcon(userInfo.level_info?.current_level ?? 6, userInfo.is_senior_member))"
       />
-      <div v-if="showLv6LastLoginInfo" flex="~ col 1" text="xs $bew-text-3">
+      <div flex="~ col 1" text="xs $bew-text-3">
         <div v-if="loginLog.time_at">
           {{ $t('topbar.user_dropdown.last_login_time') }}: {{ loginLog.time_at }}
         </div>
@@ -280,7 +321,7 @@ function handleClickChannel() {
       </div>
     </ALink>
 
-    <div grid="~ cols-3 gap-2" mb-2>
+    <div grid="~ cols-3 gap-2" px-4 pt-1 mt-1 border-t="1 $bew-border-color">
       <ALink
         class="channel-info-item"
         :href="`https://space.bilibili.com/${mid}/fans/follow`"
@@ -318,20 +359,18 @@ function handleClickChannel() {
       </ALink>
     </div>
 
-    <div
-      flex="~ justify-between col gap-1"
-      mb-2 p-2 bg="$bew-fill-alt" rounded="$bew-radius"
-      shadow="[var(--bew-shadow-edge-glow-1),var(--bew-shadow-1)]"
-    >
+    <div border-t="1 $bew-border-color" my-2 />
+
+    <div flex="~ col gap-1">
       <ALink
         v-for="item in otherLinks.filter((_, index) => index <= 1)"
         :key="item.url"
         :href="item.url"
         type="topBar"
         p="x-4 y-2" flex="~ items-center justify-between"
-        rounded="$bew-radius"
+        rounded="$bew-menu-item-radius"
         duration-300
-        hover:bg="$bew-fill-2"
+        hover:bg="$bew-fill-1"
         relative
       >
         <!-- B币领取提醒dot -->
@@ -341,7 +380,7 @@ function handleClickChannel() {
           pos="absolute top-1 right-1"
         />
 
-        <div flex="~ items-center gap-2">
+        <div flex="~ items-center gap-3">
           <div :class="item.icon" text="$bew-text-2" />
           {{ item.name }}
         </div>
@@ -349,20 +388,18 @@ function handleClickChannel() {
       </ALink>
     </div>
 
-    <div
-      flex="~ justify-between col gap-1"
-      p-2 bg="$bew-fill-alt" rounded="$bew-radius"
-      shadow="[var(--bew-shadow-edge-glow-1),var(--bew-shadow-1)]"
-    >
+    <div border-t="1 $bew-border-color" my-2 />
+
+    <div flex="~ col gap-1">
       <ALink
         v-for="item in otherLinks.filter((_, index) => index > 1)"
         :key="item.url"
         :href="item.url"
         type="topBar"
         p="x-4 y-2" flex="~ items-center justify-between"
-        rounded="$bew-radius"
+        rounded="$bew-menu-item-radius"
         duration-300
-        hover:bg="$bew-fill-2"
+        hover:bg="$bew-fill-1"
         relative
       >
         <!-- B币领取提醒dot -->
@@ -373,7 +410,7 @@ function handleClickChannel() {
           style="z-index: 999 !important;"
         />
 
-        <div flex="~ items-center gap-2">
+        <div flex="~ items-center gap-3">
           <div :class="item.icon" text="$bew-text-2" />
           {{ item.name }}
         </div>
@@ -382,12 +419,12 @@ function handleClickChannel() {
       <div
         text="$bew-error-color"
         p="x-4 y-2" flex="~ items-center"
-        rounded="$bew-radius"
+        rounded="$bew-menu-item-radius"
         duration-300 cursor-pointer
-        hover:bg="$bew-fill-2"
+        hover:bg="$bew-fill-1"
         @click="logout()"
       >
-        <div i-solar:logout-2-bold-duotone text="$bew-error-60" mr-2 />
+        <div i-solar:logout-2-bold-duotone text="$bew-error-60" mr-3 />
         {{ $t('topbar.user_dropdown.log_out') }}
       </div>
     </div>
@@ -401,38 +438,45 @@ function handleClickChannel() {
   --uno: "w-25px h-16px";
 }
 
+.level--senior :deep(svg) {
+  --uno: "w-35px h-16px";
+}
+
 .level-next :deep(svg .level-bg) {
   --uno: "fill-#c9ccd0";
 }
 
 .lv6-entry--card {
-  --uno: "w-full p-2 bg-$bew-fill-alt rounded-$bew-radius hover:bg-$bew-fill-2";
-  box-shadow: var(--bew-shadow-edge-glow-1), var(--bew-shadow-1);
-}
-
-.lv6-entry--compact {
-  display: inline-flex;
-  width: fit-content;
-  padding: 0;
-  background: transparent;
-  border-radius: 0;
-  box-shadow: none;
+  --uno: "w-full p-2 hover:bg-$bew-fill-1";
 }
 
 .channel-info-item {
-  --uno: "p-2 m-0 rounded-$bew-radius text-sm flex flex-col items-center transition-colors duration-200";
-  --uno: "bg-$bew-fill-alt hover:bg-$bew-fill-2";
-  --uno: "shadow-[var(--bew-shadow-edge-glow-1),var(--bew-shadow-1)]";
+  --uno: "relative py-1 px-2 m-0 text-sm flex flex-col items-center";
 
-  > * {
-    --uno: "transition-colors duration-200";
+  & + .channel-info-item::before {
+    content: "";
+    position: absolute;
+    left: -4px;
+    top: 8px;
+    bottom: 8px;
+    width: 1px;
+    background: var(--bew-border-color);
+  }
+
+  &:hover {
+    background: transparent;
+
+    .num,
+    > div:last-child {
+      color: var(--bew-theme-color);
+    }
   }
 
   .num {
-    --uno: "font-semibold text-xl";
+    --uno: "font-semibold text-xl transition-colors duration-200";
 
     + div {
-      --uno: "text-$bew-text-2 mt-1 text-xs font-semibold";
+      --uno: "text-$bew-text-2 mt-1 text-xs font-semibold transition-colors duration-200";
     }
   }
 }

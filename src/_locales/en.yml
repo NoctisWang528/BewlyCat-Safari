@@ -38,6 +38,7 @@ common:
   watch_later_operation_failed: Watch later operation failed
   performance_impact_warn: This feature may cause performance *DECREASE*!
   no_data: No data available
+  load_failed: Failed to load
   no_more_content: No more content now, owari da
   load_more: Load more
   operation:
@@ -261,7 +262,7 @@ settings:
     Do not set the restricted value too large, as this may increase loading
     time! Frequent requests may result in IP blocking by Bilibili!
   group_following: Following
-  group_following_desc: Configure the Following page layout, inactive uploader list, live content, and video filters.
+  group_following_desc: Configure the Following page layout, live content, and video filters.
   group_favorites: Favorites
   group_search_page_mode: Search Page Mode
   group_home_tabs: Home Tabs
@@ -325,6 +326,10 @@ settings:
     dialog: Dialog
     new_tab: New tab
     background: Background tab
+  moments_video_card_open_mode: Video post dynamic card click behavior
+  moments_video_card_open_mode_desc: Controls where video post dynamic cards open independently. Choose "Follow dynamic cards" to use the setting above.
+  moments_video_card_open_mode_opt:
+    inherit: Follow dynamic cards
   group_moments_wanted_users: Watchlist
   group_moments_wanted_users_desc: Manage uploaders you want to watch by UID or name. The list is stored only on this device.
   moments_enable_wanted_filter: Enable watchlist filter
@@ -351,7 +356,7 @@ settings:
   show_bewly_or_bili_page_switcher_desc: Show a switcher next to the homepage Logo to move between the BewlyCat and original Bilibili pages.
   show_bewly_or_bili_page_switcher_on_more_pages_desc: Show the switcher on original Bilibili pages such as Moments, Search, Anime, Favorites, History, and Watch Later. Switching to BewlyCat opens the corresponding plugin page.
   hide_lv6_last_login_location_in_top_bar_user_pop: Hide LV6 last login info
-  hide_lv6_last_login_location_in_top_bar_user_pop_desc: When enabled, the LV6 section in the top bar user popup will no longer show the last login time or location, and no login log request will be made.
+  hide_lv6_last_login_location_in_top_bar_user_pop_desc: When enabled, the LV6 section in the top bar user popup will no longer show the last login time or location, and no login log request will be made. A full-level XP progress bar is shown instead.
   chk_box:
     show: Show
     hidden: Hidden
@@ -431,6 +436,8 @@ settings:
     web_fullscreen: Web Fullscreen
     widescreen: Widescreen
     bewly_widescreen: Bewly Widescreen
+    exit_bewly_widescreen: Exit Bewly Widescreen
+    switching_to_bewly_widescreen: Switching to Bewly Widescreen. Please wait…
     enable_overrides: Enable Context Overrides
     enable_overrides_desc: Display mode settings for individual playback contexts only apply when enabled.
     overrides: Context Display Modes
@@ -472,11 +479,13 @@ settings:
     alwaysHide: Always hide
     showOnMouse: On hover
     showOnScroll: On scroll
-  always_use_transparent_top_bar: Always use transparent (legacy) style for top bar
-  always_use_frosted_glass_top_bar: Always use frosted glass for the top bar
-  always_use_frosted_glass_top_bar_desc: Keep the same top bar style used on the homepage without a background image, even when the current page has one.
-  enable_top_bar_gradient: Enable top bar gradient effect
-  enable_top_bar_gradient_desc: Use a frosted glass gradient on the top bar by default; disable it to use a solid background.
+  top_bar_style: Top bar style
+  top_bar_style_desc: Choose the top bar background. Gradient restores the five blur layers from 1.7.4 and also applies them to the top of Settings, which can significantly increase GPU usage.
+  top_bar_style_opt:
+    default: Default (white fog/shadow)
+    progressive_fog: Gradient (performance intensive)
+    transparent: Shadow
+    frosted_glass: White fog
   show_top_bar_theme_color_gradient: Show theme color gradient in top bar (only works in dark mode)
   show_bewly_or_bili_page_switcher: Show BewlyBewly/Bilibili page switcher
   show_bewly_or_bili_page_switcher_on_more_pages: Show BewlyCat/Bilibili page switcher on more pages
@@ -668,6 +677,8 @@ settings:
   scan_qrcode_desc: >-
     Use the Bilibili mobile app to scan this QR code in order to authorize the
     access key.
+  show_recommendation_filter_risk_warning: Show filter risk warnings
+  show_recommendation_filter_risk_warning_desc: After checking 100 valid recommendations, warn when the configured filters retain fewer than 50 because repeated requests may trigger risk control.
   disable_filters_for_followed_users: Disable filters for followed users
   disable_filters_for_followed_users_desc: >
     If you enable this option, all filters you set will be disabled for the
@@ -733,10 +744,6 @@ settings:
   collected_season_play_all_mode_last_watched: Last watched
   enable_version_reminder: New version reminders
   enable_version_reminder_desc: Show unacknowledged version updates on the extension home page; each version is shown only once.
-  enable_following_inactive_blacklist: Enable Inactive List
-  enable_following_inactive_blacklist_desc: When a UP has not posted for the specified number of days or has no videos, they will be automatically moved to the Inactive List. They will be removed from the Inactive List when appearing in ALL view or when clicked
-  following_inactive_days: UP inactive days
-  following_inactive_days_desc: The feature takes effect after applying 'Use new layout for Following tab' It is unrelated to the custom user blacklist and only modifies recommendations within the 'new layout for Following tab' module.
   preserve_for_you_state: Preserve "For You" pre-switch state
   preserve_for_you_state_desc: When switching from dock to other pages, preserve the browsing state of the "For You" page and maintain content before switching when returning
   use_search_page_mode: Use search page mode on homepage
@@ -750,13 +757,17 @@ settings:
   fixed_home_tabs_on_home_page: Fix home tabs to the top
   topbar_visibility: BewlyBewly's top bar visibility
   topbar_visibility_desc: >-
-    If you are using Bilibili Evolved's top bar, you can turn BewlyBewly's top
-    bar off here.
+    When enabled, the BewlyCat or original Bilibili top bar is shown. When
+    disabled, both are hidden so Bilibili Evolved and other third-party top bars
+    can take over.
   use_original_bilibili_homepage: Use the original Bilibili homepage
   use_original_bilibili_homepage_desc: >-
     After you change it, the page will automatically refresh if you are on the
     homepage!
   use_original_bilibili_topbar: Use the original Bilibili top bar
+  use_original_bilibili_topbar_desc: >-
+    Only applies when top bar visibility is on. Enable it to use the original
+    Bilibili top bar; disable it to use the BewlyCat top bar.
   adapt_to_other_page_styles: Adapt to other page styles
   adapt_to_other_page_styles_desc: Adapt to some common pages to match with the BewlyBewly theme.
   prevent_mobile_redirect: Prevent mobile redirect
@@ -902,6 +913,8 @@ settings:
     web_fullscreen_desc: Toggle web fullscreen mode
     widescreen: Widescreen
     widescreen_desc: Toggle widescreen mode
+    bewly_widescreen: Bewly Widescreen
+    bewly_widescreen_desc: Toggle Bewly Widescreen mode
     short_step_backward: Quick Rewind
     short_step_backward_desc: Rewind 5 seconds
     long_step_backward: Long Rewind
@@ -1065,6 +1078,7 @@ topbar:
     money: 'Money: '
     b_coins: 'B-coins: '
     exp_desc: 'Current XP: {current_exp}; need {need_exp} more for LV {level}'
+    exp_desc_max: 'Current XP: {current_exp} (max level)'
     following: FOLLOWING
     followers: FOLLOWERS
     posts: POSTS
@@ -1147,6 +1161,7 @@ video_card:
   watched: Watched
   visited_recently: Visited within the past month
 home:
+  recommendation_filter_risk_warning: The current filters retained only {count} of 100 valid recommendations. This may cause frequent requests and trigger API risk control. Consider relaxing the filters.
   tell_us_why: Choose a reason why
   not_interested_desc: >-
     You can use <kbd>↑</kbd> and <kbd>↓</kbd> to choose the reason, or using
@@ -1280,6 +1295,8 @@ watch_later:
   play_video: Remove and open video page
   play_in_watch_later: Playlist
   remove_from_watch_later: Remove
+  layout_list: List view
+  layout_grid: Grid view
 search_bar:
   history_title: Search History
   hot_search_title: Hot Search

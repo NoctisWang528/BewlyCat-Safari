@@ -147,7 +147,7 @@ if (isFirefoxBuild) {
 }
 
 // Setup all message listeners
-setupSettingsStorageCoordinator()
+setupSettingsStorageCoordinator({ cloudSyncAvailable: !isSafariBuild })
 setupApiMsgListeners()
 setupTabMsgListeners()
 setupTopBarStateBroker()
