@@ -69,6 +69,7 @@ const noMoreContent = ref<boolean>(true) // 排行榜没有分页
 const rankingGridRef = ref<HTMLElement | null>(null)
 const rankingGridWidth = ref(0)
 let rankingGridResizeObserver: ResizeObserver | null = null
+let requestVersion = 0
 
 const isRankingAutoSwitchSingleColumn = computed(() => {
   if (props.gridLayout !== 'twoColumns' || !settings.value.autoSwitchListLayout || !rankingGridWidth.value)
@@ -144,7 +145,7 @@ watch(() => props.topBarVisibility, () => {
   // Allow moving tabs up only when the top bar is not hidden & is set to auto-hide
   // This feature is primarily designed to compatible with the Bilibili Evolved's top bar
   // Even when the BewlyBewly top bar is hidden, the Bilibili Evolved top bar still exists, so not moving up
-  if (settings.value.autoHideTopBar && settings.value.showTopBar) {
+  if (settings.value.autoHideTopBar && settings.value.enableTopBar) {
     if (props.topBarVisibility)
       shouldMoveAsideUp.value = false
 
@@ -180,50 +181,72 @@ function initPageAction() {
 }
 
 function initData() {
+  const version = ++requestVersion
   videoList.length = 0
   PgcList.length = 0
-  getData()
-}
-
-function getData() {
-  if ('seasonType' in activatedRankingType.value)
-    getRankingPgc()
-  else
-    getRankingVideos()
-}
-
-function getRankingVideos() {
-  videoList.length = 0
+  isLoading.value = true
   emit('beforeLoading')
-  isLoading.value = true
-  api.ranking.getRankingVideos({
-    rid: activatedRankingType.value.rid,
-    type: 'type' in activatedRankingType.value ? activatedRankingType.value.type : 'all',
-  }).then((response: RankingResult) => {
-    if (response.code === 0) {
-      const { list } = response.data
-      // 添加 displayData 预处理
-      const processedList = list.map((item, index) => ({
-        ...item,
-        displayData: transformRankingVideo(item, index + 1),
-      }))
-      Object.assign(videoList, processedList)
-    }
-  }).finally(() => {
-    isLoading.value = false
-    emit('afterLoading')
-  })
+  getData(version)
 }
 
-function getRankingPgc() {
-  PgcList.length = 0
-  isLoading.value = true
-  api.ranking.getRankingPgc({
-    season_type: activatedRankingType.value.seasonType,
-  }).then((response: RankingPgcResult) => {
-    if (response.code === 0)
-      Object.assign(PgcList, response.data.list)
-  }).finally(() => isLoading.value = false)
+function getData(version: number) {
+  if ('seasonType' in activatedRankingType.value)
+    getRankingPgc(version)
+  else
+    getRankingVideos(version)
+}
+
+function finishRequest(version: number) {
+  if (version !== requestVersion)
+    return
+
+  isLoading.value = false
+  emit('afterLoading')
+}
+
+async function getRankingVideos(version: number) {
+  try {
+    const response: RankingResult = await api.ranking.getRankingVideos({
+      rid: activatedRankingType.value.rid,
+      type: 'type' in activatedRankingType.value ? activatedRankingType.value.type : 'all',
+    })
+    if (version !== requestVersion || response.code !== 0)
+      return
+
+    const processedList = response.data.list.map((item, index) => ({
+      ...item,
+      displayData: transformRankingVideo(item, index + 1),
+    }))
+    videoList.length = 0
+    videoList.push(...processedList)
+  }
+  catch (error) {
+    if (version === requestVersion)
+      console.error('[Ranking] Failed to load video ranking:', error)
+  }
+  finally {
+    finishRequest(version)
+  }
+}
+
+async function getRankingPgc(version: number) {
+  try {
+    const response: RankingPgcResult = await api.ranking.getRankingPgc({
+      season_type: activatedRankingType.value.seasonType,
+    })
+    if (version !== requestVersion || response.code !== 0)
+      return
+
+    PgcList.length = 0
+    PgcList.push(...response.data.list)
+  }
+  catch (error) {
+    if (version === requestVersion)
+      console.error('[Ranking] Failed to load PGC ranking:', error)
+  }
+  finally {
+    finishRequest(version)
+  }
 }
 
 defineExpose({ initData })
@@ -316,7 +339,7 @@ defineExpose({ initData })
 }
 
 .hide {
-  --uno: "h-[calc(100vh-70)] translate-y--70px";
+  --uno: "h-[calc(100vh-70px)] translate-y--70px";
 }
 
 /* Bangumi Grid 布局 */

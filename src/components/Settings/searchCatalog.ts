@@ -179,17 +179,22 @@ const topBarGlobalTitleKeys = [
   'settings.group_topbar',
   'settings.topbar_display_settings',
   'settings.topbar_style_settings',
+  'settings.topbar_visibility',
+  'settings.topbar_visibility_desc',
   'settings.auto_hide_top_bar',
   'settings.video_page_top_bar_config',
   'settings.top_bar_style',
   'settings.top_bar_style_desc',
   'settings.top_bar_style_opt.default',
-  'settings.top_bar_style_opt.progressive_fog',
-  'settings.top_bar_style_opt.transparent',
   'settings.top_bar_style_opt.frosted_glass',
+  'settings.top_bar_style_opt.transparent',
+  'settings.top_bar_style_opt.exp_default',
+  'settings.top_bar_style_opt.exp_frosted_glass',
+  'settings.top_bar_style_opt.exp_transparent',
   'settings.show_top_bar_theme_color_gradient',
   'settings.open_top_bar_items_in_bewly',
   'settings.open_notifications_page_as_drawer',
+  'settings.filter_articles_in_moments',
 ]
 
 export const settingsSearchEntries: SettingsSearchEntry[] = [
@@ -275,6 +280,7 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.moments_show_user_card',
     'settings.moments_show_publish',
     'settings.moments_show_live',
+    'settings.moments_show_hot_search',
     'settings.moments_show_up_list',
     'settings.moments_tabs_position',
     'settings.moments_enable_live_preview',
@@ -309,6 +315,9 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.group_video_card_grid',
     'settings.auto_switch_list_layout',
     'settings.auto_switch_list_layout_breakpoint',
+    'settings.video_card_cover_ratio',
+    'settings.video_card_cover_ratio_one_column',
+    'settings.video_card_cover_ratio_two_columns',
     'settings.grid_breakpoints',
     'settings.group_video_card_display',
     'settings.video_card_layout',
@@ -381,8 +390,6 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
   ]),
   ...createEntries(topBarRoute, [
     'settings.topbar_actions',
-    'settings.show_like_notification_reminder',
-    'settings.filter_articles_in_moments',
   ], {
     keywordKeys: ['settings.visibility', 'settings.badge_type', 'settings.top_bar_icon_badges_opt'],
   }),
@@ -392,15 +399,30 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
   ]),
   ...[
     ['moments', 'topbar.moments'],
-    ['favorites', 'topbar.favorites'],
-    ['history', 'topbar.history'],
     ['watchLater', 'topbar.watch_later'],
-    ['creatorCenter', 'topbar.creative_center'],
-    ['upload', 'topbar.upload'],
     ['notifications', 'topbar.notifications'],
   ].flatMap(([, titleKey]) => createEntries(topBarRoute, [titleKey!], {
     keywordKeys: ['settings.visibility', 'settings.badge_type', 'settings.top_bar_icon_badges_opt'],
   })),
+  ...[
+    ['favorites', 'topbar.favorites'],
+    ['history', 'topbar.history'],
+    ['creatorCenter', 'topbar.creative_center'],
+    ['upload', 'topbar.upload'],
+  ].flatMap(([, titleKey]) => createEntries(topBarRoute, [titleKey!], {
+    keywordKeys: ['settings.visibility'],
+  })),
+  ...createEntries(topBarRoute, [
+    'topbar.top_bar_switcher',
+  ], {
+    keywordKeys: [
+      'settings.visibility',
+      'settings.top_bar_mode',
+      'settings.top_bar_mode_opt',
+      'settings.use_original_bilibili_topbar',
+      'settings.use_original_bilibili_topbar_desc',
+    ],
+  }),
 
   ...createEntries(dockRoute, [
     'settings.plugin.dock_and_sidebar',
@@ -408,12 +430,12 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.show_layout_edit_button',
     'settings.always_use_dock',
     'settings.auto_hide_dock',
+    'settings.always_show_dock_actions_when_auto_hide',
     'settings.half_hide_dock',
     'settings.dock_content_adjustment',
     'settings.disable_dock_glowing_effect',
     'settings.disable_light_dark_mode_switcher',
     'settings.back_to_top_and_refresh_buttons_are_separated',
-    'settings.always_show_dock_actions_when_auto_hide',
     'settings.enable_undo_refresh_button',
     'settings.group_sidebar',
     'settings.auto_hide_sidebar',
@@ -463,6 +485,7 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.enlarge_favorite_dialog',
     'settings.external_watch_later_button',
     'settings.show_vertical_video_zoom_button',
+    'settings.show_bewly_widescreen_button',
     'settings.show_video_screenshot_button',
   ]),
   ...createEntries(playerRoute, [
@@ -585,10 +608,6 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
   ...createEntries(compatibilityRoute, [
     'settings.menu_compatibility',
     'settings.group_common',
-    'settings.topbar_visibility',
-    'settings.topbar_visibility_desc',
-    'settings.use_original_bilibili_topbar',
-    'settings.use_original_bilibili_topbar_desc',
     'settings.use_original_bilibili_homepage',
     'settings.prevent_mobile_redirect',
     'settings.group_ad_blocking',

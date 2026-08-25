@@ -6,13 +6,10 @@ import { computed, inject, reactive, ref, shallowRef, watch } from 'vue'
 
 import type { BewlyAppProvider } from '~/composables/useAppProvider'
 import { resolveSearchBarCharacterUrl } from '~/constants/imgs'
-import { AppPage } from '~/enums/appEnums'
 import { settings } from '~/logic'
 import api from '~/utils/api'
 import { findLeafActiveElement } from '~/utils/element'
-import { isHomePage } from '~/utils/main'
-import { buildKeywordSearchUrl, shouldUsePluginSearchResultsPage } from '~/utils/searchNavigation'
-import { openLinkInBackground } from '~/utils/tabs'
+import { buildKeywordSearchUrl, navigateToPluginSearchResultsInPlace, openSearchResults } from '~/utils/searchNavigation'
 
 import type { HistoryItem, SuggestionItem, SuggestionResponse } from './searchHistoryProvider'
 import {
@@ -143,19 +140,6 @@ const placeholderText = computed(() => {
 
 // 尝试获取 BEWLY_APP（在首页时可用）
 const bewlyApp = inject<BewlyAppProvider | undefined>('BEWLY_APP', undefined)
-
-// 判断是否在搜索结果页且启用了插件搜索
-const shouldHandleInCurrentPage = computed(() => {
-  if (!shouldUsePluginSearchResultsPage())
-    return false
-  // 如果能获取到 bewlyApp，使用 activatedPage 来判断
-  if (bewlyApp?.activatedPage) {
-    return bewlyApp.activatedPage.value === AppPage.SearchResults
-  }
-  // 降级方案：检查 URL 参数（在非首页或无法获取 bewlyApp 时使用）
-  const urlParams = new URLSearchParams(window.location.search)
-  return urlParams.get('page') === 'SearchResults' && !!urlParams.get('keyword')
-})
 
 watch(() => props.modelValue, (value) => {
   const next = value ?? ''
@@ -335,14 +319,10 @@ onKeyStroke('/', (e: KeyboardEvent) => {
   keywordRef.value?.focus()
 })
 onKeyStroke('Escape', (e: KeyboardEvent) => {
-  console.log('[SearchBar] ESC key pressed!')
-  console.log('[SearchBar] isFocus.value:', isFocus.value)
-
   e.preventDefault()
   keywordRef.value?.blur()
   isFocus.value = false
   resetKeyboardSelection()
-  console.log('[SearchBar] Blurred search input')
 }, { target: keywordRef })
 
 let suggestionRequestGeneration = 0
@@ -476,34 +456,16 @@ async function navigateToSearchResultPage(rawKeyword: string) {
     return
   }
 
-  // 如果在搜索页且启用了插件搜索，则在当前页加载
-  if (shouldHandleInCurrentPage.value) {
+  // 开启插件搜索结果页且为就地打开模式时，优先切到扩展内搜索结果，避免落到 B 站原站搜索页；
+  // 其余情况按「搜索栏链接打开行为」统一打开，开启插件搜索页时链接同样指向插件搜索结果页
+  if (navigateToPluginSearchResultsInPlace(normalized)) {
     emit('search', normalized)
     isFocus.value = false
     resetKeyboardSelection()
     return
   }
 
-  // 不在搜索页时，遵循顶栏链接行为设置
-  const searchUrl = buildKeywordHref(normalized)
-
-  if (settings.value.searchBarLinkOpenMode === 'background') {
-    // 使用后台标签页打开
-    void openLinkInBackground(searchUrl)
-  }
-  else {
-    // 使用 window.open 打开
-    let target = '_blank'
-    if (settings.value.searchBarLinkOpenMode === 'currentTabIfNotHomepage')
-      target = isHomePage() ? '_blank' : '_self'
-    else if (settings.value.searchBarLinkOpenMode === 'currentTab')
-      target = '_self'
-    else if (settings.value.searchBarLinkOpenMode === 'newTab')
-      target = '_blank'
-
-    window.open(searchUrl, target)
-  }
-
+  openSearchResults(normalized)
   resetKeyboardSelection()
 }
 
@@ -673,6 +635,12 @@ function handleClearKeyword() {
 
       <input
         ref="keywordRef"
+        :aria-label="$t('common.search')"
+        :aria-activedescendant="keyboardSelectionMode === 'suggestions' && selectedIndex >= 0 ? `search-suggestion-${selectedIndex}` : undefined"
+        :aria-controls="suggestions.length > 0 ? 'search-suggestion' : undefined"
+        :aria-expanded="isFocus && suggestions.length > 0"
+        aria-autocomplete="list"
+        role="combobox"
         :value="keyword"
         :placeholder="placeholderText"
         autocomplete="off"
@@ -730,7 +698,7 @@ function handleClearKeyword() {
           class="hot-search-section"
         >
           <div class="title p-2 pb-0">
-            <span>{{ $t('search_bar.hot_search_title') || '热搜' }}</span>
+            <span>{{ $t('search_bar.hot_search_title') }}</span>
           </div>
 
           <div class="hot-search-container p-2 grid grid-cols-2 gap-x-4 gap-y-1">
@@ -816,12 +784,16 @@ function handleClearKeyword() {
       <div
         v-if="isFocus && suggestions.length !== 0 && keyword.length > 0"
         id="search-suggestion"
+        role="listbox"
         class="bew-popover-surface"
         :style="narrowTopBarPopupStyle"
       >
         <div
           v-for="(item, index) in suggestions"
-          :key="index"
+          :id="`search-suggestion-${index}`"
+          :key="item.value"
+          role="option"
+          :aria-selected="keyboardSelectionMode === 'suggestions' && selectedIndex === index"
           class="suggestion-item"
           :class="{ active: keyboardSelectionMode === 'suggestions' && selectedIndex === index }"
           @click="navigateToSearchResultPage(item.value)"
@@ -1060,7 +1032,8 @@ function handleClearKeyword() {
           }
 
           .index {
-            --uno: "text-xs min-w-4 text-center font-bold";
+            --uno: "text-xs min-w-4 text-center";
+            font-weight: var(--bew-font-weight-bold);
 
             &.top-1 {
               --uno: "text-red-500";
@@ -1124,6 +1097,9 @@ function handleClearKeyword() {
   }
 
   &.search-wrap--top-bar {
+    // 顶栏已承担背景模糊，控件再叠 backdrop-filter 会多占合成层。
+    --b-search-bar-glass: none;
+
     @media (max-width: 767px) {
       #search-dropdown,
       #search-suggestion {

@@ -1,10 +1,7 @@
 <script lang="ts" setup>
-import type { Ref } from 'vue'
-
 interface Props {
   min?: number
   max?: number
-  modelValue: number
   label: string
 }
 const props = withDefaults(defineProps<Props>(), {
@@ -12,37 +9,39 @@ const props = withDefaults(defineProps<Props>(), {
   max: 100,
 })
 
-const emit = defineEmits(['update:modelValue'])
+const modelValue = defineModel<number>({ required: true })
+const rangeRef = ref<HTMLInputElement | null>(null)
 
-const modelValue = ref<number>(props.modelValue)
-const rangeRef = ref<HTMLInputElement>() as Ref<HTMLInputElement>
+// 原生 input 的 v-model 写入的是字符串，存储层的 Number.isFinite 校验
+// 会把它当非法值重置回默认（毛玻璃强度即因此失效）。这里统一转成数字。
+function handleInput(event: Event) {
+  const value = (event.target as HTMLInputElement).valueAsNumber
+  if (Number.isFinite(value))
+    modelValue.value = value
+}
 
-onMounted(() => {
-  modelValue.value = props.modelValue
-  const progress = ((modelValue.value - props.min) / (props.max - props.min)) * 100
+function updateBackground() {
+  const range = rangeRef.value
+  if (!range)
+    return
 
-  rangeRef.value.style.background = `linear-gradient(to right, var(--bew-theme-color) ${progress}%, var(--bew-fill-1) ${progress}%) no-repeat`
+  const span = props.max - props.min
+  const progress = span === 0 ? 0 : ((modelValue.value - props.min) / span) * 100
+  range.style.background = `linear-gradient(to right, var(--bew-theme-color) ${progress}%, var(--bew-fill-1) ${progress}%) no-repeat`
+}
 
-  if (rangeRef.value) {
-    rangeRef.value.addEventListener('input', (event: Event) => {
-      const tempSliderValue = Number((event.target as HTMLInputElement).value)
-      emit('update:modelValue', Number(tempSliderValue))
-
-      const progress = ((tempSliderValue - props.min) / (props.max - props.min)) * 100
-
-      rangeRef.value.style.background = `linear-gradient(to right, var(--bew-theme-color) ${progress}%, var(--bew-fill-1) ${progress}%) no-repeat`
-    })
-  }
-})
+watch([modelValue, () => props.min, () => props.max], updateBackground, { flush: 'post' })
+onMounted(updateBackground)
 </script>
 
 <template>
   <label cursor-pointer flex items-center gap-3 w="$b-slider-width">
     <input
       ref="rangeRef"
-      v-model="modelValue" type="range" :min="min" :max="max" class="slider"
+      type="range" :value="modelValue" :min="min" :max="max" class="slider"
       appearance-none outline-none bg="$bew-fill-1" rounded="$b-slider-height"
       border="size-$b-border-width color-$bew-border-color" w="$b-slider-width" h="$b-slider-height"
+      @input="handleInput"
     >
     <span>{{ label }}</span>
   </label>

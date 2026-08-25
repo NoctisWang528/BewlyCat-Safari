@@ -10,11 +10,14 @@ import { VideoPageTopBarConfig } from '~/enums/appEnums'
 import { settings } from '~/logic'
 import { useTopBarStore } from '~/stores/topBarStore'
 import { isBewlyWidescreenActive } from '~/utils/bewlyWidescreen'
+import { findLeafActiveElement } from '~/utils/element'
 import { isHomePage, isUserSpacePage, isVideoOrBangumiPage } from '~/utils/main'
 import emitter from '~/utils/mitt'
+import { isComponentVisible } from '~/utils/topBarBadge'
 
 import NotificationsDrawer from './components/NotificationsDrawer.vue'
 import TopBarHeader from './components/TopBarHeader.vue'
+import TopBarModeSwitcher from './components/TopBarModeSwitcher.vue'
 import { useTopBarInteraction } from './composables/useTopBarInteraction'
 
 const { reachTop } = useBewlyApp()
@@ -72,6 +75,9 @@ const hasActivePopup = computed(() => {
   return Object.values(topBarStore.popupVisible).some(visible => visible)
 })
 
+const ORIGINAL_VIDEO_TOP_BAR_CONTROLLED_CLASS = 'bewly-original-video-top-bar-controlled'
+const ORIGINAL_VIDEO_TOP_BAR_HIDDEN_CLASS = 'bewly-original-video-top-bar-hidden'
+
 function applyTopBarVisibility() {
   const shouldShow = !bewlyWidescreenActive.value
     && desiredTopBarVisible.value
@@ -82,7 +88,18 @@ function applyTopBarVisibility() {
 
   hideTopBar.value = !shouldShow
   topBarStore.setTopBarVisible(shouldShow)
+  syncOriginalVideoTopBarVisibility(shouldShow)
   emitter.emit(TOP_BAR_VISIBILITY_CHANGE, shouldShow)
+}
+
+function syncOriginalVideoTopBarVisibility(visible: boolean) {
+  const shouldControl = isVideoOrBangumiPage()
+    && settings.value.enableTopBar
+    && settings.value.useOriginalBilibiliTopBar
+    && settings.value.videoPageTopBarConfig !== VideoPageTopBarConfig.ShowOnMouse
+
+  document.documentElement.classList.toggle(ORIGINAL_VIDEO_TOP_BAR_CONTROLLED_CLASS, shouldControl)
+  document.documentElement.classList.toggle(ORIGINAL_VIDEO_TOP_BAR_HIDDEN_CLASS, shouldControl && !visible)
 }
 
 // 处理顶栏显示/隐藏逻辑的函数
@@ -90,7 +107,9 @@ function handleTopBarVisibility() {
   if (bewlyWidescreenActive.value)
     return
 
-  if (isVideoOrBangumiPage() && settings.value.videoPageTopBarConfig === VideoPageTopBarConfig.ShowOnMouse) {
+  if (isVideoOrBangumiPage()
+    && !settings.value.useOriginalBilibiliTopBar
+    && settings.value.videoPageTopBarConfig === VideoPageTopBarConfig.ShowOnMouse) {
     // 清除之前的计时器
     if (hideTimer) {
       clearTimeout(hideTimer)
@@ -128,6 +147,15 @@ watch(hasActivePopup, () => {
 watch(forceHideTopBar, () => {
   applyTopBarVisibility()
 })
+
+watch(
+  [
+    () => settings.value.enableTopBar,
+    () => settings.value.useOriginalBilibiliTopBar,
+    () => settings.value.videoPageTopBarConfig,
+  ],
+  () => setupScrollListeners(),
+)
 
 // 滚动处理
 const scrollTop = ref<number>(0)
@@ -262,7 +290,8 @@ function setupScrollListeners() {
   // 根据视频页面配置设置初始显示状态
   if (isVideoOrBangumiPage()) {
     const config = settings.value.videoPageTopBarConfig
-    if (config === VideoPageTopBarConfig.AlwaysHide || config === VideoPageTopBarConfig.ShowOnMouse) {
+    if (config === VideoPageTopBarConfig.AlwaysHide
+      || (config === VideoPageTopBarConfig.ShowOnMouse && !settings.value.useOriginalBilibiliTopBar)) {
       toggleTopBarVisible(false)
     }
     else {
@@ -612,15 +641,28 @@ onUnmounted(() => {
   window.removeEventListener('popstate', scheduleUrlChangeCheck)
   window.removeEventListener('hashchange', scheduleUrlChangeCheck)
   window.removeEventListener('pageshow', scheduleUrlChangeCheck)
+  document.documentElement.classList.remove(
+    ORIGINAL_VIDEO_TOP_BAR_CONTROLLED_CLASS,
+    ORIGINAL_VIDEO_TOP_BAR_HIDDEN_CLASS,
+  )
 })
 
 // 快捷键
-onKeyStroke('/', () => {
+onKeyStroke('/', (event: KeyboardEvent) => {
+  const target = event.target as HTMLElement | null
+  if (target && (['INPUT', 'TEXTAREA'].includes(target.tagName) || target.isContentEditable))
+    return
+
+  const activeElement = findLeafActiveElement(document) as HTMLElement | undefined
+  if (activeElement && (['INPUT', 'TEXTAREA'].includes(activeElement.tagName) || activeElement.isContentEditable))
+    return
+
+  event.preventDefault()
   toggleTopBarVisible(true)
 })
 
 onKeyStroke('Escape', (event: KeyboardEvent) => {
-  if (!settings.value.touchScreenOptimization || !hasActivePopup.value)
+  if (!hasActivePopup.value)
     return
 
   event.preventDefault()
@@ -640,7 +682,10 @@ const VideoPageTopBarConfigEnum = VideoPageTopBarConfig
   <div class="top-bar-container">
     <!-- 顶部监听区域 -->
     <div
-      v-if="!bewlyWidescreenActive && isVideoOrBangumiPage() && settings.videoPageTopBarConfig === VideoPageTopBarConfigEnum.ShowOnMouse"
+      v-if="!bewlyWidescreenActive
+        && !settings.useOriginalBilibiliTopBar
+        && isVideoOrBangumiPage()
+        && settings.videoPageTopBarConfig === VideoPageTopBarConfigEnum.ShowOnMouse"
       ref="topAreaTarget"
       class="top-area-listener"
     />
@@ -649,6 +694,11 @@ const VideoPageTopBarConfigEnum = VideoPageTopBarConfig
         v-if="topBarStore.showTopBar || isLayoutEditing"
         ref="headerTarget"
         class="top-bar"
+        data-layout-edit-target="topbar-component"
+        data-layout-edit-direct
+        data-layout-settings-menu="BewlyComponents"
+        data-layout-settings-page="topbar"
+        data-layout-settings-title-key="settings.topbar_visibility"
         w="full"
         :class="{
           'hide': hideTopBar && !isLayoutEditing,
@@ -671,6 +721,13 @@ const VideoPageTopBarConfigEnum = VideoPageTopBarConfig
         </KeepAlive>
       </header>
     </Transition>
+
+    <TopBarModeSwitcher
+      v-if="settings.enableTopBar
+        && settings.useOriginalBilibiliTopBar
+        && isComponentVisible('topBarSwitcher')"
+      native
+    />
   </div>
 </template>
 
@@ -688,6 +745,7 @@ const VideoPageTopBarConfigEnum = VideoPageTopBarConfig
   right: 0;
   z-index: 999;
   position: fixed;
+  min-height: var(--bew-top-bar-height);
   transition:
     opacity var(--bew-duration-moderate) var(--bew-ease-standard),
     transform var(--bew-duration-moderate) var(--bew-ease-standard);

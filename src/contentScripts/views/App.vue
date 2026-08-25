@@ -6,15 +6,17 @@ import { useI18n } from 'vue-i18n'
 
 import Button from '~/components/Button.vue'
 import Icon from '~/components/Icon.vue'
+import Radio from '~/components/Radio.vue'
 import type { BewlyAppProvider, SettingsNavigationTarget } from '~/composables/useAppProvider'
 import { DrawerType, UndoForwardState } from '~/composables/useAppProvider'
+import type { ConfirmDialogOptions, ConfirmDialogToggleField } from '~/composables/useConfirmDialog'
 import { confirmDialogKey } from '~/composables/useConfirmDialog'
 import { useDark } from '~/composables/useDark'
 import { useLayoutEditMode } from '~/composables/useLayoutEditMode'
 import { BEWLY_MOUNTED, DRAWER_VIDEO_ENTER_PAGE_FULL, DRAWER_VIDEO_EXIT_PAGE_FULL, IFRAME_PAGE_SWITCH_BEWLY, IFRAME_PAGE_SWITCH_BILI, OVERLAY_SCROLL_BAR_SCROLL, OVERLAY_SCROLL_STATE_CHANGE } from '~/constants/globalEvents'
 import { HomeSubPage } from '~/contentScripts/views/Home/types'
 import { AppPage } from '~/enums/appEnums'
-import { settings } from '~/logic'
+import { settings, settingsReady } from '~/logic'
 import type { DockItem } from '~/stores/mainStore'
 import { useMainStore } from '~/stores/mainStore'
 import { useSettingsStore } from '~/stores/settingsStore'
@@ -22,6 +24,7 @@ import { useTopBarStore } from '~/stores/topBarStore'
 import { setOriginalBilibiliTopBarScrolled } from '~/utils/bilibiliTopBar'
 import { isHomePage, isInIframe, isNotificationPage, isSearchResultsPage, isVideoOrBangumiPage, openLinkToNewTab, queryDomUntilFound, scrollToTop } from '~/utils/main'
 import emitter from '~/utils/mitt'
+import { applyPendingSettingsMigrations, formatSettingsMigrationConfirmMessage, getPendingSettingsMigrationChoices, hasPendingSettingsMigrations } from '~/utils/settingsMigration'
 
 import { setupNecessarySettingsWatchers } from './necessarySettingsWatchers'
 
@@ -66,6 +69,9 @@ watch(showSettings, (visible) => {
 interface ConfirmDialogRequest {
   id: number
   message: string
+  title?: string
+  confirmLabel?: string
+  toggleFields?: ConfirmDialogToggleField[]
   resolve: (confirmed: boolean) => void
   settled: boolean
 }
@@ -94,11 +100,14 @@ const confirmDialogPanelStyle = computed(() => {
   }
 })
 
-function showConfirmDialog(message: string): Promise<boolean> {
+function showConfirmDialog(message: string, options: ConfirmDialogOptions = {}): Promise<boolean> {
   return new Promise((resolve) => {
     const request: ConfirmDialogRequest = {
       id: ++confirmDialogIdSeq,
       message,
+      title: options.title,
+      confirmLabel: options.confirmLabel,
+      toggleFields: options.toggleFields,
       resolve,
       settled: false,
     }
@@ -143,6 +152,9 @@ onKeyStroke('Escape', (e: KeyboardEvent) => {
 onKeyStroke('Enter', (e: KeyboardEvent) => {
   if (!activeConfirmDialog.value)
     return
+  const target = e.target as HTMLElement | null
+  if (target?.closest('.bew-confirm-dialog__field'))
+    return
   e.preventDefault()
   e.stopPropagation()
   finishConfirmDialog(true)
@@ -151,6 +163,49 @@ onKeyStroke('Enter', (e: KeyboardEvent) => {
 provide(confirmDialogKey, {
   confirm: showConfirmDialog,
 })
+
+const SETTINGS_MIGRATION_PROMPT_DISMISSED_KEY = 'bewlycat-settings-migration-prompt-dismissed'
+
+async function promptSettingsMigrationIfNeeded() {
+  if (isInIframe())
+    return
+  if (sessionStorage.getItem(SETTINGS_MIGRATION_PROMPT_DISMISSED_KEY))
+    return
+
+  await settingsReady
+  const record = settings.value as unknown as Record<string, unknown>
+  if (!hasPendingSettingsMigrations(record))
+    return
+
+  const message = formatSettingsMigrationConfirmMessage(
+    record,
+    t,
+    'settings.maintenance.migrate_legacy_settings_confirm',
+  )
+  if (!message)
+    return
+
+  const toggleFields = getPendingSettingsMigrationChoices(record).map(choice => ({
+    id: choice.id,
+    label: String(t(choice.titleKey)),
+    value: choice.value,
+    enabledLabel: String(t('settings.chk_box.show')),
+    disabledLabel: String(t('settings.chk_box.hidden')),
+  }))
+  const confirmed = await showConfirmDialog(message, {
+    title: t('settings.maintenance.migrate_legacy_title'),
+    confirmLabel: t('settings.maintenance.migrate_legacy_action'),
+    toggleFields,
+  })
+  if (!confirmed) {
+    sessionStorage.setItem(SETTINGS_MIGRATION_PROMPT_DISMISSED_KEY, '1')
+    return
+  }
+
+  applyPendingSettingsMigrations(record, Object.fromEntries(
+    toggleFields.map(field => [field.id, field.value]),
+  ))
+}
 
 // Get the 'page' query parameter from the URL
 function getPageParam(): AppPage | null {
@@ -847,9 +902,9 @@ function openLayoutEditDockPositionSettings() {
 
 function openLayoutEditTopBarModeSettings() {
   openSettings({
-    menu: 'Bilibili',
-    secondaryPage: 'compatibility',
-    targetTitleKey: 'settings.use_original_bilibili_topbar',
+    menu: 'BewlyComponents',
+    secondaryPage: 'topbar',
+    targetTitleKey: 'topbar.top_bar_switcher',
   })
 }
 
@@ -951,6 +1006,7 @@ const handleThrottledPageUnRefresh = useThrottleFn(() => handleUndoRefresh.value
 const handleThrottledPageForwardRefresh = useThrottleFn(() => handleForwardRefresh.value?.(), 500)
 const topBarRef = ref()
 const reachTop = ref<boolean>(true)
+const scrollTop = ref<number>(0)
 
 watch(isHomeTabSwitching, (switching) => {
   if (switching)
@@ -985,7 +1041,14 @@ function setActiveDrawer(drawer: DrawerType) {
 const hideUIForIframePhotoViewer = ref<boolean>(false)
 
 const iframePageRef = ref()
-useEventListener(window, 'message', ({ data }) => {
+useEventListener(window, 'message', ({ data, source }) => {
+  if (typeof data !== 'string')
+    return
+
+  const iframe = iframePageRef.value?.$el?.querySelector('iframe')
+  if (!iframe || source !== iframe.contentWindow)
+    return
+
   switch (data) {
     case IFRAME_PAGE_SWITCH_BEWLY:
       {
@@ -1021,6 +1084,9 @@ useEventListener(window, 'message', ({ data, source }) => {
 useEventListener(window, 'message', ({ data, source }) => {
   // 只处理来自父窗口的消息
   if (source !== window.parent)
+    return
+
+  if (!data || typeof data !== 'object' || Array.isArray(data))
     return
 
   const { type, isDark, darkModeBaseColor } = data
@@ -1227,6 +1293,7 @@ function handleMetaHomeKeydown(e: KeyboardEvent) {
 }
 
 function handleDocumentScroll() {
+  scrollTop.value = window.scrollY
   reachTop.value = window.scrollY <= 0
 }
 
@@ -1281,6 +1348,9 @@ onMounted(() => {
   }
 
   document.addEventListener('scroll', handleDocumentScroll, { passive: true })
+  // 刷新后停在半页时，首帧就要有正确的滚动状态（reachTop 与遮罩强度）
+  handleDocumentScroll()
+  void promptSettingsMigrationIfNeeded()
 })
 
 function handleDockItemClick(dockItem: DockItem) {
@@ -1372,22 +1442,31 @@ function handleOsScroll(_instance: any, event: Event) {
 
   // 使用 RAF 将所有 DOM 读取合并到下一帧
   rafId = requestAnimationFrame(() => {
-    const scrollTop = latestScrollTop
+    const frameScrollTop = latestScrollTop
 
-    emitter.emit(OVERLAY_SCROLL_BAR_SCROLL, scrollTop)
-    if (settings.value.showTopBar && settings.value.useOriginalBilibiliTopBar)
-      setOriginalBilibiliTopBarScrolled(document, scrollTop > 0)
+    emitter.emit(OVERLAY_SCROLL_BAR_SCROLL, frameScrollTop)
+    if (settings.value.enableTopBar && settings.value.useOriginalBilibiliTopBar)
+      setOriginalBilibiliTopBarScrolled(document, frameScrollTop > 0)
 
     // 只在滚动距离超过阈值时更新状态
-    const scrollDelta = Math.abs(scrollTop - lastScrollTop)
+    const scrollDelta = Math.abs(frameScrollTop - lastScrollTop)
     if (scrollDelta > 50) {
-      lastScrollTop = scrollTop
+      lastScrollTop = frameScrollTop
     }
 
-    reachTop.value = scrollTop === 0
+    scrollTop.value = frameScrollTop
+    reachTop.value = frameScrollTop === 0
 
-    // ✅ 移除手动的"到达底部"检测，改用 IntersectionObserver（见 loadMoreSentinelRef）
-    // 这避免了在每次滚动时计算 threshold 和读取 scrollHeight/clientHeight
+    // IntersectionObserver 只在相交状态变化时回调，dock 切页等时机可能丢失边缘事件
+    // （如切走时哨兵处于相交中，切回后状态未发生跳变），滚动时按几何位置兜底触发
+    const viewportEl = scrollViewportRef.value
+    const sentinelEl = loadMoreSentinelRef.value
+    if (viewportEl && sentinelEl && !isHomeTabSwitching.value) {
+      const viewportRect = viewportEl.getBoundingClientRect()
+      const sentinelRect = sentinelEl.getBoundingClientRect()
+      if (sentinelRect.top <= viewportRect.bottom + 200 && sentinelRect.bottom >= viewportRect.top)
+        handleThrottledReachBottom()
+    }
 
     // 清除之前的滚动结束定时器
     if (scrollEndTimer) {
@@ -1522,6 +1601,7 @@ provide<BewlyAppProvider>('BEWLY_APP', {
   mainAppRef,
   scrollViewportRef,
   reachTop,
+  scrollTop,
   searchFocusOverlayActive,
   handleBackToTop,
   handlePageRefresh,
@@ -1930,7 +2010,7 @@ if (settings.value.cleanUrlArgument) {
               <div
                 p="t-[calc(var(--bew-top-bar-height)+10px)]" m-auto
                 w="lg:[calc(100%-200px)] [calc(100%-150px)]"
-                :style="settings.showTopBar && settings.useOriginalBilibiliTopBar && !reachTop
+                :style="settings.enableTopBar && settings.useOriginalBilibiliTopBar && !reachTop
                   ? { paddingTop: 'calc(var(--bew-top-bar-height) + 120px)' }
                   : undefined"
               >
@@ -1970,7 +2050,7 @@ if (settings.value.cleanUrlArgument) {
       <div class="bew-confirm-dialog__panel" :style="confirmDialogPanelStyle">
         <header class="bew-confirm-dialog__header">
           <p class="bew-confirm-dialog__title">
-            {{ $t('common.operation.confirm') }}
+            {{ activeConfirmDialog.title || $t('common.operation.confirm') }}
           </p>
           <button
             type="button"
@@ -1985,10 +2065,26 @@ if (settings.value.cleanUrlArgument) {
           <p class="bew-confirm-dialog__message">
             {{ activeConfirmDialog.message }}
           </p>
+          <div
+            v-if="activeConfirmDialog.toggleFields?.length"
+            class="bew-confirm-dialog__fields"
+          >
+            <div
+              v-for="field in activeConfirmDialog.toggleFields"
+              :key="field.id"
+              class="bew-confirm-dialog__field"
+            >
+              <span class="bew-confirm-dialog__field-label">{{ field.label }}</span>
+              <Radio
+                v-model="field.value"
+                :label="field.value ? field.enabledLabel : field.disabledLabel"
+              />
+            </div>
+          </div>
         </div>
         <footer class="bew-confirm-dialog__footer">
           <Button type="tertiary" @click="finishConfirmDialog(true)">
-            {{ $t('common.operation.confirm') }}
+            {{ activeConfirmDialog.confirmLabel || $t('common.operation.confirm') }}
           </Button>
           <Button type="primary" @click="finishConfirmDialog(false)">
             {{ $t('common.operation.cancel') }}
@@ -2137,6 +2233,12 @@ if (settings.value.cleanUrlArgument) {
   border-radius: var(--bew-interactive-radius);
 }
 
+.top-bar-host--editing :deep([data-layout-edit-target="topbar-component"][data-layout-edit-active="true"]) {
+  outline: 1px solid var(--bew-theme-color);
+  outline-offset: -1px;
+  box-shadow: inset 0 0 0 1px var(--bew-theme-color-20);
+}
+
 .dock-sidebar-host--editing :deep([data-layout-edit-target]:not([data-layout-edit-active="true"])),
 .top-bar-host--editing :deep([data-layout-edit-target]:not([data-layout-edit-active="true"])) {
   opacity: 0.12 !important;
@@ -2222,7 +2324,10 @@ if (settings.value.cleanUrlArgument) {
 }
 
 .bew-confirm-dialog__body {
+  max-height: min(60vh, 480px);
   padding: var(--bew-space-2) var(--bew-space-8) var(--bew-space-2);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .bew-confirm-dialog__message {
@@ -2232,6 +2337,32 @@ if (settings.value.cleanUrlArgument) {
   font-weight: var(--bew-font-weight-regular);
   line-height: var(--bew-line-height-body);
   white-space: pre-line;
+}
+
+.bew-confirm-dialog__fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bew-space-2);
+  margin-top: var(--bew-space-4);
+}
+
+.bew-confirm-dialog__field {
+  display: flex;
+  min-height: 48px;
+  gap: var(--bew-space-4);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--bew-space-2) var(--bew-space-3);
+  background: var(--bew-fill-1);
+  border: 1px solid var(--bew-border-color);
+  border-radius: var(--bew-interactive-radius);
+}
+
+.bew-confirm-dialog__field-label {
+  color: var(--bew-text-1);
+  font-size: var(--bew-font-size-control);
+  font-weight: var(--bew-font-weight-semibold);
+  line-height: var(--bew-line-height-control);
 }
 
 .bew-confirm-dialog__footer {

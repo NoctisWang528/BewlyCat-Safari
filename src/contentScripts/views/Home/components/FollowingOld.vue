@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
 import type { Author, Video } from '~/components/VideoCard/types'
 import VideoCardGrid from '~/components/VideoCardGrid.vue'
 import { useBewlyApp } from '~/composables/useAppProvider'
@@ -10,6 +12,17 @@ import { BadgeText } from '~/models/moment/moment'
 import api from '~/utils/api'
 import { parseStatNumber } from '~/utils/dataFormatter'
 import { decodeHtmlEntities } from '~/utils/htmlDecode'
+
+const { gridLayout } = defineProps<{
+  gridLayout: GridLayoutType
+}>()
+
+const emit = defineEmits<{
+  (e: 'beforeLoading'): void
+  (e: 'afterLoading'): void
+}>()
+
+const { t } = useI18n()
 
 // https://github.com/starknt/BewlyBewly/blob/fad999c2e482095dc3840bb291af53d15ff44130/src/contentScripts/views/Home/components/ForYou.vue#L16
 interface VideoElement {
@@ -26,15 +39,6 @@ interface LiveVideoElement {
   displayData?: Video
 }
 
-const { gridLayout } = defineProps<{
-  gridLayout: GridLayoutType
-}>()
-
-const emit = defineEmits<{
-  (e: 'beforeLoading'): void
-  (e: 'afterLoading'): void
-}>()
-
 const videoList = ref<VideoElement[]>([])
 /**
  * Get all livestreaming videos of followed users
@@ -48,6 +52,7 @@ const isPageVisible = ref<boolean>(true) // 页面可见性状态
 const offset = ref<string>('')
 const updateBaseline = ref<string>('')
 const noMoreContent = ref<boolean>(false)
+const liveNoMoreContent = ref<boolean>(false)
 const isInitialized = ref<boolean>(false)
 const { handlePageRefresh, handleReachBottom, canRefreshHomeSubPage } = useBewlyApp()
 
@@ -144,6 +149,7 @@ async function initData() {
   livePage.value = 1
   videoList.value = []
   noMoreContent.value = false
+  liveNoMoreContent.value = false
   recursionDepth.value = 0
 
   if (settings.value.followingTabShowLivestreamingVideos)
@@ -166,6 +172,9 @@ async function getData() {
 }
 
 async function getLiveVideoList() {
+  if (liveNoMoreContent.value)
+    return
+
   // 检查页面是否可见，如果不可见则不进行请求
   if (!isPageVisible.value)
     return
@@ -178,7 +187,7 @@ async function getLiveVideoList() {
     })
 
     if (response.code === -101) {
-      noMoreContent.value = true
+      liveNoMoreContent.value = true
       needToLoginFirst.value = true
       return
     }
@@ -186,7 +195,7 @@ async function getLiveVideoList() {
     if (response.code === 0) {
       // 如果返回的数据少于9条，说明没有更多数据了
       if (response.data.list.length < 9)
-        noMoreContent.value = true
+        liveNoMoreContent.value = true
 
       livePage.value++
 
@@ -457,7 +466,7 @@ function mapMomentItemToVideo(item?: MomentItem, authors?: Author[]): Video | un
     publishedTimestamp: item.modules?.module_author?.pub_ts,
     bvid: archive.bvid,
     badge,
-    tag: isCollaboration ? '联合投稿' : undefined,
+    tag: isCollaboration ? t('home.collaboration') : undefined,
     threePointV2: [],
   }
 }

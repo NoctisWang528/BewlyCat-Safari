@@ -99,9 +99,34 @@ export interface ShortcutsSettings {
 
 export type VideoCardFontSizeSetting = 'xs' | 'sm' | 'base' | 'lg'
 export type VideoCardLayoutSetting = 'modern' | 'old'
+export const VIDEO_CARD_COVER_RATIO_MIN = 30
+export const VIDEO_CARD_COVER_RATIO_MAX = 70
+export const VIDEO_CARD_COVER_RATIO_STEP = 5
+
+export function normalizeVideoCardCoverRatio(value: unknown, fallback: number): number {
+  const ratio = Number(value)
+  if (!Number.isFinite(ratio))
+    return fallback
+
+  const clampedRatio = Math.min(VIDEO_CARD_COVER_RATIO_MAX, Math.max(VIDEO_CARD_COVER_RATIO_MIN, ratio))
+  return VIDEO_CARD_COVER_RATIO_MIN
+    + Math.round((clampedRatio - VIDEO_CARD_COVER_RATIO_MIN) / VIDEO_CARD_COVER_RATIO_STEP) * VIDEO_CARD_COVER_RATIO_STEP
+}
+
 export type TabsPosition = 'left' | 'center'
 export type TopBarLogoStyle = 'icon' | 'brand'
-export type TopBarStyle = 'default' | 'transparent' | 'frostedGlass' | 'progressiveFog'
+// 旧版三档（default/transparent/frostedGlass）沿用 v1.5.x 的遮罩结构与色调判定；
+// 实验三档（exp 前缀）走余弦渐变遮罩管线。
+export type TopBarStyle
+  = | 'default'
+    | 'transparent'
+    | 'frostedGlass'
+    | 'expDefault'
+    | 'expTransparent'
+    | 'expFrostedGlass'
+
+/** 实验性顶栏样式集合：渲染走余弦渐变管线 */
+export const experimentalTopBarStyles: TopBarStyle[] = ['expDefault', 'expTransparent', 'expFrostedGlass']
 export type AutoPlayMode = 'default' | 'autoPlay' | 'autoPlayWithRecommend' | 'pauseAtEnd' | 'loop'
 export type RandomPlayOrder = 'sequential' | 'reverse' | 'random'
 export type DefaultCustomPlayOrder = RandomPlayOrder
@@ -112,6 +137,7 @@ export type CustomPlayOrderOverrides = Record<CustomPlayOrderContext, CustomPlay
 export type CollectedSeasonPlayAllMode = 'beginning' | 'latest' | 'lastWatched'
 export type DefaultVideoPlayerMode = 'default' | 'webFullscreen' | 'widescreen' | 'bewlyWidescreen'
 export type BewlyWidescreenSidebarPosition = 'left' | 'right'
+export type BewlyWidescreenSidebarPriority = 'video' | 'sidebar'
 export type PlayerDefaultState = 'system' | 'remember' | 'on' | 'off'
 export type VideoAspectRatio = '0:0' | '4:3' | '16:9'
 export type VideoPlayerModeOverride = DefaultVideoPlayerMode | 'inherit'
@@ -225,6 +251,10 @@ export interface Settings {
   autoSwitchListLayout: boolean
   /** Automatic two-column -> one-column switch threshold in CSS pixels. */
   autoSwitchListLayoutBreakpoint: number
+  /** Cover width percentage in horizontal single-column video cards. */
+  videoCardCoverRatioOneColumn: number
+  /** Cover width percentage in horizontal two-column video cards. */
+  videoCardCoverRatioTwoColumns: number
   releaseOffscreenVideoCardImages: boolean
 
   language: string
@@ -302,12 +332,13 @@ export interface Settings {
   momentsSidebarShowUserCard: boolean
   momentsSidebarShowPublish: boolean
   momentsSidebarShowLive: boolean
+  momentsSidebarShowHotSearch: boolean
   momentsShowUpList: boolean
   momentsTabsPosition: TabsPosition
   momentsEnableLivePreview: boolean
   momentsEnableVideoPreview: boolean
   /** Bewly 动态页期望列数；窄屏会自动降列 */
-  momentsGridColumns: '1' | '2' | '3'
+  momentsGridColumns: '1' | '2'
   momentsEnableWantedFilter: boolean
   momentsFilterUpRecommendation: boolean
   momentsHideChargeExclusive: boolean
@@ -443,7 +474,7 @@ export interface Settings {
   rememberNoCookieRecommendationState: boolean
 
   adaptToOtherPageStyles: boolean
-  showTopBar: boolean
+  enableTopBar: boolean
   useOriginalBilibiliTopBar: boolean
   useOriginalBilibiliHomepage: boolean
   preventMobileRedirect: boolean
@@ -451,6 +482,8 @@ export interface Settings {
   // Video Player
   defaultVideoPlayerMode: DefaultVideoPlayerMode
   bewlyWidescreenSidebarPosition: BewlyWidescreenSidebarPosition
+  bewlyWidescreenSidebarPriority: BewlyWidescreenSidebarPriority // Bewly宽屏布局优先级
+  bewlyWidescreenCenterVerticalVideo: boolean // Bewly宽屏竖屏视频画面居中
   defaultDanmakuState: PlayerDefaultState
   defaultCaptionState: PlayerDefaultState
   lastDanmakuState: boolean
@@ -460,6 +493,7 @@ export interface Settings {
   autoExitFullscreenOnEnd: boolean // 全屏播放完毕后自动退出
   autoExitFullscreenExcludeAutoPlay: boolean // 全屏自动退出时排除自动连播
   showVerticalVideoZoomButton: boolean // 显示竖屏视频放大按钮
+  showBewlyWidescreenButton: boolean // 显示播放器 Bewly 宽屏按钮
   showVideoScreenshotButton: boolean // 显示播放器截图按钮
 
   // 自动连播总开关
@@ -521,6 +555,8 @@ export const originalSettings: Settings = {
   gridColumns: { ...defaultGridColumns },
   autoSwitchListLayout: true,
   autoSwitchListLayoutBreakpoint: MOBILE_LIST_LAYOUT_BREAKPOINT,
+  videoCardCoverRatioOneColumn: 40,
+  videoCardCoverRatioTwoColumns: 50,
   releaseOffscreenVideoCardImages: false,
 
   language: '',
@@ -581,14 +617,15 @@ export const originalSettings: Settings = {
   showWatchLaterBadge: false,
   topBarComponentsConfig: [
     { key: 'moments', visible: true, badgeType: 'number' },
-    { key: 'favorites', visible: true, badgeType: 'number' },
-    { key: 'history', visible: true, badgeType: 'number' },
+    { key: 'favorites', visible: true, badgeType: 'none' },
+    { key: 'history', visible: true, badgeType: 'none' },
     { key: 'watchLater', visible: true, badgeType: 'number' },
     { key: 'creatorCenter', visible: true, badgeType: 'none' },
     { key: 'upload', visible: true, badgeType: 'none' },
     { key: 'notifications', visible: true, badgeType: 'number' },
     { key: 'pinnedChannels', visible: true, badgeType: 'none' },
     { key: 'avatar', visible: true, badgeType: 'none' },
+    { key: 'topBarSwitcher', visible: true, badgeType: 'none' },
   ],
   topBarPinnedChannels: [],
   openNotificationsPageAsDrawer: true,
@@ -606,11 +643,12 @@ export const originalSettings: Settings = {
   momentsSidebarShowUserCard: true,
   momentsSidebarShowPublish: true,
   momentsSidebarShowLive: true,
+  momentsSidebarShowHotSearch: true,
   momentsShowUpList: true,
   momentsTabsPosition: 'left',
   momentsEnableLivePreview: true,
   momentsEnableVideoPreview: true,
-  momentsGridColumns: '3',
+  momentsGridColumns: '2',
   momentsEnableWantedFilter: true,
   momentsFilterUpRecommendation: false,
   momentsHideChargeExclusive: false,
@@ -734,7 +772,7 @@ export const originalSettings: Settings = {
   rememberNoCookieRecommendationState: true,
 
   adaptToOtherPageStyles: true,
-  showTopBar: true,
+  enableTopBar: true,
   useOriginalBilibiliTopBar: false,
   useOriginalBilibiliHomepage: false,
   preventMobileRedirect: false,
@@ -742,6 +780,8 @@ export const originalSettings: Settings = {
   // Video Player
   defaultVideoPlayerMode: 'default',
   bewlyWidescreenSidebarPosition: 'right',
+  bewlyWidescreenSidebarPriority: 'video', // 默认视频优先，侧栏收起为窄条
+  bewlyWidescreenCenterVerticalVideo: false, // 默认关闭，保持现有布局
   defaultDanmakuState: 'system',
   defaultCaptionState: 'system',
   lastDanmakuState: true,
@@ -757,6 +797,7 @@ export const originalSettings: Settings = {
   autoExitFullscreenOnEnd: false, // 全屏播放完毕后自动退出，默认关闭
   autoExitFullscreenExcludeAutoPlay: false, // 全屏自动退出时排除自动连播，默认关闭
   showVerticalVideoZoomButton: true, // 默认显示竖屏视频放大按钮
+  showBewlyWidescreenButton: true, // 默认显示播放器 Bewly 宽屏按钮
   showVideoScreenshotButton: true, // 默认显示播放器截图按钮
 
   // 自动连播总开关
@@ -885,7 +926,7 @@ watch(
     if (!validTopBarLogoStyles.includes(record.topBarLogoStyle))
       record.topBarLogoStyle = originalSettings.topBarLogoStyle
 
-    const validTopBarStyles: TopBarStyle[] = ['default', 'transparent', 'frostedGlass', 'progressiveFog']
+    const validTopBarStyles: TopBarStyle[] = ['default', 'transparent', 'frostedGlass', ...experimentalTopBarStyles]
     const hasLegacyTopBarStyle = 'alwaysUseTransparentTopBar' in record
       || 'alwaysUseFrostedGlassTopBar' in record
       || 'enableTopBarGradient' in record
@@ -901,12 +942,25 @@ watch(
     Reflect.deleteProperty(record, 'alwaysUseTransparentTopBar')
     Reflect.deleteProperty(record, 'alwaysUseFrostedGlassTopBar')
     Reflect.deleteProperty(record, 'enableTopBarGradient')
+    Reflect.deleteProperty(record, 'independentTopBarVisibility')
+    if (typeof record.enableTopBar !== 'boolean')
+      record.enableTopBar = originalSettings.enableTopBar
 
     if (typeof record.showLayoutEditButton !== 'boolean')
       record.showLayoutEditButton = originalSettings.showLayoutEditButton
 
-    if (!Number.isFinite(record.frostedGlassBlurIntensity))
+    // Native range inputs and older cloud snapshots may contain a numeric
+    // string. Canonicalize it instead of treating values such as "10" as
+    // invalid and snapping the control back to the default intensity of 20.
+    if (typeof record.frostedGlassBlurIntensity === 'string') {
+      const parsedBlurIntensity = Number(record.frostedGlassBlurIntensity)
+      record.frostedGlassBlurIntensity = Number.isFinite(parsedBlurIntensity)
+        ? parsedBlurIntensity
+        : originalSettings.frostedGlassBlurIntensity
+    }
+    else if (!Number.isFinite(record.frostedGlassBlurIntensity)) {
       record.frostedGlassBlurIntensity = originalSettings.frostedGlassBlurIntensity
+    }
 
     if ('reduceFrostedGlassBlur' in record) {
       if (record.reduceFrostedGlassBlur === true && record.frostedGlassBlurIntensity === originalSettings.frostedGlassBlurIntensity)
@@ -924,6 +978,14 @@ watch(
     // Normalize the user-configurable two-column list breakpoint. Older
     // versions used a fixed 640px threshold and do not have this field.
     record.autoSwitchListLayoutBreakpoint = normalizeListLayoutBreakpoint(record.autoSwitchListLayoutBreakpoint)
+    record.videoCardCoverRatioOneColumn = normalizeVideoCardCoverRatio(
+      record.videoCardCoverRatioOneColumn,
+      originalSettings.videoCardCoverRatioOneColumn,
+    )
+    record.videoCardCoverRatioTwoColumns = normalizeVideoCardCoverRatio(
+      record.videoCardCoverRatioTwoColumns,
+      originalSettings.videoCardCoverRatioTwoColumns,
+    )
 
     // 迁移旧的布尔类型自动播放设置到新的 AutoPlayMode 类型
     const autoPlayFields = ['autoPlayMultipart', 'autoPlayCollection', 'autoPlayRecommend', 'autoPlayWatchLater', 'autoPlayPlaylist'] as const
@@ -1065,6 +1127,10 @@ watch(
       ) as VideoPlayerModeOverrides
     }
 
+    // 动态页不再提供 3 列
+    if (record.momentsGridColumns !== '1' && record.momentsGridColumns !== '2')
+      record.momentsGridColumns = '2'
+
     // 清理已移除的 NVIDIA RTX 视频增强兼容设置
     Reflect.deleteProperty(record, 'nvidiaRtxVideoEnhancementCompatibility')
 
@@ -1147,12 +1213,6 @@ export type WatchLaterLayout = 'list' | 'grid'
 export const watchLaterLayout = useStorageLocal<WatchLaterLayout>(
   'watchLaterLayout',
   'list',
-  { mergeDefaults: true, writeDefaults: false },
-)
-
-export const gridColumns = useStorageLocal<GridColumnsConfig>(
-  'gridColumns',
-  { ...defaultGridColumns },
   { mergeDefaults: true, writeDefaults: false },
 )
 

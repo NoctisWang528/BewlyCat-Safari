@@ -293,8 +293,6 @@ export function setupNecessarySettingsWatchers() {
     { immediate: true },
   )
 
-  let styleEL: HTMLStyleElement | null = null
-  let bewlyStyleEL: HTMLStyleElement | null = null
   watch(
     [() => localSettings.value.customizeCSS, () => localSettings.value.customizeCSSContent],
     () => {
@@ -310,11 +308,11 @@ export function setupNecessarySettingsWatchers() {
       })
 
       if (localSettings.value.customizeCSS) {
-        styleEL = injectCSS(localSettings.value.customizeCSSContent)
+        const styleEL = injectCSS(localSettings.value.customizeCSSContent)
         styleEL.setAttribute('data-bewly-customizeCSS', '')
 
         if (bewlyShadow) {
-          bewlyStyleEL = injectCSS(localSettings.value.customizeCSSContent, bewlyShadow)
+          const bewlyStyleEL = injectCSS(localSettings.value.customizeCSSContent, bewlyShadow)
           bewlyStyleEL.setAttribute('data-bewly-customizeCSS', '')
         }
       }
@@ -342,7 +340,7 @@ export function setupNecessarySettingsWatchers() {
       const useBewlyHomepage = !isInIframe() && isHomePage() && !useOriginalBilibiliHomepage
       document.documentElement.classList.toggle('bewly-custom-homepage', useBewlyHomepage)
 
-      if (useBewlyHomepage && shouldShowOriginalBilibiliTopBar(settings.value.showTopBar, settings.value.useOriginalBilibiliTopBar)) {
+      if (useBewlyHomepage && shouldShowOriginalBilibiliTopBar(settings.value.enableTopBar, settings.value.useOriginalBilibiliTopBar)) {
         const scrollTop = document.getElementById('bewly')
           ?.shadowRoot
           ?.querySelector<HTMLElement>('.bewly-scroll-viewport')
@@ -354,20 +352,20 @@ export function setupNecessarySettingsWatchers() {
   )
 
   function isOriginalTopBarEnabled(): boolean {
-    return shouldShowOriginalBilibiliTopBar(settings.value.showTopBar, settings.value.useOriginalBilibiliTopBar)
+    return shouldShowOriginalBilibiliTopBar(settings.value.enableTopBar, settings.value.useOriginalBilibiliTopBar)
   }
 
   function applyDocumentTopBarClasses(doc: Document, shouldApplyRemoveTopBar: boolean) {
     doc.documentElement.classList.toggle('remove-top-bar', shouldApplyRemoveTopBar)
     // 顶栏可见性关闭时留给 Evolved 等第三方顶栏
-    doc.documentElement.classList.toggle('remove-custom-navbar', settings.value.showTopBar)
+    doc.documentElement.classList.toggle('remove-custom-navbar', settings.value.enableTopBar)
   }
 
   function buildIframeTopBarMessage() {
     return {
       type: IFRAME_TOP_BAR_CHANGE,
       useOriginalBilibiliTopBar: settings.value.useOriginalBilibiliTopBar,
-      showTopBar: settings.value.showTopBar,
+      enableTopBar: settings.value.enableTopBar,
     }
   }
 
@@ -407,7 +405,7 @@ export function setupNecessarySettingsWatchers() {
   }
 
   watch(
-    [() => settings.value.showTopBar, () => settings.value.useOriginalBilibiliTopBar],
+    [() => settings.value.enableTopBar, () => settings.value.useOriginalBilibiliTopBar],
     () => {
       applyOuterTopBarPolicy()
       syncTopBarPreferenceToIframes()
@@ -465,9 +463,23 @@ export function setupNecessarySettingsWatchers() {
     applyBewlyDesignClasses()
   }
 
-  window.addEventListener('popstate', refreshBewlyDesignOnRouteChange)
-  window.addEventListener('hashchange', refreshBewlyDesignOnRouteChange)
-  window.setInterval(refreshBewlyDesignOnRouteChange, 800)
+  let bewlyDesignRefreshQueued = false
+  const scheduleBewlyDesignRefresh = () => {
+    if (bewlyDesignRefreshQueued)
+      return
+
+    bewlyDesignRefreshQueued = true
+    // MAIN-world history hooks emit before the native method updates the URL.
+    queueMicrotask(() => {
+      bewlyDesignRefreshQueued = false
+      refreshBewlyDesignOnRouteChange()
+    })
+  }
+
+  window.addEventListener('pushstate', scheduleBewlyDesignRefresh)
+  window.addEventListener('replacestate', scheduleBewlyDesignRefresh)
+  window.addEventListener('popstate', scheduleBewlyDesignRefresh)
+  window.addEventListener('hashchange', scheduleBewlyDesignRefresh)
 
   // Clean Share Link - intercept clipboard copy events
   let cleanShareLinkCopyHandler: ((e: ClipboardEvent) => void) | null = null

@@ -42,7 +42,6 @@ interface Props {
   }
   hasCoverStats?: boolean
   shouldHideCoverStats?: boolean
-  coverStatsStyle?: Record<string, string>
 }
 
 const props = defineProps<Props>()
@@ -64,6 +63,7 @@ const shouldEnableVideoControls = computed(() => settings.value.enableVideoCtrlB
 const shouldEnableSwipeSeek = computed(() => settings.value.enableVideoPreviewSwipeSeek && !props.video?.roomid)
 let hls: Hls | null = null
 let flvPlayer: flvjs.Player | null = null
+let previewGeneration = 0
 /** 仅记录 pointerdown 意图；真正 scrub 需横向拖过阈值后才激活 */
 let activeScrubPointerId: number | null = null
 let scrubStartX = 0
@@ -361,6 +361,7 @@ function syncPreviewFullscreenState() {
 }
 
 function cleanupPlayers() {
+  previewGeneration++
   if (hls) {
     hls.destroy()
     hls = null
@@ -378,10 +379,14 @@ function cleanupPlayers() {
 async function setupPreviewVideo(url: string, videoEl: HTMLVideoElement) {
   // Check if URL is FLV stream
   if (url.includes('.flv')) {
+    const generation = ++previewGeneration
     try {
       // 动态导入 flv.js 以避免构建时依赖问题
       const flvjsModule = await import('flv.js')
       const flvjs = flvjsModule.default
+
+      if (generation !== previewGeneration || !videoEl.isConnected)
+        return
 
       if (flvjs.isSupported()) {
         // Cleanup previous players and clear video src
@@ -683,7 +688,7 @@ onBeforeUnmount(() => {
           text-white rounded="1/2" shadow="$bew-shadow-1"
           border="1 $bew-theme-color"
           grid="~ place-content-center"
-          text="xl" fw-bold
+          class="video-card-rank-badge" text="xl"
         >
           {{ video?.rank }}
         </div>
@@ -701,7 +706,7 @@ onBeforeUnmount(() => {
         <!-- Old layout: Video Duration (right bottom) -->
         <div
           v-if="layout === 'old' && settings.showVideoCardDuration && (video?.duration || video?.durationStr)"
-          class="video-card-overlay-transition"
+          class="video-card-overlay-transition video-card-live-badge"
           pos="absolute bottom-0 right-0"
           z="2"
           p="x-2 y-1"
@@ -738,7 +743,7 @@ onBeforeUnmount(() => {
           v-if="video?.liveStatus === 1"
           class="video-card-overlay-transition"
           :class="layout !== 'old' ? 'group-hover:opacity-0' : { 'opacity-0': shouldHideOverlayElements }"
-          pos="absolute left-0 top-0" bg="$bew-theme-color" text="xs white" fw-bold
+          pos="absolute left-0 top-0" bg="$bew-theme-color" text="xs white"
           p="x-2 y-1" m-1 inline-block rounded="$bew-radius"
         >
           LIVE
@@ -791,7 +796,6 @@ onBeforeUnmount(() => {
           :class="{
             'video-card-cover-stats--hidden': shouldHideCoverStats,
           }"
-          :style="coverStatsStyle"
         >
           <div class="video-card-cover-stats__items">
             <span
@@ -832,6 +836,11 @@ onBeforeUnmount(() => {
 </template>
 
 <style lang="scss" scoped>
+.video-card-rank-badge,
+.video-card-live-badge {
+  font-weight: var(--bew-font-weight-bold);
+}
+
 .video-card-overlay-transition {
   transition: opacity var(--bew-duration-moderate, 300ms) var(--bew-ease-standard, ease);
 }
@@ -888,6 +897,7 @@ onBeforeUnmount(() => {
     calc(var(--video-card-stats-font-size, 0.75rem) * 0.6) calc(var(--video-card-stats-font-size, 0.75rem) * 0.45);
   color: #fff;
   font-size: var(--video-card-stats-font-size, 0.75rem);
+  line-height: var(--video-card-stats-line-height, 1rem);
   opacity: 1;
   transition: opacity 0.2s ease;
   pointer-events: none;
@@ -921,15 +931,16 @@ onBeforeUnmount(() => {
 }
 
 .video-card-cover-stats__items {
-  display: inline-flex;
+  display: flex;
+  flex: 1 1 0;
   align-items: center;
+  align-content: flex-start;
   gap: 0.4rem;
-  white-space: nowrap;
-  flex-wrap: nowrap;
-  /* 不允许收缩，避免数字被截断 */
-  flex-shrink: 0;
-  /* 允许内容溢出，由容器查询控制显示 */
+  height: var(--video-card-stats-line-height, 1rem);
   min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  flex-wrap: wrap;
 }
 
 .video-card-cover-stats__item {
@@ -947,18 +958,15 @@ onBeforeUnmount(() => {
 
 .video-card-cover-stats__value {
   font-size: var(--video-card-stats-font-size, 0.75rem);
-  line-height: 1;
+  line-height: var(--video-card-stats-line-height, 1rem);
 }
 
 .video-card-cover-stats__item--duration {
   margin-left: auto;
   font-size: var(--video-card-stats-font-size, 0.75rem);
-  /* 时长固定在最右侧，不收缩 */
+  /* 时长始终保留在右侧；左侧统计空间不足时会整项换行并被隐藏。 */
   flex-shrink: 0;
 }
-
-/* 响应式显示控制已移至 VideoCard.vue 的 coverStatsVisibility 计算属性 */
-/* 避免 CSS Container Query 在特定系统缩放（如 Windows 125%）下的性能问题 */
 
 .video-card-cover-stats--hidden {
   opacity: 0;
@@ -977,32 +985,6 @@ onBeforeUnmount(() => {
 @keyframes spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-/* ✅ 性能优化：从父组件 :deep() 移至本地 scoped，减少跨组件选择器匹配 */
-/* 播放量和时长始终显示，弹幕和点赞在较宽屏幕显示 */
-.cover-stat-view {
-  display: inline-flex; /* 播放量始终显示 */
-}
-
-.cover-stat-danmaku,
-.cover-stat-like {
-  display: none; /* 默认隐藏弹幕和点赞 */
-}
-
-/* 使用媒体查询代替容器查询（性能更好） */
-/* 屏幕宽度 > 768px 时显示弹幕 */
-@media (min-width: 768px) {
-  .cover-stat-danmaku {
-    display: inline-flex;
-  }
-}
-
-/* 屏幕宽度 > 1024px 时显示点赞 */
-@media (min-width: 1024px) {
-  .cover-stat-like {
-    display: inline-flex;
   }
 }
 </style>

@@ -1,3 +1,7 @@
+// 关闭毛玻璃时，常驻雾层会越过栏体再向下延伸 16px完成渐隐。
+// 雾层是绝对定位的，不撑高 .top-bar，因此退场位移需要额外包含这 16px。
+$top-bar-retract: calc(-1 * (var(--bew-top-bar-height) + var(--bew-space-4)));
+
 .top-bar-enter-active,
 .top-bar-leave-active {
   transition:
@@ -7,7 +11,8 @@
 
 .top-bar-enter-from,
 .top-bar-leave-to {
-  --uno: "opacity-0 transform -translate-y-full";
+  opacity: 0;
+  transform: translateY(#{$top-bar-retract});
 }
 
 .slide-in-enter-active,
@@ -51,7 +56,7 @@
 }
 
 .hide {
-  transform: translateY(-100%);
+  transform: translateY(#{$top-bar-retract});
 }
 
 :deep(.search-bar) {
@@ -68,6 +73,7 @@
   --uno: "after:absolute after:top--30px after:left-1/2 after:-z-1";
   --uno: "after:transform after:-translate-x-1/2";
   border-radius: var(--bew-popover-radius);
+  backdrop-filter: var(--bew-filter-glass-1);
 }
 
 .logo.activated {

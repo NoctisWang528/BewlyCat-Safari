@@ -2,11 +2,11 @@
 import { useMediaQuery, useMutationObserver } from '@vueuse/core'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
-import ProgressiveBlurSurface from '~/components/ProgressiveBlurSurface.vue'
 import { useBewlyApp } from '~/composables/useAppProvider'
 import { useLayoutEditMode } from '~/composables/useLayoutEditMode'
 import { AppPage } from '~/enums/appEnums'
 import { settings } from '~/logic'
+import { experimentalTopBarStyles, FROSTED_GLASS_BLUR_MAX_PX, FROSTED_GLASS_BLUR_MIN_PX } from '~/logic/storage'
 
 import { useTopBarInteraction } from '../composables/useTopBarInteraction'
 import TopBarItemEditor from './TopBarItemEditor.vue'
@@ -19,57 +19,144 @@ const props = defineProps<{
   isDark: boolean
 }>()
 
-const { forceWhiteIcon, handleNotificationsItemClick } = useTopBarInteraction()
+const { forceWhiteIcon, hasPageBackdrop, handleNotificationsItemClick } = useTopBarInteraction()
 const { isLayoutEditing } = useLayoutEditMode()
-const { activatedPage } = useBewlyApp()
+const { activatedPage, scrollTop } = useBewlyApp()
 const isNarrowLayout = useMediaQuery('(max-width: 767px)')
 // 搜索控件常驻挂载，显隐交给 TopBarSearch 内部的 Transition 播放动画；
 // 若在此处跟随 showSearchBar 卸载整棵子树，内部的 slide-out 过渡会被同步卸载吞掉。
 // 仅布局编辑模式需要整体隐藏（搜索页本身有搜索框，不展示编辑目标）。
 const showTopBarSearchEditor = computed(() =>
   !isLayoutEditing.value || activatedPage.value !== AppPage.Search)
-const usesProgressiveFog = computed(() => settings.value.topBarStyle === 'progressiveFog')
 
-const OVERLAY_HEIGHT = 'calc(var(--bew-top-bar-height) * 1.35)'
-const FOG_GAMMA = 0.7
-const FOG_STOP_COUNT = 10
+const FADE_STOP_COUNT = 16
 
-function fogStops(peak: number): [number, number][] {
-  return Array.from({ length: FOG_STOP_COUNT }, (_, index) => {
-    const t = index / (FOG_STOP_COUNT - 1)
-    const decay = ((1 + Math.cos(Math.PI * t)) / 2) ** FOG_GAMMA
+function fadeStops(peak: number): [number, number][] {
+  return Array.from({ length: FADE_STOP_COUNT }, (_, index) => {
+    const t = index / (FADE_STOP_COUNT - 1)
+    const decay = (1 + Math.cos(Math.PI * t)) / 2
     return [+(t * 100).toFixed(1), peak * decay]
   })
 }
 
-function fogGradient(color: string, peak: number) {
-  const stops = fogStops(peak).map(([position, alpha]) =>
-    `rgb(${color} / ${+alpha.toFixed(2)}%) ${position}%`)
+// 分段线性拐点会被读成一条亮暗带（Mach band）；余弦让收尾斜率渐近于 0。
+function smoothFade(color: (alphaPercent: number) => string, peak: number) {
+  const stops = fadeStops(peak).map(([position, alpha]) => `${color(+alpha.toFixed(2))} ${position}%`)
   return `linear-gradient(to bottom, ${stops.join(', ')})`
 }
 
-const progressiveFogTint = computed(() => {
-  return props.isDark
-    ? fogGradient('0 0 0', 75)
-    : fogGradient('255 255 255', 80)
+function overlayMask(plateauVar: string) {
+  return `linear-gradient(to bottom, rgb(0 0 0 / 100%) 0%, ${
+    fadeStops(100)
+      .map(([position, alpha]) => {
+        const t = +(position / 100).toFixed(4)
+        return `rgb(0 0 0 / ${+alpha.toFixed(2)}%) calc(var(${plateauVar}) + ${t} * (100% - var(${plateauVar})))`
+      })
+      .join(', ')
+  })`
+}
+
+// 毛玻璃：满强度到主控件下沿（约 55px），收尾落在 64px 顶栏内。
+const FROSTED_OVERLAY_MASK = overlayMask('--overlay-mask-plateau-frosted')
+// 滚动遮罩：平台覆盖顶栏主体，收尾向下延伸 16px，让加深效果平滑融入页面。
+const SCROLLED_OVERLAY_MASK = overlayMask('--overlay-mask-plateau-scrolled')
+
+const GLASS_TINT_ALPHA = 0.1
+const SCROLLED_SHADE_ALPHA_GLASS = 0.2
+const SCROLLED_SHADE_ALPHA_SOLID = 0.24
+
+// 遮罩随滚动渐进加深的距离：约两个顶栏高度（64px），在整条顶栏滚出视口前完成渐入
+const MASK_RAMP_SCROLL_PX = 120
+
+// 平滑步进：两端斜率为 0，和余弦渐变一样避免拐点被读成一条亮暗带
+function smoothstep(t: number) {
+  const clamped = Math.min(1, Math.max(0, t))
+  return clamped * clamped * (3 - 2 * clamped)
+}
+
+// 用连续滚动进度替代 scrollTop===0 的布尔翻转：靠近顶部时遮罩逐级减淡
+const maskProgress = computed(() => smoothstep(scrollTop.value / MASK_RAMP_SCROLL_PX))
+
+const isShadowStyle = computed(() =>
+  settings.value.topBarStyle === 'transparent'
+  || settings.value.topBarStyle === 'expTransparent')
+
+// 雾配方只认「页面自带横幅」：那种底图的亮暗不受主题控制，只能恒用黑雾托住白图标。
+// 不能改认 forceWhiteIcon —— 它在「暗色 + 壁纸」也为真，会让暗色下有无壁纸变成两种配方（#1095）。
+const fadeGradient = computed(() => hasPageBackdrop.value
+  ? smoothFade(alpha => `rgb(0 0 0 / ${alpha}%)`, 60)
+  : smoothFade(alpha => `color-mix(in oklab, var(--bew-bg), transparent ${+(100 - alpha).toFixed(2)}%)`, 80))
+
+// 页面横幅不受主题控制，恒用暗玻璃；其余跟随亮暗。
+const useDarkGlass = computed(() => forceWhiteIcon.value || props.isDark)
+
+function glassColor(alpha: number) {
+  return useDarkGlass.value ? `rgb(0 0 0 / ${alpha})` : `rgb(255 255 255 / ${alpha})`
+}
+
+const glassTintColor = computed(() => glassColor(GLASS_TINT_ALPHA))
+
+// 毛玻璃档恒用薄色，不按有无底图分档：分离前景靠的是模糊本身，
+// 再按底图加深会让「有壁纸」和「无壁纸」变成两个浓度（#1095）。
+const frostedOverlayStyle = computed(() => ({
+  backgroundColor: glassTintColor.value,
+  backdropFilter: 'var(--bew-filter-glass-1)',
+  WebkitBackdropFilter: 'var(--bew-filter-glass-1)',
+  maskImage: FROSTED_OVERLAY_MASK,
+  WebkitMaskImage: FROSTED_OVERLAY_MASK,
+}))
+
+// 常驻雾层：顶部保持八成，随滚动收紧到全强度
+const fadeGradientStyle = computed(() => ({
+  background: fadeGradient.value,
+  opacity: 0.8 + 0.2 * maskProgress.value,
+  height: settings.value.enableFrostedGlass
+    ? 'var(--bew-top-bar-height)'
+    : 'calc(var(--bew-top-bar-height) + var(--bew-space-4))',
+}))
+
+// 暗色下用独立黑色层表达滚动加深，避免提高与页面同色的 --bew-bg 雾层时缺少可见变化。
+const scrolledShadeStyle = computed(() => ({
+  opacity: (settings.value.enableFrostedGlass
+    ? SCROLLED_SHADE_ALPHA_GLASS
+    : SCROLLED_SHADE_ALPHA_SOLID) * maskProgress.value,
+  maskImage: SCROLLED_OVERLAY_MASK,
+  WebkitMaskImage: SCROLLED_OVERLAY_MASK,
+}))
+
+// 实验三档走余弦渐变管线；其余档位沿用 v1.5.x 的遮罩表现。
+const useLegacyRendering = computed(() => !experimentalTopBarStyles.includes(settings.value.topBarStyle))
+
+// v1.5.x 的三停轻雾：顶部八成、中部六成（黑雾六/四成），随滚动由 0.8 收紧到 1。
+const legacyFadeGradientStyle = computed(() => ({
+  background: `linear-gradient(to bottom, ${
+    forceWhiteIcon.value
+      ? 'rgb(0 0 0 / 60%), rgb(0 0 0 / 40%) calc(var(--bew-top-bar-height) / 2)'
+      : 'color-mix(in oklab, var(--bew-bg), transparent 20%), color-mix(in oklab, var(--bew-bg), transparent 40%) calc(var(--bew-top-bar-height) / 2)'
+  }, transparent)`,
+  opacity: 0.8 + 0.2 * maskProgress.value,
+  height: 'var(--bew-top-bar-height)',
+}))
+
+// 旧版白雾保持 v1.5.x 的纯 blur 配方，半径跟随全局毛玻璃浓度滑块。
+const legacyGlassFilter = computed(() => {
+  const intensity = Math.min(FROSTED_GLASS_BLUR_MAX_PX, Math.max(FROSTED_GLASS_BLUR_MIN_PX, settings.value.frostedGlassBlurIntensity))
+  return `blur(${intensity}px)`
 })
 
-// 毛玻璃开启时顶栏遮罩始终使用玻璃滤镜；关闭时本就无滤镜，仍走 opacity 过渡。
-const glassOverlayStyle = computed(() => {
-  if (settings.value.enableFrostedGlass) {
-    return {
-      backgroundColor: forceWhiteIcon.value && !props.reachTop
-        ? 'rgb(0 0 0 / 35%)'
-        : 'transparent',
-      backdropFilter: 'var(--bew-filter-glass-1)',
-    }
-  }
-  return {
-    backgroundColor: forceWhiteIcon.value ? 'rgb(0 0 0)' : 'var(--bew-bg)',
-    opacity: props.reachTop ? 0 : 0.9,
-    backdropFilter: 'none',
-  }
-})
+// 只在毛玻璃开启时保留滚动渐入的模糊层；关闭毛玻璃后不再叠加实色遮罩。
+// 阴影档的常驻黑雾已能托住白色前景，毛玻璃开启时也不再叠加滚动层。
+const legacyMaskStyle = computed(() => ({
+  ...(settings.value.enableFrostedGlass ? { backdropFilter: legacyGlassFilter.value } : {}),
+  backgroundColor: 'transparent',
+  opacity: settings.value.enableFrostedGlass && !isShadowStyle.value ? maskProgress.value : 0,
+}))
+
+const themeGradientColor = computed(() =>
+  // 实验档在毛玻璃下用加深的主题色；旧版三档保持 v1.5.x 的强度。
+  !useLegacyRendering.value && settings.value.enableFrostedGlass
+    ? 'var(--bew-theme-color-20)'
+    : 'var(--bew-theme-color-10)')
 
 const leftSection = ref<HTMLElement | null>(null)
 const rightSection = ref<HTMLElement | null>(null)
@@ -191,45 +278,42 @@ function refreshSearchContent() {
     p="x-12" m-auto
     h="$bew-top-bar-height"
   >
-    <!-- 1.7.4 的五层渐进雾化仅在用户明确选择时挂载，避免默认产生额外合成开销。 -->
-    <div
-      v-if="usesProgressiveFog"
-      class="top-bar-header__progressive-fog"
-      :style="{ height: OVERLAY_HEIGHT }"
-    >
-      <!-- 渐变样式保持固定雾化，不随滚动再叠一层遮罩 -->
-      <ProgressiveBlurSurface />
+    <!-- 旧版三档：常驻雾层沿用 v1.5.x 结构，滚动层只在毛玻璃开启时生效 -->
+    <template v-if="useLegacyRendering">
       <div
-        class="top-bar-header__progressive-fog-tint"
-        :style="{ background: progressiveFogTint }"
+        class="top-bar-header__legacy-mask"
+        :class="{ 'top-bar-header__legacy-mask--glass': settings.enableFrostedGlass }"
+        :style="legacyMaskStyle"
       />
-    </div>
 
-    <template v-else>
-      <!-- 默认的低开销顶栏遮罩：常驻挂载，玻璃与恒等滤镜间插值（见 glassOverlayStyle） -->
-      <div class="top-bar-header__glass-overlay" :style="glassOverlayStyle" />
-
-      <div
-        pos="absolute top-0 left-0" w-full
-        pointer-events-none opacity-100 duration-300
-        :style="{
-          background: `linear-gradient(to bottom, ${
-            forceWhiteIcon
-              ? 'rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.4) calc(var(--bew-top-bar-height) / 2)'
-              : 'color-mix(in oklab, var(--bew-bg), transparent 20%), color-mix(in oklab, var(--bew-bg), transparent 40%) calc(var(--bew-top-bar-height) / 2)'
-          }, transparent)`,
-          opacity: reachTop ? 0.8 : 1,
-          height: 'var(--bew-top-bar-height)',
-        }"
-      />
+      <div class="top-bar-header__fog" :style="legacyFadeGradientStyle" />
     </template>
 
-    <!-- Top bar theme color gradient -->
+    <!-- 渐变：余弦渐变遮罩管线 -->
+    <template v-else>
+      <div
+        v-if="settings.enableFrostedGlass"
+        class="top-bar-header__glass-overlay"
+        :style="frostedOverlayStyle"
+      />
+
+      <div class="top-bar-header__fog" :style="fadeGradientStyle" />
+    </template>
+
+    <div
+      v-if="isDark"
+      class="top-bar-header__scrolled-shade"
+      :style="scrolledShadeStyle"
+    />
+
+    <!-- Top bar theme color gradient：只在暗色渲染，黑雾与底色雾同为深色，
+         叠淡主题渐变不影响白图标对比度，故不再按 forceWhiteIcon 关闭——
+         否则阴影与「自动＋壁纸」恒为白图标，开关会失效 -->
     <Transition name="fade">
       <div
-        v-if="!usesProgressiveFog && settings.showTopBarThemeColorGradient && !forceWhiteIcon && reachTop && isDark"
+        v-if="settings.showTopBarThemeColorGradient && reachTop && isDark"
         pos="absolute top-0 left-0" w-full h="$bew-top-bar-height" pointer-events-none
-        :style="{ background: 'linear-gradient(to bottom, var(--bew-theme-color-10), transparent)' }"
+        :style="{ background: `linear-gradient(to bottom, ${themeGradientColor}, transparent)` }"
       />
     </Transition>
 
@@ -286,39 +370,66 @@ function refreshSearchContent() {
   background: transparent;
 }
 
-.top-bar-header__progressive-fog {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  pointer-events: none;
-}
-
-.top-bar-header__progressive-fog-tint {
-  position: absolute;
-  inset: 0;
-  transition: opacity var(--bew-duration-moderate) var(--bew-ease-standard);
-}
-
 .top-bar-header__glass-overlay {
+  --overlay-mask-plateau-frosted: calc((var(--bew-top-bar-height) + var(--bew-top-bar-primary-control-height)) / 2);
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: var(--bew-top-bar-height);
   pointer-events: none;
-  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1), rgba(0, 0, 0, 1) 24px, rgba(0, 0, 0, 0.9) 44px, transparent);
-  -webkit-mask-image: linear-gradient(
-    to bottom,
-    rgba(0, 0, 0, 1),
-    rgba(0, 0, 0, 1) 24px,
-    rgba(0, 0, 0, 0.9) 44px,
-    transparent
-  );
+  // 遮罩透明度已随滚动逐帧连续，短线性过渡只抹平离散步进；颜色与滤镜仍走常规时长
   transition:
-    opacity var(--bew-duration-moderate) var(--bew-ease-standard),
+    opacity var(--bew-duration-fast) linear,
     background-color var(--bew-duration-moderate) var(--bew-ease-standard),
     backdrop-filter var(--bew-duration-moderate) var(--bew-ease-standard);
+}
+
+// 常驻雾层：位置固定，只有透明度跟随滚动进度逐帧更新
+.top-bar-header__fog {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  pointer-events: none;
+  transition: opacity var(--bew-duration-fast) linear;
+}
+
+.top-bar-header__scrolled-shade {
+  --overlay-mask-plateau-scrolled: calc(var(--bew-top-bar-height) - var(--bew-space-4));
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: calc(var(--bew-top-bar-height) + var(--bew-space-4));
+  pointer-events: none;
+  background-color: rgb(0 0 0);
+  transition: opacity var(--bew-duration-fast) linear;
+}
+
+// 旧版的滚动层：只在毛玻璃开启时为自动与白雾渐入模糊，
+// 关闭毛玻璃或使用阴影档时均保持透明（透明度与半径由 legacyMaskStyle 注入）。
+.top-bar-header__legacy-mask {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: var(--bew-top-bar-height);
+  pointer-events: none;
+  background-color: var(--bew-bg);
+  transition: opacity var(--bew-duration-fast) linear;
+  mask-image: linear-gradient(to bottom, rgb(0 0 0 / 100%), rgb(0 0 0 / 100%) 24px, rgb(0 0 0 / 90%) 44px, transparent);
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / 100%),
+    rgb(0 0 0 / 100%) 24px,
+    rgb(0 0 0 / 90%) 44px,
+    transparent
+  );
+}
+
+.top-bar-header__legacy-mask--glass {
+  background-color: transparent;
 }
 
 .top-bar-header__side {

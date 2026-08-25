@@ -159,6 +159,15 @@ settings:
     import_failed: 设置文件无法读取，请确认它是有效的 JSON 备份。
     import_no_matches: 备份中没有可导入的设置项。
     import_success: 导入成功：已应用 {imported} 项，忽略 {ignored} 项未知设置。
+    migrate_legacy_title: 设置迁移
+    migrate_legacy_action: 一键迁移
+    migrate_legacy_item: '· {name}'
+    migrate_legacy_settings_confirm: |-
+      检测到以下旧版设置，确认后将一键转换成当前版本：
+      {items}
+    migrate_legacy_import_confirm: |-
+      导入的备份包含以下旧版设置，确认后将一键转换并导入：
+      {items}
     reset_title: 恢复默认设置
     reset_desc: 此区域的操作会影响全部 BewlyCat 设置。
     reset_warning: 恢复后无法撤销，当前语言设置会保留。
@@ -201,7 +210,7 @@ settings:
   group_video_card: 视频卡片
   group_video_card_display: 显示与预览
   group_video_card_content: 卡片内容
-  group_video_card_content_desc: 自定义视频卡片上各项信息与操作的显示。
+  group_video_card_content_desc: 自定义视频卡片上各项信息与操作的显示，实际显示元素以接口下发数据为准。
   group_video_card_context_menu: 更多菜单
   group_video_card_context_menu_desc: 选择点击视频卡片更多按钮后显示的菜单选项。
   video_card_context_menu_region_recommendation: 推荐
@@ -275,6 +284,10 @@ settings:
   environment_info_copied: 环境信息已复制
   environment_info_copy_failed: 复制环境信息失败
   environment_info_unknown: 未知
+  environment_browser: 浏览器
+  environment_browser_version: 浏览器版本
+  environment_bewlycat_version: BewlyCat 版本
+  xiaohongshu: 小红书
   group_settings_sync: 浏览器云同步
   group_version_reminder: 版本提醒
   original_moments_show_user_card: 显示用户卡片
@@ -285,6 +298,7 @@ settings:
   moments_show_user_card: 显示用户卡片
   moments_show_publish: 显示发布动态组件
   moments_show_live: 显示正在直播组件
+  moments_show_hot_search: 显示热搜
   moments_show_up_list: 显示经常访问的 UP 主
   moments_visible_components: 显示组件
   moments_visible_components_original_desc: 控制 Bilibili 原版动态页侧栏与横幅等组件是否显示。主题色表示显示，灰色表示隐藏。
@@ -434,6 +448,12 @@ settings:
     bewly_widescreen_sidebar_position_desc: 选择 Bewly 宽屏模式下侧边栏的显示位置
     bewly_widescreen_sidebar_position_left: 左侧
     bewly_widescreen_sidebar_position_right: 右侧
+    bewly_widescreen_sidebar_priority: Bewly宽屏布局优先级
+    bewly_widescreen_sidebar_priority_desc: 视频优先：侧栏默认收起为窄条，悬停临时展开，也可用按钮切换为完整侧栏（会压缩视频区域）；侧栏优先：侧栏默认完整显示并压缩视频区域。
+    bewly_widescreen_sidebar_priority_video: 视频优先
+    bewly_widescreen_sidebar_priority_sidebar: 侧栏优先
+    bewly_widescreen_center_vertical_video: Bewly宽屏画面居中
+    bewly_widescreen_center_vertical_video_desc: 开启后，宽屏模式下若画面两侧留有足够容纳侧栏的黑边空间，视频将在整个画面水平居中，侧栏完整占据一侧黑边；空间不足时保持现有布局。
   video_player_scroll: 调整显示模式后滚动
   video_player_scroll_desc: 启用后，在默认模式为宽屏和默认时，会自动滚动到合适位置。
   enlarge_favorite_dialog: 放大收藏弹窗
@@ -442,6 +462,8 @@ settings:
   external_watch_later_button_desc: 启用后，视频页工具栏会显示独立的稍后再看按钮；按钮会显示当前视频状态，可点击添加或移除。
   show_vertical_video_zoom_button: 竖屏放大按钮
   show_vertical_video_zoom_button_desc: 在竖屏视频播放器中显示放大/缩小按钮和画面位置调节控件
+  show_bewly_widescreen_button: 显示播放器 Bewly 宽屏按钮
+  show_bewly_widescreen_button_desc: 启用后，在视频播放器控制栏中显示 Bewly 宽屏按钮。
   show_video_screenshot_button: 显示播放器截图按钮
   show_video_screenshot_button_desc: 启用后，在视频播放器控制栏中显示截取当前视频画面的按钮。
   keep_collection_video_default_mode: 合集视频保持默认模式
@@ -509,7 +531,7 @@ settings:
   only_cover_video_preview: 仅封面视频预览
   show_video_card_author_avatar: 显示用户头像
   show_video_card_author_name: 显示用户昵称
-  show_video_card_video_tag: 显示视频标签
+  show_video_card_video_tag: 显示视频标签（搜索结果页）
   show_video_card_video_tag_desc: 显示搜索页等场景提供的视频分类标签。
   show_video_card_recommend_tag: 显示插件计算的推荐标签
   show_video_card_recommend_tag_desc: 显示插件计算的标签，如"高赞"、"高互动"、"百万播放"等
@@ -527,15 +549,17 @@ settings:
   video_page_top_bar_config_opt:
     alwaysShow: 总是显示
     alwaysHide: 总是隐藏
-    showOnMouse: 鼠标显示
+    showOnMouse: 鼠标显示（仅插件）
     showOnScroll: 滚动显示
   top_bar_style: 顶栏样式
-  top_bar_style_desc: 选择顶栏的背景效果。渐变会启用 1.7.4 的五层模糊，并同时应用到设置窗口顶部，可能显著增加 GPU 开销。
+  top_bar_style_desc: 选择顶栏的背景效果。
   top_bar_style_opt:
-    default: 默认（白雾/阴影）
-    progressive_fog: 渐变（消耗性能）
-    transparent: 阴影
+    default: 自动
     frosted_glass: 白雾
+    transparent: 阴影
+    exp_default: 自动（实验）
+    exp_frosted_glass: 白雾（实验）
+    exp_transparent: 阴影（实验）
   show_top_bar_theme_color_gradient: 在顶栏显示主题色渐变（仅在暗色模式下有效）
   show_bewly_or_bili_page_switcher: 显示 BewlyCat/Bilibili 页面切换器
   show_bewly_or_bili_page_switcher_on_more_pages: 在更多页面显示 BewlyCat/Bilibili 页面切换器
@@ -543,9 +567,17 @@ settings:
   filter_articles_in_moments_desc: 在动态列表中过滤掉专栏内容，仅显示视频
   enable_settings_sync: 启用设置同步
   enable_settings_sync_desc: 开启后同时保存到本地和浏览器云端；壁纸背景与设备播放状态不会同步（需要登录浏览器账号）
+  sync_cloud_conflict_title: 检测到云端设置备份
+  sync_cloud_conflict_desc: 云端已有一份设置备份。两侧都存在的设置将以你所选的一侧为准。
+  sync_cloud_use_cloud: 下载：以云端设置为准
+  sync_cloud_use_local: 上传：以本地设置为准
+  sync_cloud_status_failed: 无法读取云端同步状态
+  sync_cloud_enable_failed: 开启云同步失败
+  sync_cloud_incompatible: 云端数据由更新版本的扩展写入，请先升级扩展再开启同步
   top_bar_icon_badges: 图标角标
   top_bar_icon_badges_opt:
     number: 数字
+    number_with_likes: 数字（包含点赞）
     dot: 圆点
     none: 不显示
   show_watch_later_badge: 显示稍后再看角标
@@ -563,6 +595,10 @@ settings:
   auto_switch_list_layout: 根据视频卡片区域宽度自动切换单双列
   auto_switch_list_layout_desc: 开启后，双列模式会在视频卡片区域宽度小于设定宽度时自动切换为单列。
   auto_switch_list_layout_breakpoint: 切换宽度
+  video_card_cover_ratio: 封面占比
+  video_card_cover_ratio_desc: 分别设置单列与双列横向视频卡片中封面所占的宽度。
+  video_card_cover_ratio_one_column: 单列布局
+  video_card_cover_ratio_two_columns: 双列布局
   grid_breakpoints: 网格断点配置
   grid_breakpoints_desc: 设置不同视频卡片区域宽度下显示的列数。当区域宽度大于等于设定值时，使用对应的列数。
   grid_min_width: 宽度 ≥
@@ -734,6 +770,30 @@ settings:
   filter_by_publish_time_desc: 筛选掉发布时间超过设定天数的视频（仅在 Web 推荐模式下有效，最少 7 天）。
   filter_by_publish_time_unit: 天
   filter_item_already_exist: 这个筛选项目已经存在！
+  wanted_users:
+    enter_query: 请输入 UP 主 UID 或昵称
+    no_results: 没有找到相关 UP 主，请尝试其他昵称
+    search_failed: 搜索 UP 主失败，请稍后重试
+    invalid_uid: 请输入有效的 UP 主 UID
+    pinned_limit: 最多只能固定 {count} 个 UP 主
+    not_found: 未找到该 UP 主
+    info_failed: 获取 UP 主信息失败，请稍后重试
+    placeholder: 输入 UP 主 UID 或昵称
+    pinned_already: 该 UP 主已经在“固定 UP”中
+    wanted_already: 该 UP 主已经在“想看”分组中
+    pinned_need_follow: 必须先关注 {name}，才能将其加入“固定 UP”
+    wanted_need_follow: 必须先关注 {name}，才能将其加入“想看”分组
+    pinned_added: 已将 {name} 固定到动态栏
+    wanted_added: 已将 {name} 加入“想看”
+    pinned_removed: 已取消固定 {name}
+    wanted_removed: 已将 {name} 移出“想看”
+    remove_pinned: 取消固定 {name}
+    remove_wanted: 将 {name} 移出想看
+    remove_pinned_title: 取消固定
+    remove_wanted_title: 移出想看
+    pinned_empty: 尚未添加固定 UP 主。添加后会显示在动态栏右侧。
+    wanted_empty: 尚未添加 UP 主。添加后可在 Bewly 动态页的“想看”中筛选。
+  authorization_success: 授权成功
   filter_by_title: 按标题筛选
   filter_by_title_desc: >
     按标题筛选掉包含您设置关键字的视频（不区分大小写），也可以使用正则表达式，如 <code>/abc&#124;\d+/</code>，用
@@ -777,6 +837,10 @@ settings:
   use_original_bilibili_homepage_desc: 在您更改此设置后，如果在首页上，页面将自动刷新！
   use_original_bilibili_topbar: 使用原版 Bilibili 顶栏
   use_original_bilibili_topbar_desc: 仅在「顶栏可见性」开启时生效。开启后使用 B 站原版顶栏，关闭后使用 BewlyCat 顶栏。
+  top_bar_mode: 顶栏类型
+  top_bar_mode_opt:
+    original: 原版顶栏
+    bewly: BewlyCat 顶栏
   adapt_to_other_page_styles: 适应其他页面样式
   adapt_to_other_page_styles_desc: 适应一些常见页面，以与 BewlyCat 主题相匹配。
   prevent_mobile_redirect: 防止跳转移动端
@@ -795,6 +859,8 @@ settings:
     该操作无法撤销。你确定要重置你的设置吗？
   current_contributors: BewlyCat（含 BewlyBewly）贡献者
   contributors_image_failed: 贡献者图片加载失败
+  disable_auto_play_collection: 自动关闭合集自动播放
+  disable_auto_play_collection_desc: 自动关闭视频合集的自动播放功能
   enable_undo_refresh_button: 启用撤销刷新按钮（仅在Web推荐模式下有效）
   enable_undo_refresh_button_desc: 刷新页面后显示撤销按钮，点击可恢复刷新前的内容
   shortcuts:
@@ -931,6 +997,9 @@ settings:
 auth:
   auth_access_key_first: 在这之前请先授权 BewlyCat 使用 access key
 topbar:
+  top_bar_switcher: Bilibili/BewlyCat 顶栏切换器
+  switch_to_bilibili_top_bar: 切换到 Bilibili 顶栏
+  switch_to_bewly_top_bar: 切换到 BewlyCat 顶栏
   sign_in: 登录
   notifications: 通知
   moments: 动态
@@ -1040,6 +1109,8 @@ dock:
   light_mode: 亮色模式
   settings: 设置
 video_card:
+  episode_watch_later_info_failed: 无法获取该剧集的稍后再看信息
+  feedback_options_unavailable: 未能获取反馈选项
   operation:
     not_interested: 不感兴趣
     not_interested_uploader: 不想看此 UP 主
@@ -1057,6 +1128,8 @@ video_card:
     unfollow_user: 取消关注
     block_user: 拉黑用户
     more_options: 更多操作
+    scroll_top: 滚动到顶部
+    scroll_bottom: 滚动到底部
   follow_user_confirm:
     title: 确认关注用户
     message: 确定要关注 {name} 吗？
@@ -1074,6 +1147,8 @@ video_card:
   watched: 已观看
   visited_recently: 近一个月内浏览过
 home:
+  app_authorization_required: App 模式的 access token 已缺失或过期，请重新授权后继续使用个性推荐
+  reauthorize_app: 重新授权
   recommendation_filter_risk_warning: 当前过滤条件在 100 条有效推荐中仅保留了 {count} 条，容易频繁请求并触发接口风控，建议适当放宽过滤条件。
   tell_us_why: 为什么这么做...
   not_interested_desc: >
@@ -1089,6 +1164,15 @@ home:
   live: 直播
   moments: 动态
   uploaders_with_updates: '{count}个UP主有更新'
+  risk_control_paused: 请求过于频繁导致首页推荐接口风控，已暂停自动请求约 {seconds} 秒，请稍后刷新重试
+  app_fallback_web: App 推荐数据加载失败，已自动切换至 Web 模式
+  app_retry_web: App 推荐数据加载失败，请手动切换至 Web 模式或稍后重试
+  recommendations_retry: 首页推荐接口连续请求失败，请刷新后重试
+  weekly_issue: 第{number}期
+  select_issue: 选择期号
+  search_issue: 搜索期号…
+  issue_not_found: 未找到匹配的期号
+  collaboration: 联合投稿
 ranking:
   all: 全部
   original_content: 原创内容
@@ -1112,6 +1196,9 @@ anime:
       sat: 周六
       sun: 周日
 history:
+  livestreaming: 直播
+  pgc: 番剧影视
+  live: 直播中
   clear_all_watch_history: 清除所有观看历史
   clear_all_watch_history_confirm: |-
     要清除所有观看历史吗？
@@ -1128,6 +1215,10 @@ history:
     你确定要开启观看历史吗？
 favorites:
   collected_season_prefix: 合集
+  view_type: 收藏类型
+  view_video: 视频
+  view_season: 合集
+  view_article: 图文
   video_section_title: 收藏的视频
   folder_section_title: 所有收藏夹
   season_section_title: 收藏的合集
@@ -1212,3 +1303,224 @@ search_page:
   loading: 加载中...
   no_hot_search_data: 暂无热搜数据
   view_all_esports: 查看全部赛事
+search:
+  page_title: 搜索 - 哔哩哔哩
+  results_title: '{keyword} - 搜索结果 - 哔哩哔哩'
+  comprehensive: 综合排序
+  most_viewed: 最多播放
+  latest: 最新发布
+  most_danmaku: 最多弹幕
+  most_favorited: 最多收藏
+  default_sort: 默认排序
+  fans_desc: 粉丝数由高到低
+  fans_asc: 粉丝数由低到高
+  level_desc: Lv等级由高到低
+  level_asc: Lv等级由低到高
+  any_duration: 全部时长
+  under_10: 10分钟以下
+  from_10_to_30: 10-30分钟
+  from_30_to_60: 30-60分钟
+  over_60: 60分钟以上
+  any_date: 全部日期
+  past_day: 最近一天
+  past_week: 最近一周
+  past_half_year: 最近半年
+  all_users: 全部用户
+  uploaders: UP主用户
+  regular_users: 普通用户
+  verified_users: 认证用户
+  all: 综合
+  videos: 视频
+  bangumi: 番剧
+  film_tv: 影视
+  users: 用户
+  live: 直播
+  articles: 专栏
+  activity: 活动
+  esports_schedule: 赛程日历
+  watch_now: 立即观看
+  score: '{score} 分'
+  episode_count: 共 {count} 话
+  first_aired: '首播：{date}'
+  fans_count: '粉丝：{count}'
+  video_count: '视频：{count}'
+  streamers: 主播
+  live_rooms: 直播间
+  results_count: 共找到 {count} 个结果
+  view_more_streamers: 查看更多主播（{count}+）
+  other: 其它
+  start_date: 开始日期
+  end_date: 结束日期
+  to: 至
+  sort: 排序
+  more_filters: 更多筛选
+  duration: 时长
+  date: 日期
+  user_type: 用户类型
+  search_failed: 搜索失败，请稍后重试
+  search_error: 搜索出错，请稍后重试
+  work: '稿件 {index}'
+  month: '{month}月'
+  year: '{year}年'
+  clear: 清除
+  today: 今天
+  weekdays: 日,一,二,三,四,五,六
+  followed: 已关注
+  follow: 关注
+  match_finished: 已结束
+  match_upcoming: 未开始
+  match_live: 进行中
+moments:
+  filter_all: 全部
+  filter_video: 视频投稿
+  filter_pgc: 追番追剧
+  filter_article: 专栏
+  emoji: 表情
+  view: 查看
+  charged_unlock: 充电解锁
+  reserved: 已预约
+  reserve: 预约
+  popularity: '{count} 人气'
+  charging_exclusive: 充电专属
+  charging_unlock_hint: 加入当前 UP 主的充电即可解锁观看
+  charging_exclusive_post: 充电专属动态
+  go_charge: 去充电
+  vote_ongoing: 进行中
+  vote_ended: 已结束
+  forwarded_post: 转发了动态
+  bilibili_user: B站用户
+  original_author: 原作者
+  live_post: 直播动态
+  video_post: 视频动态
+  image_post: 图文动态
+  text_post: 纯文字动态
+  original_post: 原动态
+  login_to_like: 登录后才能点赞动态
+  like_failed: 动态点赞失败
+  like_failed_retry: 动态点赞失败，请稍后重试
+  login_to_reserve: 登录后才能预约
+  cancel_reserve_failed: 取消预约失败
+  reserve_failed: 预约失败
+  reserve_succeeded: 预约成功
+  reserve_cancelled: 已取消预约
+  reserve_operation_failed: 预约操作失败，请稍后重试
+  login_to_watch_later: 登录后才能添加稍后再看
+  watch_later_info_failed: 无法获取该视频的稍后再看信息
+  watch_later_operation_failed: 稍后再看操作失败，请稍后重试
+  user_info: 动态用户信息
+  following: 关注
+  followers: 粉丝
+  posts: 动态
+  publish: 发布动态
+  live_now: 正在直播
+  group_label: 动态分组
+  all_posts: 全部动态
+  wanted_only: 只看想看的 UP 主
+  cancel_wanted_only: 取消只看想看的 UP 主
+  wanted_scope_hint: 仅适用于全部和视频投稿
+  wanted: 想看
+  scroll_left: 向左滚动经常访问列表
+  scroll_right: 向右滚动经常访问列表
+  frequent_uploaders: 经常访问的 UP 主
+  has_updates: 有更新
+  pin_uploader: 固定 UP 主
+  no_recent_updates: 近期无更新
+  add_wanted_first: 请先在设置中添加想看的 UP 主
+  empty: 暂时没有可展示的动态
+  recheck: 重新检查
+  reload: 重新加载
+  loading_more: 正在加载并准备更多动态…
+  new_tab: 新建标签页打开
+  close: 关闭
+  live_room: 直播间
+  video_playback: 视频播放
+  detail: 动态详情
+  opening_live: 正在打开直播间…
+  opening_video: 正在打开视频…
+  opening_forward: 正在打开转发动态…
+  loading_detail: 正在加载动态详情…
+  author_detail: '{name} 的详情'
+  image_viewer: 动态图片查看器
+  close_image_viewer: 关闭图片查看器
+  enlarged_image: 动态图片大图
+  previous_image: 上一张
+  next_image: 下一张
+  zoom_out: 缩小
+  zoom_in: 放大
+  fit_window: 适应窗口
+  rotate_clockwise: 顺时针旋转
+moment_card:
+  video_post: 视频动态
+  cancel_reservation: 取消预约
+  reserve: 预约
+  open_space: 打开 {name} 的空间
+  just_now: 刚刚
+  charging_exclusive: 充电专属
+  added_watch_later: 已添加稍后再看
+  add_watch_later: 添加至稍后再看
+  added: 已添加
+  watch_later: 稍后再看
+  live_post: 直播动态
+  open_original_video: '打开原视频：{title}'
+  author_images: '{name} 的动态图片'
+  view_author_images: 查看 {name} 的动态图片
+  open_origin_moment: 查看 {name} 的原动态
+  additional: 附加内容
+  view_hot_comment: 查看热门评论
+  hot_comment: 热门评论
+  open_dialog: 弹窗打开动态
+  open_dialog_short: 弹窗打开
+  open_new_tab: 新建标签页打开动态
+  open_new_tab_short: 新标签页打开
+  view_comments: 查看评论
+  live_popularity: '直播人气 {value}'
+  no_data: 暂无数据
+  live_now: 直播中
+  like_unsupported: 该动态暂不支持点赞
+  unlike: 取消点赞
+  like: 点赞
+user_card:
+  followed: 已关注
+  follow: 关注
+  empty_bio: 这个人很懒，什么都没有写~
+  live_now: 直播中
+  submissions: '{count}个投稿'
+  followers: '{count}粉丝'
+widescreen:
+  show_narrow_right: 显示窄右栏
+  show_narrow_left: 显示窄左栏
+  collapse_right: 收起右栏
+  collapse_left: 收起左栏
+  exit: 退出
+  exit_title: 退出 Bewly 宽屏
+  loading: 正在加载宽屏模式…
+  exit_overlay: 退出遮罩
+  comments: 评论
+  danmaku: 弹幕
+  episodes: 选集
+  collapse: 收起
+  expand_more: 展开更多
+  comments_loading: 评论区加载中
+  danmaku_loading: 弹幕列表加载中
+  recommendations: 推荐
+  list_loading: 列表加载中
+player_state:
+  muted: 已静音
+  unmuted: 已取消静音
+  no_captions: 当前视频无字幕
+  speed: '倍速 {rate}'
+  danmaku: '弹幕 {state}'
+  volume: '音量 {volume}%'
+  on: 开
+  off: 关
+vertical_video:
+  zoom_in: 放大
+  zoom_out: 缩小
+  adjust_area: 调整竖屏放大区域
+favorite_dialog:
+  clear_selected: 清空已选
+inject:
+  page_prefix: 第{current}页，共
+  of: 共
+  loading: 加载中…
+  load_more: 加载更多

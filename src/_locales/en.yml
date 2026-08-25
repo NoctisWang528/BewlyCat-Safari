@@ -159,6 +159,15 @@ settings:
     import_failed: The settings file could not be read. Make sure it is a valid JSON backup.
     import_no_matches: No recognized settings were found in this backup.
     import_success: 'Import complete: applied {imported} settings and ignored {ignored} unknown settings.'
+    migrate_legacy_title: Migrate settings
+    migrate_legacy_action: Migrate all
+    migrate_legacy_item: '· {name}'
+    migrate_legacy_settings_confirm: |-
+      These older settings were found. Confirm to convert them all at once:
+      {items}
+    migrate_legacy_import_confirm: |-
+      This backup contains older settings. Confirm to convert them all during import:
+      {items}
     reset_title: Restore default settings
     reset_desc: Actions in this section affect all BewlyCat settings.
     reset_warning: This cannot be undone. Your current language will be preserved.
@@ -201,7 +210,7 @@ settings:
   group_video_card: Video Card
   group_video_card_display: Display & Preview
   group_video_card_content: Card Content
-  group_video_card_content_desc: Choose which information and actions appear on video cards.
+  group_video_card_content_desc: Choose which information and actions appear on video cards. The elements actually shown depend on the data returned by the API.
   group_video_card_context_menu: More Menu
   group_video_card_context_menu_desc: Choose which options appear after clicking a video card's more button.
   video_card_context_menu_region_recommendation: Recommend
@@ -278,6 +287,10 @@ settings:
   environment_info_copied: Environment information copied
   environment_info_copy_failed: Failed to copy environment information
   environment_info_unknown: Unknown
+  environment_browser: Browser
+  environment_browser_version: Browser version
+  environment_bewlycat_version: BewlyCat version
+  xiaohongshu: REDnote
   group_settings_sync: Browser cloud sync
   group_version_reminder: Version reminders
   original_moments_show_user_card: Show user card
@@ -288,6 +301,7 @@ settings:
   moments_show_user_card: Show user card
   moments_show_publish: Show publish action
   moments_show_live: Show live users
+  moments_show_hot_search: Show hot search
   moments_show_up_list: Show frequently visited uploaders
   moments_visible_components: Visible components
   moments_visible_components_original_desc: Control whether sidebar and banner components appear on the original Bilibili moments page. Theme-colored means shown; gray means hidden.
@@ -451,6 +465,20 @@ settings:
     bewly_widescreen_sidebar_position_desc: Choose the sidebar position in Bewly Widescreen mode
     bewly_widescreen_sidebar_position_left: Left
     bewly_widescreen_sidebar_position_right: Right
+    bewly_widescreen_sidebar_priority: Bewly Widescreen Layout Priority
+    bewly_widescreen_sidebar_priority_desc: >-
+      Video-first: the sidebar starts as a narrow strip, temporarily expands on
+      hover, and can be fully expanded via the button (which takes space from
+      the video). Sidebar-first: the sidebar is fully expanded by default and
+      takes space from the video.
+    bewly_widescreen_sidebar_priority_video: Video-first
+    bewly_widescreen_sidebar_priority_sidebar: Sidebar-first
+    bewly_widescreen_center_vertical_video: Center Video in Bewly Widescreen
+    bewly_widescreen_center_vertical_video_desc: >-
+      When enabled, videos are centered horizontally across the whole viewport
+      in widescreen mode whenever the letterbox bars leave enough room for the
+      sidebar, which then fully occupies one side. Otherwise the current layout
+      is kept.
   enable_video_preview: Enable video preview feature (if possible)
   enable_video_ctrl_bar_on_video_card: Display the video control bar on the video card
   video_preview_swipe_seek: Swipe to seek nearby
@@ -459,7 +487,7 @@ settings:
   only_cover_video_preview: Preview videos only when hovering the cover
   show_video_card_author_avatar: Show uploader avatar
   show_video_card_author_name: Show uploader name
-  show_video_card_video_tag: Show video tags
+  show_video_card_video_tag: Show video tags (search results page)
   show_video_card_video_tag_desc: Show video category tags provided on search and other pages.
   show_video_card_recommend_tag: Show plugin-calculated recommendation tags
   show_video_card_recommend_tag_desc: Display tags calculated by the plugin, such as "High Engagement", "Popular", etc.
@@ -477,15 +505,17 @@ settings:
   video_page_top_bar_config_opt:
     alwaysShow: Always show
     alwaysHide: Always hide
-    showOnMouse: On hover
+    showOnMouse: On hover (Bewly only)
     showOnScroll: On scroll
   top_bar_style: Top bar style
-  top_bar_style_desc: Choose the top bar background. Gradient restores the five blur layers from 1.7.4 and also applies them to the top of Settings, which can significantly increase GPU usage.
+  top_bar_style_desc: Choose the top bar background.
   top_bar_style_opt:
-    default: Default (white fog/shadow)
-    progressive_fog: Gradient (performance intensive)
-    transparent: Shadow
+    default: Auto
     frosted_glass: White fog
+    transparent: Shadow
+    exp_default: Auto (experimental)
+    exp_frosted_glass: White fog (experimental)
+    exp_transparent: Shadow (experimental)
   show_top_bar_theme_color_gradient: Show theme color gradient in top bar (only works in dark mode)
   show_bewly_or_bili_page_switcher: Show BewlyBewly/Bilibili page switcher
   show_bewly_or_bili_page_switcher_on_more_pages: Show BewlyCat/Bilibili page switcher on more pages
@@ -494,6 +524,7 @@ settings:
   top_bar_icon_badges: Icon badges
   top_bar_icon_badges_opt:
     number: Number
+    number_with_likes: Number (including likes)
     dot: Dot
     none: Do not show
   show_watch_later_badge: Show watch later badge
@@ -511,6 +542,10 @@ settings:
   auto_switch_list_layout: Automatically switch list columns based on video grid width
   auto_switch_list_layout_desc: When enabled, two-column mode switches to one column when the video grid is narrower than the configured width.
   auto_switch_list_layout_breakpoint: Switch at
+  video_card_cover_ratio: Cover width
+  video_card_cover_ratio_desc: Set the cover width separately for horizontal video cards in one- and two-column layouts.
+  video_card_cover_ratio_one_column: One column
+  video_card_cover_ratio_two_columns: Two columns
   grid_breakpoints: Grid Breakpoints
   grid_breakpoints_desc: Set the number of columns at different video grid widths. The matching column count is used when the grid reaches each breakpoint.
   grid_min_width: Width ≥
@@ -697,6 +732,30 @@ settings:
   filter_by_publish_time_desc: Filter out videos published more than the specified number of days ago (only works in Web recommendation mode, minimum 7 days).
   filter_by_publish_time_unit: days
   filter_item_already_exist: This filter item already exists!
+  wanted_users:
+    enter_query: Enter an uploader UID or name
+    no_results: No uploader found. Try another name.
+    search_failed: Failed to search uploaders. Please try again later.
+    invalid_uid: Enter a valid uploader UID
+    pinned_limit: You can pin at most {count} uploaders
+    not_found: Uploader not found
+    info_failed: Failed to get uploader information. Please try again later.
+    placeholder: Uploader UID or name
+    pinned_already: This uploader is already pinned
+    wanted_already: This uploader is already in Wanted
+    pinned_need_follow: Follow {name} before pinning them
+    wanted_need_follow: Follow {name} before adding them to Wanted
+    pinned_added: Pinned {name} to the dynamic feed
+    wanted_added: Added {name} to Wanted
+    pinned_removed: Unpinned {name}
+    wanted_removed: Removed {name} from Wanted
+    remove_pinned: Unpin {name}
+    remove_wanted: Remove {name} from Wanted
+    remove_pinned_title: Unpin
+    remove_wanted_title: Remove from Wanted
+    pinned_empty: No uploaders pinned. Pinned uploaders appear on the right of the dynamic feed.
+    wanted_empty: No uploaders added. Add one to filter by Wanted on the Bewly dynamic feed.
+  authorization_success: Authorization successful
   filter_by_title: Filter by title
   filter_by_title_desc: >-
     Filtered out the videos that contain the titles you set (case-insensitive).
@@ -768,6 +827,10 @@ settings:
   use_original_bilibili_topbar_desc: >-
     Only applies when top bar visibility is on. Enable it to use the original
     Bilibili top bar; disable it to use the BewlyCat top bar.
+  top_bar_mode: Top bar type
+  top_bar_mode_opt:
+    original: Original top bar
+    bewly: BewlyCat top bar
   adapt_to_other_page_styles: Adapt to other page styles
   adapt_to_other_page_styles_desc: Adapt to some common pages to match with the BewlyBewly theme.
   prevent_mobile_redirect: Prevent mobile redirect
@@ -797,6 +860,17 @@ settings:
     Save settings locally and to browser cloud storage. Wallpaper/background
     settings and per-device playback state are not synced (requires signing in
     to the browser account).
+  sync_cloud_conflict_title: Cloud settings backup found
+  sync_cloud_conflict_desc: >-
+    A settings backup already exists in cloud storage. Settings present on both
+    sides will follow the side you choose.
+  sync_cloud_use_cloud: 'Download: cloud settings take precedence'
+  sync_cloud_use_local: 'Upload: local settings take precedence'
+  sync_cloud_status_failed: Failed to read cloud sync status
+  sync_cloud_enable_failed: Failed to enable settings cloud sync
+  sync_cloud_incompatible: >-
+    The cloud data was written by a newer version of the extension. Update the
+    extension before enabling sync.
   disable_auto_play_collection: Auto disable collection autoplay
   disable_auto_play_collection_desc: Automatically turn off the autoplay feature for video collections
   keep_collection_video_default_mode: Keep collection videos in default mode
@@ -1010,6 +1084,8 @@ settings:
   external_watch_later_button_desc: Show a standalone Watch later button in the video toolbar. It displays the current state and can add or remove the video.
   show_vertical_video_zoom_button: Vertical video zoom button
   show_vertical_video_zoom_button_desc: Show zoom controls and the visible-area position control for vertical videos
+  show_bewly_widescreen_button: Show player Bewly Widescreen button
+  show_bewly_widescreen_button_desc: Show the Bewly Widescreen button in the video player controls.
   show_video_screenshot_button: Show player screenshot button
   show_video_screenshot_button_desc: Show a button in the video player controls for capturing the current video frame.
   group_fonts: Font
@@ -1018,6 +1094,9 @@ settings:
 auth:
   auth_access_key_first: Before doing this, authorize BewlyBewly to use the access key.
 topbar:
+  top_bar_switcher: Bilibili/BewlyCat top bar switcher
+  switch_to_bilibili_top_bar: Switch to the Bilibili top bar
+  switch_to_bewly_top_bar: Switch to the BewlyCat top bar
   sign_in: Sign in
   notifications: Notifications
   moments: Moments
@@ -1127,6 +1206,8 @@ dock:
   light_mode: Light Mode
   settings: Settings
 video_card:
+  episode_watch_later_info_failed: Unable to get Watch later information for this episode
+  feedback_options_unavailable: Feedback options are unavailable
   operation:
     not_interested: Not Interested
     not_interested_uploader: Don't Recommend This Uploader
@@ -1144,6 +1225,8 @@ video_card:
     unfollow_user: Unfollow User
     block_user: Block User
     more_options: More options
+    scroll_top: Scroll to top
+    scroll_bottom: Scroll to bottom
   follow_user_confirm:
     title: Confirm Follow User
     message: Are you sure you want to follow {name}?
@@ -1161,6 +1244,8 @@ video_card:
   watched: Watched
   visited_recently: Visited within the past month
 home:
+  app_authorization_required: The App mode access token is missing or expired. Re-authorize to continue using personalized recommendations.
+  reauthorize_app: Re-authorize
   recommendation_filter_risk_warning: The current filters retained only {count} of 100 valid recommendations. This may cause frequent requests and trigger API risk control. Consider relaxing the filters.
   tell_us_why: Choose a reason why
   not_interested_desc: >-
@@ -1177,6 +1262,15 @@ home:
   live: Live
   moments: Moments
   uploaders_with_updates: no uploader with updates | {count} uploader with updates | {count} uploaders with updates
+  risk_control_paused: Requests were too frequent, so home recommendations have paused for about {seconds} seconds. Refresh and try again later.
+  app_fallback_web: App recommendations failed to load. Switched to Web mode automatically.
+  app_retry_web: App recommendations failed to load. Switch to Web mode manually or try again later.
+  recommendations_retry: Home recommendations repeatedly failed. Refresh and try again.
+  weekly_issue: 'Issue {number}'
+  select_issue: Select issue
+  search_issue: Search issues…
+  issue_not_found: No matching issue found
+  collaboration: Collaboration
 ranking:
   all: All
   original_content: Original Content
@@ -1200,6 +1294,9 @@ anime:
       sat: SAT
       sun: SUN
 history:
+  livestreaming: Livestreaming
+  pgc: Shows
+  live: Live
   title: Watch History
   search_watch_history: Search watch history
   clear_all_watch_history: Clear all watch history
@@ -1216,6 +1313,10 @@ history:
   turn_on_watch_history_confirm: Turn on watch history? Are you sure you want to turn on watch history?
 favorites:
   collected_season_prefix: Season
+  view_type: Favorite type
+  view_video: Videos
+  view_season: Collections
+  view_article: Articles
   video_section_title: Favorite videos
   folder_section_title: All folders
   season_section_title: Collected seasons
@@ -1306,3 +1407,224 @@ search_page:
   loading: Loading...
   no_hot_search_data: No hot search data available
   view_all_esports: View All Esports
+search:
+  page_title: Search - Bilibili
+  results_title: '{keyword} - Search results - Bilibili'
+  comprehensive: Comprehensive
+  most_viewed: Most viewed
+  latest: Latest
+  most_danmaku: Most danmaku
+  most_favorited: Most favorited
+  default_sort: Default
+  fans_desc: Most fans
+  fans_asc: Fewest fans
+  level_desc: Highest level
+  level_asc: Lowest level
+  any_duration: Any duration
+  under_10: Under 10 minutes
+  from_10_to_30: 10–30 minutes
+  from_30_to_60: 30–60 minutes
+  over_60: Over 60 minutes
+  any_date: Any date
+  past_day: Past day
+  past_week: Past week
+  past_half_year: Past six months
+  all_users: All users
+  uploaders: Uploaders
+  regular_users: Regular users
+  verified_users: Verified users
+  all: All
+  videos: Videos
+  bangumi: Anime
+  film_tv: Film & TV
+  users: Users
+  live: Live
+  articles: Articles
+  activity: Events
+  esports_schedule: Esports schedule
+  watch_now: Watch now
+  score: '{score} points'
+  episode_count: '{count} episodes'
+  first_aired: 'First aired: {date}'
+  fans_count: 'Fans: {count}'
+  video_count: 'Videos: {count}'
+  streamers: Streamers
+  live_rooms: Live rooms
+  results_count: '{count} results found'
+  view_more_streamers: 'View more streamers ({count}+)'
+  other: Other
+  start_date: Start date
+  end_date: End date
+  to: to
+  sort: Sort
+  more_filters: More filters
+  duration: Duration
+  date: Date
+  user_type: User type
+  search_failed: Search failed. Please try again later.
+  search_error: An error occurred while searching. Please try again later.
+  work: 'Work {index}'
+  month: 'Month {month}'
+  year: '{year}'
+  clear: Clear
+  today: Today
+  weekdays: Sun,Mon,Tue,Wed,Thu,Fri,Sat
+  followed: Followed
+  follow: Follow
+  match_finished: Finished
+  match_upcoming: Upcoming
+  match_live: Live
+moments:
+  filter_all: All
+  filter_video: Videos
+  filter_pgc: Anime & shows
+  filter_article: Articles
+  emoji: Emoji
+  view: View
+  charged_unlock: Unlock with charging
+  reserved: Reserved
+  reserve: Reserve
+  popularity: '{count} popularity'
+  charging_exclusive: Charging exclusive
+  charging_unlock_hint: Charge this uploader to unlock viewing
+  charging_exclusive_post: Charging-exclusive post
+  go_charge: Charge now
+  vote_ongoing: Ongoing
+  vote_ended: Ended
+  forwarded_post: Forwarded a post
+  bilibili_user: Bilibili user
+  original_author: Original author
+  live_post: Live post
+  video_post: Video post
+  image_post: Image post
+  text_post: Text post
+  original_post: Original post
+  login_to_like: Log in to like posts
+  like_failed: Failed to like post
+  like_failed_retry: Failed to like post. Please try again later.
+  login_to_reserve: Log in to make a reservation
+  cancel_reserve_failed: Failed to cancel reservation
+  reserve_failed: Failed to reserve
+  reserve_succeeded: Reservation successful
+  reserve_cancelled: Reservation cancelled
+  reserve_operation_failed: Reservation failed. Please try again later.
+  login_to_watch_later: Log in to add to Watch later
+  watch_later_info_failed: Unable to get Watch later information for this video
+  watch_later_operation_failed: Watch later operation failed. Please try again later.
+  user_info: Post author information
+  following: Following
+  followers: Followers
+  posts: Posts
+  publish: Publish post
+  live_now: Live now
+  group_label: Post groups
+  all_posts: All posts
+  wanted_only: Wanted uploaders only
+  cancel_wanted_only: Stop showing wanted uploaders only
+  wanted_scope_hint: Available only for All and Videos
+  wanted: Wanted
+  scroll_left: Scroll frequently visited list left
+  scroll_right: Scroll frequently visited list right
+  frequent_uploaders: Frequently visited uploaders
+  has_updates: Has updates
+  pin_uploader: Pin uploader
+  no_recent_updates: No recent updates
+  add_wanted_first: Add wanted uploaders in Settings first
+  empty: No posts to display
+  recheck: Check again
+  reload: Reload
+  loading_more: Loading and preparing more posts…
+  new_tab: Open in new tab
+  close: Close
+  live_room: Live room
+  video_playback: Video playback
+  detail: Post details
+  opening_live: Opening live room…
+  opening_video: Opening video…
+  opening_forward: Opening forwarded post…
+  loading_detail: Loading post details…
+  author_detail: '{name} details'
+  image_viewer: Post image viewer
+  close_image_viewer: Close image viewer
+  enlarged_image: Enlarged post image
+  previous_image: Previous image
+  next_image: Next image
+  zoom_out: Zoom out
+  zoom_in: Zoom in
+  fit_window: Fit to window
+  rotate_clockwise: Rotate clockwise
+moment_card:
+  video_post: Video post
+  cancel_reservation: Cancel reservation
+  reserve: Reserve
+  open_space: Open {name}'s profile
+  just_now: Just now
+  charging_exclusive: Charging exclusive
+  added_watch_later: Added to Watch later
+  add_watch_later: Add to Watch later
+  added: Added
+  watch_later: Watch later
+  live_post: Live post
+  open_original_video: 'Open original video: {title}'
+  author_images: '{name} post images'
+  view_author_images: View {name}'s post images
+  open_origin_moment: View {name}'s original post
+  additional: Additional content
+  view_hot_comment: View popular comment
+  hot_comment: Popular comment
+  open_dialog: Open post in dialog
+  open_dialog_short: Open in dialog
+  open_new_tab: Open post in new tab
+  open_new_tab_short: Open in new tab
+  view_comments: View comments
+  live_popularity: 'Live popularity: {value}'
+  no_data: No data
+  live_now: Live now
+  like_unsupported: Likes are unavailable for this post
+  unlike: Unlike
+  like: Like
+user_card:
+  followed: Followed
+  follow: Follow
+  empty_bio: This user has not written a bio yet.
+  live_now: Live now
+  submissions: '{count} submissions'
+  followers: '{count} followers'
+widescreen:
+  show_narrow_right: Show narrow right sidebar
+  show_narrow_left: Show narrow left sidebar
+  collapse_right: Collapse right sidebar
+  collapse_left: Collapse left sidebar
+  exit: Exit
+  exit_title: Exit Bewly widescreen
+  loading: Loading widescreen mode…
+  exit_overlay: Exit overlay
+  comments: Comments
+  danmaku: Danmaku
+  episodes: Episodes
+  collapse: Collapse
+  expand_more: Expand more
+  comments_loading: Loading comments
+  danmaku_loading: Loading danmaku
+  recommendations: Recommendations
+  list_loading: Loading list
+player_state:
+  muted: Muted
+  unmuted: Unmuted
+  no_captions: This video has no captions
+  speed: 'Speed {rate}'
+  danmaku: 'Danmaku {state}'
+  volume: 'Volume {volume}%'
+  on: On
+  off: Off
+vertical_video:
+  zoom_in: Zoom in
+  zoom_out: Zoom out
+  adjust_area: Adjust vertical-video zoom area
+favorite_dialog:
+  clear_selected: Clear selected
+inject:
+  page_prefix: 'Page {current}, of'
+  of: of
+  loading: Loading…
+  load_more: Load more

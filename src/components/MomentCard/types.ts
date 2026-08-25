@@ -32,6 +32,10 @@ export interface DisplayAdditional {
   isUpRecommendation: boolean
   isVideoReservation: boolean
   isLiveReservation: boolean
+  /** 投票附加卡（ADDITIONAL_TYPE_VOTE），点击跳转官方投票页 */
+  isVote?: boolean
+  /** 投票截止时间戳（秒）；0 表示未知 */
+  voteEndTime?: number
   /** 预约卡片的业务 id（接口字段 rid） */
   reservationId?: string
   /** 接口返回的当前预约人数 */
@@ -48,6 +52,8 @@ export interface DisplayMoment {
   text: string
   richText: DisplayRichTextSegment[]
   images: string[]
+  /** 与 images 对齐的宽高比（宽/高），用于多图横向画廊计算共用高度 */
+  imageRatios?: Array<number | undefined>
   time: string
   likeCount: number
   isLiked: boolean
@@ -102,8 +108,14 @@ export interface DisplayMoment {
     title: string
     text: string
     fallback: string
+    /** 被转发原动态 id，用于直接打开原图文 */
+    id?: string
+    /** 被转发原动态详情地址 */
+    url?: string
+    isArticle?: boolean
     /** 转发原动态的图片，用于在嵌套卡片中保持原卡片形态 */
     images?: string[]
+    imageRatios?: Array<number | undefined>
     video?: DisplayForwardVideo
   }
 }

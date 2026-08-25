@@ -16,6 +16,7 @@ import SettingsItemGroup from '../../components/SettingsItemGroup.vue'
 const { t } = useI18n()
 
 type BadgeType = 'number' | 'dot' | 'none'
+type BadgeSelectValue = BadgeType | 'numberWithLikes'
 
 interface TopBarComponent {
   key: string
@@ -35,13 +36,13 @@ const topBarComponents = computed<TopBarComponent[]>(() => [
     key: 'favorites',
     i18nKey: 'topbar.favorites',
     icon: 'i-mingcute:star-line',
-    supportsBadge: true,
+    supportsBadge: false,
   },
   {
     key: 'history',
     i18nKey: 'topbar.history',
     icon: 'i-mingcute:time-line',
-    supportsBadge: true,
+    supportsBadge: false,
   },
   {
     key: 'watchLater',
@@ -67,10 +68,23 @@ const topBarComponents = computed<TopBarComponent[]>(() => [
     icon: 'i-tabler:bell',
     supportsBadge: true,
   },
+  {
+    key: 'topBarSwitcher',
+    i18nKey: 'topbar.top_bar_switcher',
+    icon: 'i-mingcute:refresh-2-line',
+    supportsBadge: false,
+  },
 ])
 
 const badgeOptions = computed(() => [
   { label: t('settings.top_bar_icon_badges_opt.number'), value: 'number' },
+  { label: t('settings.top_bar_icon_badges_opt.dot'), value: 'dot' },
+  { label: t('settings.top_bar_icon_badges_opt.none'), value: 'none' },
+])
+
+const notificationBadgeOptions = computed(() => [
+  { label: t('settings.top_bar_icon_badges_opt.number'), value: 'number' },
+  { label: t('settings.top_bar_icon_badges_opt.number_with_likes'), value: 'numberWithLikes' },
   { label: t('settings.top_bar_icon_badges_opt.dot'), value: 'dot' },
   { label: t('settings.top_bar_icon_badges_opt.none'), value: 'none' },
 ])
@@ -84,9 +98,16 @@ const videoPageTopBarConfigOptions = computed(() => [
 
 const topBarStyleOptions = computed<{ label: string, value: TopBarStyle }[]>(() => [
   { label: t('settings.top_bar_style_opt.default'), value: 'default' },
-  { label: t('settings.top_bar_style_opt.progressive_fog'), value: 'progressiveFog' },
-  { label: t('settings.top_bar_style_opt.transparent'), value: 'transparent' },
   { label: t('settings.top_bar_style_opt.frosted_glass'), value: 'frostedGlass' },
+  { label: t('settings.top_bar_style_opt.transparent'), value: 'transparent' },
+  { label: t('settings.top_bar_style_opt.exp_default'), value: 'expDefault' },
+  { label: t('settings.top_bar_style_opt.exp_frosted_glass'), value: 'expFrostedGlass' },
+  { label: t('settings.top_bar_style_opt.exp_transparent'), value: 'expTransparent' },
+])
+
+const topBarModeOptions = computed(() => [
+  { label: t('settings.top_bar_mode_opt.original'), value: true },
+  { label: t('settings.top_bar_mode_opt.bewly'), value: false },
 ])
 
 function createDefaultComponentConfig(component: TopBarComponent) {
@@ -103,6 +124,7 @@ function getComponentConfig(componentKey: string) {
 
 function resetTopBarComponents() {
   settings.value.topBarComponentsConfig = topBarComponents.value.map(createDefaultComponentConfig)
+  settings.value.showLikeNotificationReminder = false
 }
 
 function ensureTopBarComponentsConfig() {
@@ -126,10 +148,29 @@ function setComponentVisibility(componentKey: string, visible: boolean) {
     config.visible = visible
 }
 
-function setComponentBadgeType(componentKey: string, badgeType: BadgeType) {
+function getComponentBadgeValue(componentKey: string): BadgeSelectValue {
+  const badgeType = getComponentConfig(componentKey)?.badgeType ?? 'number'
+  if (componentKey === 'notifications' && badgeType === 'number' && settings.value.showLikeNotificationReminder)
+    return 'numberWithLikes'
+  return badgeType
+}
+
+function getBadgeOptions(componentKey: string) {
+  return componentKey === 'notifications' ? notificationBadgeOptions.value : badgeOptions.value
+}
+
+function setComponentBadgeType(componentKey: string, badgeValue: BadgeSelectValue) {
   const config = getComponentConfig(componentKey)
-  if (config)
-    config.badgeType = badgeType
+  if (!config)
+    return
+
+  if (componentKey === 'notifications') {
+    settings.value.showLikeNotificationReminder = badgeValue === 'numberWithLikes'
+    config.badgeType = badgeValue === 'numberWithLikes' ? 'number' : badgeValue
+    return
+  }
+
+  config.badgeType = badgeValue as BadgeType
 }
 
 ensureTopBarComponentsConfig()
@@ -197,6 +238,9 @@ function toggleChannel(value: string) {
       :title="$t('settings.topbar_display_settings')"
       :desc="$t('settings.topbar_display_settings_desc')"
     >
+      <SettingsItem :title="$t('settings.topbar_visibility')" :desc="$t('settings.topbar_visibility_desc')" right-width="auto">
+        <Radio v-model="settings.enableTopBar" :label="settings.enableTopBar ? $t('settings.chk_box.show') : $t('settings.chk_box.hidden')" />
+      </SettingsItem>
       <SettingsItem
         v-if="!settings.touchScreenOptimization"
         :title="$t('settings.open_top_bar_items_in_bewly')"
@@ -217,6 +261,13 @@ function toggleChannel(value: string) {
       </SettingsItem>
       <SettingsItem :title="$t('settings.open_notifications_page_as_drawer')" right-width="auto">
         <Radio v-model="settings.openNotificationsPageAsDrawer" />
+      </SettingsItem>
+      <SettingsItem
+        :title="$t('settings.filter_articles_in_moments')"
+        :desc="$t('settings.filter_articles_in_moments_desc')"
+        right-width="auto"
+      >
+        <Radio v-model="settings.filterArticlesInMoments" />
       </SettingsItem>
     </SettingsItemGroup>
 
@@ -333,14 +384,23 @@ function toggleChannel(value: string) {
           </span>
         </template>
         <div class="topbar-component-controls">
-          <div v-if="component.supportsBadge" class="topbar-component-control topbar-component-control--badge">
+          <div v-if="component.key === 'topBarSwitcher'" class="topbar-component-control topbar-component-control--mode">
+            <span class="topbar-component-control__label">{{ $t('settings.top_bar_mode') }}</span>
+            <Select
+              v-model="settings.useOriginalBilibiliTopBar"
+              :options="topBarModeOptions"
+              :disabled="!settings.enableTopBar"
+              w="160px"
+            />
+          </div>
+          <div v-else-if="component.supportsBadge" class="topbar-component-control topbar-component-control--badge">
             <span class="topbar-component-control__label">{{ $t('settings.badge_type') }}</span>
             <Select
-              :model-value="getComponentConfig(component.key)?.badgeType ?? 'number'"
-              :options="badgeOptions"
+              :model-value="getComponentBadgeValue(component.key)"
+              :options="getBadgeOptions(component.key)"
               :disabled="!getComponentConfig(component.key)?.visible"
               w="160px"
-              @update:model-value="setComponentBadgeType(component.key, $event as BadgeType)"
+              @update:model-value="setComponentBadgeType(component.key, $event as BadgeSelectValue)"
             />
           </div>
           <div class="topbar-component-control topbar-component-control--visibility">
@@ -351,21 +411,6 @@ function toggleChannel(value: string) {
             />
           </div>
         </div>
-      </SettingsItem>
-
-      <SettingsItem
-        :title="$t('settings.show_like_notification_reminder')"
-        :desc="$t('settings.show_like_notification_reminder_desc')"
-        right-width="auto"
-      >
-        <Radio v-model="settings.showLikeNotificationReminder" />
-      </SettingsItem>
-      <SettingsItem
-        :title="$t('settings.filter_articles_in_moments')"
-        :desc="$t('settings.filter_articles_in_moments_desc')"
-        right-width="auto"
-      >
-        <Radio v-model="settings.filterArticlesInMoments" />
       </SettingsItem>
 
       <div class="topbar-section-actions">

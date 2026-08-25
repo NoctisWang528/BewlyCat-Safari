@@ -26,6 +26,19 @@ const bewlyWidescreenSidebarPositionOptions = computed(() => {
   ]
 })
 
+const bewlyWidescreenSidebarPriorityOptions = computed(() => {
+  return [
+    {
+      label: t('settings.video_player_mode.bewly_widescreen_sidebar_priority_video'),
+      value: 'video',
+    },
+    {
+      label: t('settings.video_player_mode.bewly_widescreen_sidebar_priority_sidebar'),
+      value: 'sidebar',
+    },
+  ]
+})
+
 // 视频播放器模式选项
 const videoPlayerModeOptions = computed(() => {
   return [
@@ -107,6 +120,24 @@ const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefault
         right-width="auto"
       >
         <Select v-model="settings.bewlyWidescreenSidebarPosition" :options="bewlyWidescreenSidebarPositionOptions" w="160px" />
+      </SettingsItem>
+
+      <SettingsItem
+        v-if="usesBewlyWidescreen"
+        :title="t('settings.video_player_mode.bewly_widescreen_sidebar_priority')"
+        :desc="t('settings.video_player_mode.bewly_widescreen_sidebar_priority_desc')"
+        right-width="auto"
+      >
+        <Select v-model="settings.bewlyWidescreenSidebarPriority" :options="bewlyWidescreenSidebarPriorityOptions" w="160px" />
+      </SettingsItem>
+
+      <SettingsItem
+        v-if="usesBewlyWidescreen"
+        :title="t('settings.video_player_mode.bewly_widescreen_center_vertical_video')"
+        :desc="t('settings.video_player_mode.bewly_widescreen_center_vertical_video_desc')"
+        right-width="auto"
+      >
+        <Radio v-model="settings.bewlyWidescreenCenterVerticalVideo" />
       </SettingsItem>
 
       <SettingsItem
@@ -217,6 +248,14 @@ const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefault
           right-width="auto"
         >
           <Radio v-model="settings.showVerticalVideoZoomButton" />
+        </SettingsItem>
+
+        <SettingsItem
+          :title="t('settings.show_bewly_widescreen_button')"
+          :desc="t('settings.show_bewly_widescreen_button_desc')"
+          right-width="auto"
+        >
+          <Radio v-model="settings.showBewlyWidescreenButton" />
         </SettingsItem>
 
         <SettingsItem

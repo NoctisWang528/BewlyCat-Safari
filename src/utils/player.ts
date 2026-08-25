@@ -1,6 +1,11 @@
 // 更完善的播放器元素选择器
 import { settings } from '~/logic'
 import type { AutoPlayMode, DefaultVideoPlayerMode, VideoPlayerModeContext, VideoPlayerModeOverride } from '~/logic/storage'
+import { i18n } from '~/utils/i18n'
+
+function t(key: string, params: Record<string, unknown> = {}) {
+  return String(i18n.global.t(key, params))
+}
 
 const _videoClassTag = {
   danmuBtn:
@@ -35,6 +40,13 @@ const _videoClassTag = {
 const monitoredDanmakuSwitches = new WeakSet<HTMLInputElement>()
 const monitoredCaptionControls = new WeakSet<HTMLElement>()
 const monitoredPlaybackRateVideos = new WeakSet<HTMLVideoElement>()
+const VIDEO_RETRY_MAX_ATTEMPTS = 30
+let applyRateRetryCount = 0
+let applyRateRetryTimer: number | undefined
+let rateMonitorRetryCount = 0
+let rateMonitorRetryTimer: number | undefined
+let autoExitRetryCount = 0
+let autoExitRetryTimer: number | undefined
 
 function monitorDanmakuState(danmakuSwitch: HTMLInputElement) {
   if (monitoredDanmakuSwitches.has(danmakuSwitch))
@@ -768,6 +780,35 @@ export function getAutoPlayModeForVideoType(videoType = detectVideoType()): Auto
   }
 }
 
+/** 当前结束行为是否允许自定义播放接管切集。播完暂停/单集循环仍走默认播放模式。 */
+export function doesEndBehaviorAllowCustomAdvance(videoType = detectVideoType()): boolean {
+  if (settings.value.useBilibiliDefaultAutoPlay)
+    return true
+
+  const mode = getAutoPlayModeForVideoType(videoType)
+  return mode === 'autoPlay' || mode === 'autoPlayWithRecommend' || mode === 'default'
+}
+
+/** 播放器是否正在展示贴片广告。广告屏蔽插件跳过广告时不应被当成正片结束。 */
+export function isPlayerShowingAdvertisement(): boolean {
+  const player = document.querySelector(_videoClassTag.player)
+  if (player instanceof HTMLElement) {
+    if (player.classList.contains('bpx-state-ad') || player.getAttribute('data-ad') === 'true')
+      return true
+  }
+
+  return !!document.querySelector([
+    '.bpx-player-ads',
+    '.bilibili-player-ads',
+    '.bpx-player-ad-wrap',
+    '.bpx-player-adwrap',
+    '.bpx-player-pic-ad',
+    '.bpx-player-ads-wrap',
+    '.bpx-player-ads-skip',
+    '.bpx-player-btn-skip',
+  ].join(','))
+}
+
 /** 关闭 B 站原生的续播行为，让自定义播放独占视频结束后的切集。 */
 export function disableNativeEndPlaybackBehavior(videoType = detectVideoType()): void {
   captureNativeEndPlaybackBehavior(videoType)
@@ -782,8 +823,8 @@ export function applyAutoPlayByVideoType() {
   const videoType = detectVideoType()
 
   // 自定义顺序/逆序/随机播放独占 ended 事件；播放器重建后继续关闭原生续播，
-  // 避免官方逻辑与扩展同时抢着切下一集。
-  if (customEndPlaybackHandlerActive) {
+  // 避免官方逻辑与扩展同时抢着切下一集。播完暂停/单集循环仍交给默认播放模式。
+  if (customEndPlaybackHandlerActive && doesEndBehaviorAllowCustomAdvance(videoType)) {
     disableNativeEndPlaybackBehavior(videoType)
     return
   }
@@ -951,7 +992,7 @@ export function toggleMute(player: Element) {
     if (video) {
       const volumeNumber = document.querySelector('.bpx-player-ctrl-volume-number')
       const isMuted = volumeNumber ? volumeNumber.textContent === '0' : video.muted
-      showState(isMuted ? '已静音' : '已取消静音')
+      showState(isMuted ? t('player_state.muted') : t('player_state.unmuted'))
     }
   }
 }
@@ -1051,7 +1092,7 @@ export function toggleCaption() {
   }
 
   // 如果没有找到任何字幕相关元素，显示提示
-  showState('当前视频无字幕')
+  showState(t('player_state.no_captions'))
 }
 
 // 改变播放速度
@@ -1074,7 +1115,7 @@ export function changePlaybackRate(increase: boolean) {
     }
   }
 
-  showState(`倍速 ${video.playbackRate}`)
+  showState(t('player_state.speed', { rate: video.playbackRate }))
 }
 
 // 重置播放速度
@@ -1082,22 +1123,37 @@ export function resetPlaybackRate() {
   const video = getVideoElement()
   if (video) {
     video.playbackRate = 1
-    showState('倍速 1')
+    showState(t('player_state.speed', { rate: 1 }))
   }
 }
 
 // 应用记住的倍速
 export function applyRememberedPlaybackRate() {
+  if (applyRateRetryTimer !== undefined)
+    window.clearTimeout(applyRateRetryTimer)
+  applyRateRetryTimer = undefined
+  applyRateRetryCount = 0
+  tryApplyRememberedPlaybackRate()
+}
+
+function tryApplyRememberedPlaybackRate() {
   if (!settings.value.rememberPlaybackRate) {
+    applyRateRetryCount = 0
     return
   }
 
   const video = getVideoElement()
   if (!video) {
-    // 如果视频元素还没有加载，延迟重试
-    setTimeout(() => applyRememberedPlaybackRate(), 1000)
+    if (applyRateRetryCount >= VIDEO_RETRY_MAX_ATTEMPTS)
+      return
+    applyRateRetryCount++
+    applyRateRetryTimer = window.setTimeout(() => {
+      applyRateRetryTimer = undefined
+      tryApplyRememberedPlaybackRate()
+    }, 1000)
     return
   }
+  applyRateRetryCount = 0
 
   // 确保倍速值在有效范围内
   const savedRate = settings.value.savedPlaybackRate
@@ -1108,23 +1164,38 @@ export function applyRememberedPlaybackRate() {
     video.playbackRate = savedRate
     // 只在倍速不是1时显示状态
     if (savedRate !== 1) {
-      showState(`倍速 ${savedRate}`)
+      showState(t('player_state.speed', { rate: savedRate }))
     }
   }
 }
 
 // 监听播放器倍速变化并记录（监听所有倍速变化，包括播放器UI操作）
 export function startPlaybackRateMonitoring() {
+  if (rateMonitorRetryTimer !== undefined)
+    window.clearTimeout(rateMonitorRetryTimer)
+  rateMonitorRetryTimer = undefined
+  rateMonitorRetryCount = 0
+  tryStartPlaybackRateMonitoring()
+}
+
+function tryStartPlaybackRateMonitoring() {
   if (!settings.value.rememberPlaybackRate) {
+    rateMonitorRetryCount = 0
     return
   }
 
   const video = getVideoElement()
   if (!video) {
-    // 如果视频元素还没有加载，延迟重试
-    setTimeout(() => startPlaybackRateMonitoring(), 1000)
+    if (rateMonitorRetryCount >= VIDEO_RETRY_MAX_ATTEMPTS)
+      return
+    rateMonitorRetryCount++
+    rateMonitorRetryTimer = window.setTimeout(() => {
+      rateMonitorRetryTimer = undefined
+      tryStartPlaybackRateMonitoring()
+    }, 1000)
     return
   }
+  rateMonitorRetryCount = 0
 
   // DOM 属性可能在 B 站重建播放器时被复制到新节点，但事件监听器不会被复制。
   // 使用 WeakSet 按真实节点去重，确保新 video 仍会安装监听器。
@@ -1203,7 +1274,7 @@ export function adjustVideoSize(direction: number) {
 export function showDanmuState() {
   const danmuBtn = document.querySelector(_videoClassTag.danmuBtn)
   if (danmuBtn) {
-    showState(`弹幕 ${(danmuBtn as HTMLInputElement).checked ? 'On' : 'Off'}`)
+    showState(t('player_state.danmaku', { state: (danmuBtn as HTMLInputElement).checked ? t('player_state.on') : t('player_state.off') }))
   }
 }
 
@@ -1485,7 +1556,7 @@ export function setVolume(volume: number, showStatus = false): boolean {
 
   // 根据参数决定是否显示音量状态
   if (showStatus) {
-    showState(`音量 ${clampedVolume}%`)
+    showState(t('player_state.volume', { volume: clampedVolume }))
   }
 
   return true
@@ -1592,12 +1663,26 @@ function checkAndCancelAutoPlayForRecommendation() {
 
 // 监听视频结束事件并自动退出全屏
 export function startAutoExitFullscreenMonitoring() {
+  if (autoExitRetryTimer !== undefined)
+    window.clearTimeout(autoExitRetryTimer)
+  autoExitRetryTimer = undefined
+  autoExitRetryCount = 0
+  tryStartAutoExitFullscreenMonitoring()
+}
+
+function tryStartAutoExitFullscreenMonitoring() {
   const video = getVideoElement()
   if (!video) {
-    // 如果视频元素还没有加载，延迟重试
-    setTimeout(() => startAutoExitFullscreenMonitoring(), 1000)
+    if (autoExitRetryCount >= VIDEO_RETRY_MAX_ATTEMPTS)
+      return
+    autoExitRetryCount++
+    autoExitRetryTimer = window.setTimeout(() => {
+      autoExitRetryTimer = undefined
+      tryStartAutoExitFullscreenMonitoring()
+    }, 1000)
     return
   }
+  autoExitRetryCount = 0
 
   // 避免重复添加监听器
   if (video.hasAttribute('bewly-auto-exit-listener')) {
