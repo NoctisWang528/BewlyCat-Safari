@@ -8,6 +8,9 @@ vi.mock('webextension-polyfill', () => ({
   default: {
     scripting: {},
     tabs: {},
+    runtime: {
+      getManifest: () => ({ version: '1.7.8.1' }),
+    },
   },
 }))
 
@@ -39,13 +42,23 @@ describe('content script recovery', () => {
     vi.clearAllMocks()
   })
 
-  it('does not inject when the manifest content script responds', async () => {
+  it('does not inject when an older content script responds', async () => {
     const { extensionApi, scripting, tabs } = createExtensionApi()
     tabs.get.mockResolvedValue(eligibleTab)
     tabs.sendMessage.mockResolvedValue(CONTENT_SCRIPT_PONG)
 
-    await expect(recoverContentScript(7, extensionApi)).resolves.toBe('already-injected')
+    await expect(recoverContentScript(7, extensionApi)).resolves.toBe('outdated')
     expect(tabs.sendMessage).toHaveBeenCalledWith(7, expect.anything(), { frameId: 0 })
+    expect(scripting.insertCSS).not.toHaveBeenCalled()
+    expect(scripting.executeScript).not.toHaveBeenCalled()
+  })
+
+  it('does not inject when the current content script responds', async () => {
+    const { extensionApi, scripting, tabs } = createExtensionApi()
+    tabs.get.mockResolvedValue(eligibleTab)
+    tabs.sendMessage.mockResolvedValue({ type: CONTENT_SCRIPT_PONG, version: '1.7.8.1' })
+
+    await expect(recoverContentScript(8, extensionApi)).resolves.toBe('already-injected')
     expect(scripting.insertCSS).not.toHaveBeenCalled()
     expect(scripting.executeScript).not.toHaveBeenCalled()
   })
@@ -102,7 +115,7 @@ describe('content script recovery', () => {
       .mockRejectedValueOnce(new Error('Receiver is still starting'))
       .mockResolvedValueOnce(CONTENT_SCRIPT_PONG)
 
-    await expect(recoverContentScript(12, extensionApi)).resolves.toBe('already-injected')
+    await expect(recoverContentScript(12, extensionApi)).resolves.toBe('outdated')
     expect(tabs.sendMessage).toHaveBeenCalledTimes(2)
     expect(scripting.insertCSS).not.toHaveBeenCalled()
     expect(scripting.executeScript).not.toHaveBeenCalled()

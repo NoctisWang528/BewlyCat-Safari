@@ -195,7 +195,7 @@ export const useTopBarStore = defineStore('topBar', () => {
       return false
     }
 
-    if (shouldShowBewlyTopBar(settings.value.showTopBar, settings.value.useOriginalBilibiliTopBar))
+    if (shouldShowBewlyTopBar(settings.value.enableTopBar, settings.value.useOriginalBilibiliTopBar))
       return true
     return false
   })
@@ -747,8 +747,8 @@ export const useTopBarStore = defineStore('topBar', () => {
           (currentPage - 1) * 10 + res.data.list.length,
         )
         // 删除会让服务器列表前移，页边界可能与已加载内容重叠，按 aid 去重兜底
-        const existingIds = new Set(watchLaterList.map(item => item.aid))
-        const newItems = res.data.list.filter(item => !existingIds.has(item.aid))
+        const existingIds = new Set(watchLaterList.map((item: VideoItem) => item.aid))
+        const newItems = res.data.list.filter((item: VideoItem) => !existingIds.has(item.aid))
         watchLaterList.push(...newItems)
       }
     }

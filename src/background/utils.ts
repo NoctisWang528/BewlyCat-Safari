@@ -29,12 +29,15 @@ async function toJsonHandler(data: Response): Promise<any> {
     throw new ApiRiskControlError()
   }
 
+  // Response 主体只能读取一次，先克隆以保留风控页面检测所需内容。
+  const fallbackResponse = data.clone()
+
   try {
     return await data.json()
   }
   catch (error) {
     // 如果JSON解析失败，可能也是风控页面
-    const text = await data.clone().text()
+    const text = await fallbackResponse.text()
     if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
       throw new ApiRiskControlError()
     }
@@ -128,7 +131,8 @@ function apiListenerFactory(API_MAP: APIMAP) {
       // 获取tab信息以获取正确的cookieStoreId
       const tab = await browser.tabs.get(sender.tab.id)
       const storeId = tab.cookieStoreId || 'default'
-      const cookies = await browser.cookies.getAll({ storeId })
+      // 仅转发目标接口自然可携带的 Cookie，避免跨 Bilibili 域混入无关凭据。
+      const cookies = await browser.cookies.getAll({ url: api.url, storeId })
       return await doRequest(typedMessage, api, undefined, cookies, authStrategy, appAccessToken)
     }
 

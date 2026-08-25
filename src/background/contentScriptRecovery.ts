@@ -1,7 +1,9 @@
 import type { Scripting, Tabs } from 'webextension-polyfill'
 import browser from 'webextension-polyfill'
 
-import { CONTENT_SCRIPT_PING, CONTENT_SCRIPT_PONG, isContentScriptTargetUrl } from '~/constants/contentScript'
+import { CONTENT_SCRIPT_PING, CONTENT_SCRIPT_PONG, isContentScriptPong, isContentScriptTargetUrl } from '~/constants/contentScript'
+
+import { injectContentScriptRefreshPrompt } from './contentScriptRefreshPrompt'
 
 const CONTENT_SCRIPT_CSS = 'dist/contentScripts/style.css'
 const CONTENT_SCRIPT_JS = 'dist/contentScripts/index.global.js'
@@ -13,7 +15,7 @@ export interface ContentScriptRecoveryBrowser {
   scripting: Pick<Scripting.Static, 'executeScript' | 'insertCSS'>
 }
 
-export type ContentScriptRecoveryResult = 'ineligible' | 'already-injected' | 'injected'
+export type ContentScriptRecoveryResult = 'ineligible' | 'already-injected' | 'outdated' | 'injected'
 export type ContentScriptRecoveryPlatform = 'safari' | 'standard'
 
 function getRecoveryPlatform(): ContentScriptRecoveryPlatform {
@@ -34,18 +36,22 @@ async function isEligibleActiveTab(tabId: number, extensionApi: ContentScriptRec
   }
 }
 
-async function pingContentScript(tabId: number, extensionApi: ContentScriptRecoveryBrowser): Promise<boolean> {
+async function pingContentScript(tabId: number, extensionApi: ContentScriptRecoveryBrowser): Promise<'current' | 'outdated' | 'missing'> {
   try {
     const response = await extensionApi.tabs.sendMessage(
       tabId,
       { type: CONTENT_SCRIPT_PING },
       { frameId: 0 },
     )
-    return response === CONTENT_SCRIPT_PONG
+    if (response === CONTENT_SCRIPT_PONG)
+      return 'outdated'
+    if (isContentScriptPong(response))
+      return response.version === browser.runtime.getManifest().version ? 'current' : 'outdated'
+    return 'missing'
   }
   catch {
     // A missing receiver is expected for the session-restoration case handled here.
-    return false
+    return 'missing'
   }
 }
 
@@ -57,8 +63,14 @@ export async function recoverContentScript(
   if (!await isEligibleActiveTab(tabId, extensionApi))
     return 'ineligible'
 
-  if (await pingContentScript(tabId, extensionApi))
+  const firstPing = await pingContentScript(tabId, extensionApi)
+  if (firstPing === 'current')
     return 'already-injected'
+  if (firstPing === 'outdated') {
+    if (platform === 'safari')
+      await injectContentScriptRefreshPrompt(tabId, browser.runtime.getManifest().version, extensionApi)
+    return 'outdated'
+  }
 
   await new Promise(resolve => setTimeout(resolve, CONTENT_SCRIPT_STARTUP_GRACE_PERIOD_MS))
 
@@ -68,8 +80,14 @@ export async function recoverContentScript(
   if (!await isEligibleActiveTab(tabId, extensionApi))
     return 'ineligible'
 
-  if (await pingContentScript(tabId, extensionApi))
+  const secondPing = await pingContentScript(tabId, extensionApi)
+  if (secondPing === 'current')
     return 'already-injected'
+  if (secondPing === 'outdated') {
+    if (platform === 'safari')
+      await injectContentScriptRefreshPrompt(tabId, browser.runtime.getManifest().version, extensionApi)
+    return 'outdated'
+  }
 
   // Safari 不支持 scripting API 的 frameIds、injectImmediately 与 world 参数。
   // 恢复 isolated content script 后，由它通过现有 script-tag bridge 注入页面脚本。

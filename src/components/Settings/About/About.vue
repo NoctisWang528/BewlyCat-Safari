@@ -23,6 +23,8 @@ import SettingsSectionHeading from '../components/SettingsSectionHeading.vue'
 
 const hasNewVersion = ref<boolean>(false)
 const contributorsImageFailed = ref(false)
+const contributorsImageUsingCloud = ref(false)
+const contributorsImageSrc = ref(browser.runtime.getURL('/assets/contributors.svg'))
 const browserInfo = ref(parseBrowserInfo())
 const isCopyingEnvironmentInfo = ref(false)
 const { t } = useI18n()
@@ -51,6 +53,11 @@ async function checkGitHubRelease() {
 }
 
 function handleContributorImageError() {
+  if (!contributorsImageUsingCloud.value) {
+    contributorsImageUsingCloud.value = true
+    contributorsImageSrc.value = 'https://contrib.rocks/image?repo=keleus/BewlyCat'
+    return
+  }
   contributorsImageFailed.value = true
 }
 
@@ -60,9 +67,9 @@ async function handleCopyEnvironmentInfo() {
 
   const unknownValue = t('settings.environment_info_unknown')
   const text = [
-    `- 浏览器：${browserInfo.value.name ?? unknownValue}`,
-    `- 浏览器版本：${browserInfo.value.version ?? unknownValue}`,
-    `- BewlyCat-Safari 版本：${SAFARI_VERSION}`,
+    `- ${t('settings.environment_browser')}: ${browserInfo.value.name ?? unknownValue}`,
+    `- ${t('settings.environment_browser_version')}: ${browserInfo.value.version ?? unknownValue}`,
+    `- ${t('settings.environment_bewlycat_version')}: BewlyCat-Safari ${SAFARI_VERSION}`,
   ].join('\n')
 
   isCopyingEnvironmentInfo.value = true
@@ -214,7 +221,7 @@ async function handleCopyEnvironmentInfo() {
             class="contributors-image-link"
           >
             <img
-              :src="browser.runtime.getURL('/assets/contributors.svg')"
+              :src="contributorsImageSrc"
               :alt="$t('settings.current_contributors')"
               loading="lazy"
               @error="handleContributorImageError"

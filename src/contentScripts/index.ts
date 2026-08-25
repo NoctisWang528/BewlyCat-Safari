@@ -61,7 +61,7 @@ const shouldInitializeContentScript = claimContentScriptInitialization(
 if (shouldInitializeContentScript) {
   browser.runtime.onMessage.addListener((message: unknown) => {
     if (typeof message === 'object' && message !== null && 'type' in message && message.type === CONTENT_SCRIPT_PING)
-      return Promise.resolve({ type: CONTENT_SCRIPT_PONG, version })
+      return Promise.resolve({ type: CONTENT_SCRIPT_PONG, version: browser.runtime.getManifest().version })
 
     return false
   })

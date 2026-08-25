@@ -224,7 +224,7 @@ export function useStorageLocal<T>(key: string, initialValue: MaybeRef<T>, optio
     mergeDefaults = false,
     shallow = false,
     eventFilter,
-    onError = (error) => {
+    onError = (error: unknown) => {
       console.error(error)
     },
     onReady,

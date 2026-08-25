@@ -1094,7 +1094,7 @@ else if (pageWorldState) {
             // 原生组件可能替换 list，也可能原地改写。请求前先保存独立的
             // 累计列表快照，后续始终以它为基础追加新页。
             const currentList = Array.isArray(this.list)
-              ? this.list.filter(reply => !invisibleIds.has(getReplyRpid(reply) ?? ''))
+              ? this.list.filter((reply: any) => !invisibleIds.has(getReplyRpid(reply) ?? ''))
               : []
             const beforeList = mergeCommentReplyLists(state.mergedList ?? [], currentList)
             state.mergedList = beforeList
@@ -1125,9 +1125,9 @@ else if (pageWorldState) {
                   && Array.isArray(this.list)) {
                   const latestInvisibleIds = getCommentReplyInvisibleIds(this)
                   const retainedBeforeList = pending.beforeList
-                    .filter(reply => !latestInvisibleIds.has(getReplyRpid(reply) ?? ''))
+                    .filter((reply: any) => !latestInvisibleIds.has(getReplyRpid(reply) ?? ''))
                   const loadedList = this.list
-                    .filter(reply => !latestInvisibleIds.has(getReplyRpid(reply) ?? ''))
+                    .filter((reply: any) => !latestInvisibleIds.has(getReplyRpid(reply) ?? ''))
                   const page = getNewCommentReplyPage(retainedBeforeList, loadedList)
                   state.pages.forEach((cachedPage, pageNumber) => {
                     state.pages.set(

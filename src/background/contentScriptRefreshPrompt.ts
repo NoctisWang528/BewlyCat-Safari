@@ -52,14 +52,18 @@ async function pingContentScript(
   }
 }
 
-async function injectRefreshPrompt(tabId: number, currentVersion: string, extensionApi: ContentScriptRefreshBrowser): Promise<void> {
+export async function injectContentScriptRefreshPrompt(tabId: number, currentVersion: string, extensionApi: ContentScriptRefreshBrowser): Promise<void> {
   const copy = getRefreshPromptCopy(await getRefreshPromptLocale(), currentVersion)
+  // Safari 不支持 frameIds、world 与 injectImmediately 参数。
+  // 使用默认 isolated world 显示刷新提示即可。
+  // eslint-disable-next-line node/prefer-global/process
+  const target = process.env.SAFARI ? { tabId } : { tabId, frameIds: [0] }
   await extensionApi.scripting.executeScript({
-    target: { tabId, frameIds: [0] },
+    target,
     func: showRefreshPrompt,
     args: [copy],
-    world: 'ISOLATED',
-    injectImmediately: true,
+    // eslint-disable-next-line node/prefer-global/process
+    ...(process.env.SAFARI ? {} : { world: 'ISOLATED' as const, injectImmediately: true }),
   })
 }
 
@@ -88,7 +92,7 @@ export async function promptContentScriptRefresh(
       return 'already-injected'
   }
 
-  await injectRefreshPrompt(tabId, currentVersion, extensionApi)
+  await injectContentScriptRefreshPrompt(tabId, currentVersion, extensionApi)
   return 'refresh-prompted'
 }
 

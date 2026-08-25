@@ -3,10 +3,14 @@ import browser from 'webextension-polyfill'
 
 import { deserializeError, ERROR_WHITELIST, onMessage, sendMessage, serializeError } from '~/utils/messaging'
 
+const refreshMocks = vi.hoisted(() => ({ promptPageRefreshFromContentScript: vi.fn() }))
+vi.mock('~/utils/refreshPrompt', () => refreshMocks)
+
 describe('messaging error serialization', () => {
   beforeEach(() => {
     vi.mocked(browser.runtime.sendMessage).mockReset()
     vi.mocked(browser.runtime.onMessage.addListener).mockClear()
+    refreshMocks.promptPageRefreshFromContentScript.mockReset()
   })
 
   it('preserves name and message for plain Error', () => {
@@ -151,5 +155,26 @@ describe('messaging error serialization', () => {
   it('sendMessage throws ERR_EXTENSION_MALFORMED_RESPONSE for object without ok', async () => {
     vi.mocked(browser.runtime.sendMessage).mockResolvedValueOnce({ data: 123 } as any)
     await expect(sendMessage('foo')).rejects.toThrow('Malformed background response for message: foo')
+  })
+
+  it('retries a transient background disconnect and unwraps the successful envelope', async () => {
+    vi.mocked(browser.runtime.sendMessage)
+      .mockRejectedValueOnce(new Error('Receiving end does not exist'))
+      .mockResolvedValueOnce({ ok: true, data: 'ready' })
+    await expect(sendMessage('ping')).resolves.toBe('ready')
+    expect(browser.runtime.sendMessage).toHaveBeenCalledTimes(2)
+  })
+
+  it('prompts for refresh after retry exhaustion', async () => {
+    vi.mocked(browser.runtime.sendMessage).mockRejectedValue(new Error('Receiving end does not exist'))
+    await expect(sendMessage('ping')).rejects.toThrow('Receiving end does not exist')
+    expect(refreshMocks.promptPageRefreshFromContentScript).toHaveBeenCalledOnce()
+  })
+
+  it('prompts immediately for an invalidated context without retrying', async () => {
+    vi.mocked(browser.runtime.sendMessage).mockRejectedValue(new Error('Extension context invalidated'))
+    await expect(sendMessage('ping')).rejects.toThrow('Extension context invalidated')
+    expect(browser.runtime.sendMessage).toHaveBeenCalledOnce()
+    expect(refreshMocks.promptPageRefreshFromContentScript).toHaveBeenCalledOnce()
   })
 })
