@@ -20,6 +20,7 @@ const API_SEARCH = {
     cacheMaxAge: 10 * 60 * 1000,
     _fetch: {
       method: 'get',
+      credentials: 'omit',
     },
     params: {},
     afterHandle: AHS.J_D,

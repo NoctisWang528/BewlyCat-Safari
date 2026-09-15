@@ -10,7 +10,7 @@ vi.mock('fs-extra', () => ({
       homepage: 'https://github.com/NoctisWang528/BewlyCat-Safari',
       name: 'bewly-cat',
       safariRevision: 1,
-      version: '1.7.8',
+      version: '1.7.9',
     }),
   },
 }))
@@ -28,7 +28,7 @@ describe('safari manifest', () => {
     const manifest = await getManifest()
     const serialized = JSON.stringify(manifest)
 
-    expect(manifest.version).toBe('1.7.8.1')
+    expect(manifest.version).toBe('1.7.9.1')
     expect(manifest.background).toEqual({
       scripts: ['./dist/background/index.js'],
     })
@@ -49,7 +49,7 @@ describe('safari manifest', () => {
         '*://www.bilibili.com/match/game*',
         '*://www.bilibili.com/toy*',
       ],
-      js: ['./dist/contentScripts/index.global.js'],
+      js: ['./dist/contentScripts/pageLoading.js', './dist/contentScripts/index.global.js'],
     })
     const webAccessibleResource = manifest.web_accessible_resources?.[0]
     const webAccessibleFiles = typeof webAccessibleResource === 'object'

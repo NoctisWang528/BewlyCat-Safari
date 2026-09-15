@@ -10,7 +10,7 @@ import type { UserConfig } from 'vite'
 import { defineConfig } from 'vite'
 
 import packageJson from './package.json'
-import { isDev, isFirefox, isSafari, port, r } from './scripts/utils'
+import { buildCommit, isDev, isFirefox, isSafari, port, r } from './scripts/utils'
 // import { MV3Hmr } from './vite-mv3-hmr'
 
 export const sharedConfig: UserConfig = {
@@ -48,6 +48,7 @@ export const sharedConfig: UserConfig = {
 
     replace({
       '__DEV__': JSON.stringify(isDev),
+      '__BUILD_COMMIT__': JSON.stringify(buildCommit),
       'process.env.NODE_ENV': JSON.stringify(isDev ? 'development' : 'production'),
       'process.env.SAFARI': JSON.stringify(isSafari),
       '__BEWLY_VERSION__': JSON.stringify(packageJson.version),

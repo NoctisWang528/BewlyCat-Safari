@@ -2,14 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ContentScriptRecoveryBrowser } from '~/background/contentScriptRecovery'
 import { recoverContentScript } from '~/background/contentScriptRecovery'
-import { CONTENT_SCRIPT_PONG } from '~/constants/contentScript'
+import { CONTENT_SCRIPT_COMMIT, CONTENT_SCRIPT_PONG } from '~/constants/contentScript'
 
 vi.mock('webextension-polyfill', () => ({
   default: {
     scripting: {},
     tabs: {},
     runtime: {
-      getManifest: () => ({ version: '1.7.8.1' }),
+      getManifest: () => ({ name: 'BewlyCat', version: '1.7.9.1' }),
+      getURL: () => 'safari-web-extension://bewlycat/',
     },
   },
 }))
@@ -56,9 +57,31 @@ describe('content script recovery', () => {
   it('does not inject when the current content script responds', async () => {
     const { extensionApi, scripting, tabs } = createExtensionApi()
     tabs.get.mockResolvedValue(eligibleTab)
-    tabs.sendMessage.mockResolvedValue({ type: CONTENT_SCRIPT_PONG, version: '1.7.8.1' })
+    tabs.sendMessage.mockResolvedValue({
+      type: CONTENT_SCRIPT_PONG,
+      name: 'BewlyCat',
+      runtimeUrl: 'safari-web-extension://bewlycat/',
+      version: '1.7.9.1',
+      commit: CONTENT_SCRIPT_COMMIT,
+    })
 
     await expect(recoverContentScript(8, extensionApi)).resolves.toBe('already-injected')
+    expect(scripting.insertCSS).not.toHaveBeenCalled()
+    expect(scripting.executeScript).not.toHaveBeenCalled()
+  })
+
+  it('treats the same manifest version with a different build identity as outdated', async () => {
+    expect(CONTENT_SCRIPT_COMMIT).toMatch(/^[\da-f]{40,64}$/i)
+    const { extensionApi, scripting, tabs } = createExtensionApi()
+    tabs.get.mockResolvedValue(eligibleTab)
+    tabs.sendMessage.mockResolvedValue({
+      type: CONTENT_SCRIPT_PONG,
+      name: 'BewlyCat',
+      runtimeUrl: 'safari-web-extension://bewlycat/',
+      version: '1.7.9.1',
+    })
+
+    await expect(recoverContentScript(9, extensionApi)).resolves.toBe('outdated')
     expect(scripting.insertCSS).not.toHaveBeenCalled()
     expect(scripting.executeScript).not.toHaveBeenCalled()
   })
@@ -101,8 +124,11 @@ describe('content script recovery', () => {
       target: { tabId: 21 },
       files: ['dist/contentScripts/style.css'],
     })
-    expect(scripting.executeScript).toHaveBeenCalledOnce()
-    expect(scripting.executeScript).toHaveBeenCalledWith({
+    expect(scripting.executeScript).toHaveBeenNthCalledWith(1, {
+      target: { tabId: 21 },
+      files: ['dist/contentScripts/pageLoading.js'],
+    })
+    expect(scripting.executeScript).toHaveBeenNthCalledWith(2, {
       target: { tabId: 21 },
       files: ['dist/contentScripts/index.global.js'],
     })

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import SEARCH_API from '~/background/messageListeners/api/search'
 import { AHS, apiListenerFactory } from '~/background/utils'
 
 describe('background request assembly', () => {
@@ -20,6 +21,11 @@ describe('background request assembly', () => {
   afterEach(() => {
     debugSpy.mockRestore()
     globalThis.fetch = originalFetch
+  })
+
+  it('keeps the cached default search recommendation anonymous', () => {
+    expect(SEARCH_API.getDefaultSearchRecommendation.cacheMaxAge).toBeGreaterThan(0)
+    expect(SEARCH_API.getDefaultSearchRecommendation._fetch.credentials).toBe('omit')
   })
 
   it('puts optional watch-later identifiers in the form body and omits empty defaults', async () => {

@@ -1,12 +1,13 @@
 import type { Scripting, Tabs } from 'webextension-polyfill'
 import browser from 'webextension-polyfill'
 
-import { CONTENT_SCRIPT_PING, CONTENT_SCRIPT_PONG, isContentScriptPong, isContentScriptTargetUrl } from '~/constants/contentScript'
+import { CONTENT_SCRIPT_COMMIT, CONTENT_SCRIPT_PING, CONTENT_SCRIPT_PONG, isContentScriptPong, isContentScriptTargetUrl } from '~/constants/contentScript'
 
 import { injectContentScriptRefreshPrompt } from './contentScriptRefreshPrompt'
 
 const CONTENT_SCRIPT_CSS = 'dist/contentScripts/style.css'
 const CONTENT_SCRIPT_JS = 'dist/contentScripts/index.global.js'
+const PAGE_LOADING_JS = 'dist/contentScripts/pageLoading.js'
 const PAGE_SCRIPT_JS = 'dist/contentScripts/inject.global.js'
 const CONTENT_SCRIPT_STARTUP_GRACE_PERIOD_MS = 100
 
@@ -45,8 +46,15 @@ async function pingContentScript(tabId: number, extensionApi: ContentScriptRecov
     )
     if (response === CONTENT_SCRIPT_PONG)
       return 'outdated'
-    if (isContentScriptPong(response))
-      return response.version === browser.runtime.getManifest().version ? 'current' : 'outdated'
+    if (isContentScriptPong(response)) {
+      const manifest = browser.runtime.getManifest()
+      return response.name === manifest.name
+        && response.runtimeUrl === browser.runtime.getURL('')
+        && response.version === manifest.version
+        && response.commit === CONTENT_SCRIPT_COMMIT
+        ? 'current'
+        : 'outdated'
+    }
     return 'missing'
   }
   catch {
@@ -101,6 +109,11 @@ export async function recoverContentScript(
   })
 
   if (platform === 'safari') {
+    // 先恢复轻量的 document_start 守卫，再恢复 isolated 主脚本。
+    await extensionApi.scripting.executeScript({
+      target,
+      files: [PAGE_LOADING_JS],
+    })
     await extensionApi.scripting.executeScript({
       target,
       files: [CONTENT_SCRIPT_JS],

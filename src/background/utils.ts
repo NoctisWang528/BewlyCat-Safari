@@ -5,9 +5,12 @@
 import type Browser from 'webextension-polyfill'
 import browser from 'webextension-polyfill'
 
+import { createApiResponseCache } from './apiResponseCache'
 import { ensureFreshTokensOnDemand } from './appAuthScheduler'
 import { requestWithSafariCompat } from './requestWithSafariCompat'
 import { addWbiSign, clearWbiKeys, getWbiKeys, initWbiKeys, isBilibiliNavUrl, needsWbiSign, storeWbiKeys } from './wbiSign'
+
+const cacheApiResponse = createApiResponseCache()
 
 export class ApiRiskControlError extends Error {
   constructor(message: string = '检测到风控页面，API返回了HTML而不是JSON') {
@@ -29,7 +32,8 @@ async function toJsonHandler(data: Response): Promise<any> {
     throw new ApiRiskControlError()
   }
 
-  // Response 主体只能读取一次，先克隆以保留风控页面检测所需内容。
+  // Response body can only be consumed once. Keep a clone before json() so
+  // malformed/incorrectly typed HTML responses can still be inspected.
   const fallbackResponse = data.clone()
 
   try {
@@ -48,24 +52,13 @@ function toData(data: Promise<any>): Promise<any> {
   return data
 }
 
-// if need sendResponse, use this
-// return a FetchAfterHandler function
-function sendResponseHandler(sendResponse: (response?: any) => void) {
-  return (data: any) => {
-    sendResponse(data)
-    return data
-  }
-}
-
 // 定义后处理流
 const AHS: {
   J_D: FetchAfterHandler[]
   J_S: FetchAfterHandler[]
-  S: FetchAfterHandler[]
 } = {
   J_D: [toJsonHandler, toData],
-  J_S: [toJsonHandler, sendResponseHandler],
-  S: [sendResponseHandler],
+  J_S: [],
 }
 
 interface Message {
@@ -80,16 +73,18 @@ interface _FETCH {
     [key: string]: any
   }
   body?: any
+  bodySerializer?: (body: Record<string, any>) => BodyInit
   credentials?: RequestCredentials
 }
 
 interface API {
   url: string
   _fetch: _FETCH
+  cacheMaxAge?: number
   params?: {
     [key: string]: any
   }
-  afterHandle: ((response: Response) => Response | Promise<Response>)[]
+  afterHandle: FetchAfterHandler[]
   auth?: AuthStrategy
 }
 // 重载API 可以为函数
@@ -112,32 +107,58 @@ function apiListenerFactory(API_MAP: APIMAP) {
     const api = API_MAP[contentScriptQuery] as API
     const authStrategy: AuthStrategy = api.auth ?? 'none'
     let appAccessToken: string | undefined
-
     if (authStrategy !== 'none') {
-      const token = await ensureFreshTokensOnDemand()
-      if (!token) {
+      appAccessToken = await ensureFreshTokensOnDemand()
+      if (!appAccessToken) {
         const error = new Error('APP access token 不可用，请重新授权')
         ;(error as any).code = 'ERR_APP_AUTH_REQUIRED'
         throw error
       }
-      appAccessToken = token
     }
 
     // eslint-disable-next-line node/prefer-global/process
     if (process.env.FIREFOX && sender && sender.tab?.id) {
       if (api._fetch.credentials === 'omit' || typedMessage.bewlyNoCookie === true)
-        return await doRequest(typedMessage, api, undefined, undefined, authStrategy, appAccessToken)
+        return await doCachedRequest(typedMessage, api, sender.tab, undefined, authStrategy, appAccessToken)
 
       // 获取tab信息以获取正确的cookieStoreId
       const tab = await browser.tabs.get(sender.tab.id)
       const storeId = tab.cookieStoreId || 'default'
-      // 仅转发目标接口自然可携带的 Cookie，避免跨 Bilibili 域混入无关凭据。
+      // Only copy cookies that the API target would receive naturally. Filtering
+      // by store alone can mix cookies from unrelated permitted Bilibili hosts.
       const cookies = await browser.cookies.getAll({ url: api.url, storeId })
-      return await doRequest(typedMessage, api, undefined, cookies, authStrategy, appAccessToken)
+      return await doCachedRequest(typedMessage, api, tab, cookies, authStrategy, appAccessToken)
     }
 
-    return await doRequest(typedMessage, api, undefined, undefined, authStrategy, appAccessToken)
+    return await doCachedRequest(typedMessage, api, sender?.tab, undefined, authStrategy, appAccessToken)
   }
+}
+
+async function doCachedRequest(
+  message: Message,
+  api: API,
+  tab?: Browser.Tabs.Tab,
+  cookies?: Browser.Cookies.Cookie[],
+  authStrategy: AuthStrategy = 'none',
+  appAccessToken?: string,
+) {
+  const request = () => doRequest(message, api, cookies, authStrategy, appAccessToken)
+  if (!api.cacheMaxAge || api._fetch.method.toLowerCase() !== 'get')
+    return request()
+
+  const noCookie = api._fetch.credentials === 'omit' || message.bewlyNoCookie === true
+  // 不把 Cookie 标识写入内存键或 session storage；带凭据响应直接请求，避免跨账号复用。
+  if (!noCookie)
+    return request()
+
+  const key = JSON.stringify([
+    api.url,
+    tab?.incognito ?? false,
+    tab?.cookieStoreId ?? 'default',
+    noCookie,
+    Object.entries(message).sort(([a], [b]) => a.localeCompare(b)),
+  ])
+  return cacheApiResponse(key, api.cacheMaxAge, request)
 }
 
 function hasRequestValue(value: unknown) {
@@ -153,33 +174,27 @@ export async function applyAppAuthToParams(
   const authenticatedParams = { ...params }
   if (authStrategy === 'none')
     return authenticatedParams
-
   if (!accessToken) {
     const error = new Error('APP access token 不可用，请重新授权')
     ;(error as any).code = 'ERR_APP_AUTH_REQUIRED'
     throw error
   }
-
   authenticatedParams.access_key = accessToken
   if (authStrategy === 'inject')
     return authenticatedParams
-
   delete authenticatedParams.sign
   const { TVAppKey, getTvSign } = await import('~/utils/authProvider')
   authenticatedParams.appkey = TVAppKey.appkey
   authenticatedParams.ts = Math.floor(now() / 1000).toString()
-
-  const paramsToSign = Object.fromEntries(
+  authenticatedParams.sign = getTvSign(Object.fromEntries(
     Object.entries(authenticatedParams).filter(([, value]) => hasRequestValue(value)),
-  )
-  authenticatedParams.sign = getTvSign(paramsToSign)
+  ))
   return authenticatedParams
 }
 
 async function doRequest(
   message: Message,
   api: API,
-  sendResponse?: (response?: any) => void,
   cookies?: Browser.Cookies.Cookie[],
   authStrategy: AuthStrategy = 'none',
   appAccessToken?: string,
@@ -189,8 +204,8 @@ async function doRequest(
     // rest above two part body or params
     rest = rest || {}
 
-    let { _fetch, url, params = {}, afterHandle } = api
-    const { method, headers = {}, body, credentials: configuredCredentials = 'include' } = _fetch as _FETCH
+    const { _fetch, url, params = {}, afterHandle } = api
+    const { method, headers = {}, body, bodySerializer, credentials: configuredCredentials = 'include' } = _fetch as _FETCH
     const credentials: RequestCredentials = bewlyNoCookie ? 'omit' : configuredCredentials
     const isGET = method.toLocaleLowerCase() === 'get'
     // merge params and body
@@ -199,12 +214,13 @@ async function doRequest(
     Object.keys(rest).forEach((key) => {
       if (body && Object.prototype.hasOwnProperty.call(body, key))
         targetBody[key] = rest[key]
-      else
+      if (params[key] !== undefined)
+        targetParams[key] = rest[key]
+      else if (!body || !Object.prototype.hasOwnProperty.call(body, key))
         targetParams[key] = rest[key]
     })
 
     targetParams = await applyAppAuthToParams(targetParams, authStrategy, appAccessToken)
-
     const baseUrl = url
     const needsWbi = needsWbiSign(url)
     const wbiKeyOptions = { noCookie: credentials === 'omit' }
@@ -248,18 +264,12 @@ async function doRequest(
       // generate body
       let requestBody = targetBody
       if (!isGET) {
-        const bodyEntries = Object.entries(targetBody)
-          .filter(([, value]) => hasRequestValue(value))
-
-        if (headers && headers['Content-Type'] && headers['Content-Type'].includes('application/x-www-form-urlencoded')) {
-          const formBody = new URLSearchParams()
-          for (const [key, value] of bodyEntries)
-            formBody.append(key, String(value))
-          requestBody = formBody
-        }
-        else {
-          requestBody = JSON.stringify(Object.fromEntries(bodyEntries))
-        }
+        const entries = Object.entries(targetBody).filter(([, value]) => hasRequestValue(value))
+        requestBody = bodySerializer
+          ? bodySerializer(Object.fromEntries(entries))
+          : (headers && headers['Content-Type'] && headers['Content-Type'].includes('application/x-www-form-urlencoded'))
+              ? new URLSearchParams(entries.map(([key, value]) => [key, String(value)]))
+              : JSON.stringify(Object.fromEntries(entries))
       }
 
       // generate cookies
@@ -334,14 +344,8 @@ async function doRequest(
       }
 
       // 执行 afterHandle 处理
-      for (const func of afterHandle) {
-        if (func.name === sendResponseHandler.name && sendResponse) {
-          response = await sendResponseHandler(sendResponse)(response as any)
-        }
-        else {
-          response = await func(response as any)
-        }
-      }
+      for (const func of afterHandle)
+        response = await func(response as any)
 
       return response
     }
@@ -356,10 +360,30 @@ async function doRequest(
         // 避免把签名失效误判成业务侧的访问权限不足。
         if (needsWbi && !hasRefreshedWbiKeys && isWbiSignatureRejected(response)) {
           hasRefreshedWbiKeys = true
+          console.warn('[BewlyCat][WBI] 签名被接口拒绝，刷新密钥后重试', {
+            url: baseUrl,
+            noCookie: wbiKeyOptions.noCookie,
+            code: -403,
+          })
           clearWbiKeys(wbiKeyOptions)
           const refreshed = await initWbiKeys(wbiKeyOptions)
-          if (refreshed)
+          if (refreshed) {
             response = await executeFullRequest(true)
+            if (isWbiSignatureRejected(response)) {
+              console.error('[BewlyCat][WBI] 刷新密钥后签名仍被接口拒绝', {
+                url: baseUrl,
+                noCookie: wbiKeyOptions.noCookie,
+                code: -403,
+              })
+            }
+          }
+          else {
+            console.error('[BewlyCat][WBI] 签名被接口拒绝且密钥刷新失败', {
+              url: baseUrl,
+              noCookie: wbiKeyOptions.noCookie,
+              code: -403,
+            })
+          }
         }
 
         return response
@@ -368,13 +392,21 @@ async function doRequest(
         // 如果使用了 WBI 签名且失败，尝试不带 WBI 签名重试
         if (needsWbi && !hasTriedWithoutWbi) {
           hasTriedWithoutWbi = true
+          const errorRecord = error && typeof error === 'object'
+            ? error as Record<string, unknown>
+            : undefined
+          console.warn('[BewlyCat][WBI] 带签名请求异常，降级为无签名请求', {
+            url: baseUrl,
+            noCookie: wbiKeyOptions.noCookie,
+            code: errorRecord?.code,
+            message: error instanceof Error ? error.message : String(error),
+            error,
+          })
           return await executeFullRequest(false)
         }
         throw error
       }
     }
-
-    url = baseUrl + (Object.keys(targetParams).length ? '?...' : '')
 
     // 执行请求并进行统一错误处理
     return executeRequestWithRetry().catch((error) => {
@@ -414,7 +446,6 @@ export {
   type APIMAP,
   type FetchAfterHandler,
   type Message,
-  sendResponseHandler,
   toData,
   toJsonHandler,
 }

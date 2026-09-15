@@ -81,91 +81,67 @@ function getData() {
   topBarStore.getMomentsData(selectedMomentTab.value.type)
 }
 
-function getMomentWatchLaterTarget(moment: TopBarMomentItem) {
-  const aid = Number.isSafeInteger(moment.aid) && Number(moment.aid) > 0
-    ? Number(moment.aid)
-    : undefined
-  const bvid = typeof moment.bvid === 'string' && moment.bvid.trim()
-    ? moment.bvid.trim()
-    : undefined
+function isVideoMoment(moment: TopBarMomentItem) {
+  return moment.isVideo
+}
+
+function getWatchLaterTarget(moment: TopBarMomentItem) {
+  const aid = Number.isSafeInteger(moment.aid) && Number(moment.aid) > 0 ? Number(moment.aid) : undefined
+  const bvid = typeof moment.bvid === 'string' && moment.bvid.trim() ? moment.bvid.trim() : undefined
   return { aid, bvid }
 }
 
-function getMomentWatchLaterKey(moment: TopBarMomentItem): string {
-  const { aid, bvid } = getMomentWatchLaterTarget(moment)
-  if (bvid)
-    return `bvid:${bvid}`
-  if (aid)
-    return `aid:${aid}`
-  return ''
+function getWatchLaterKey(moment: TopBarMomentItem) {
+  const { aid, bvid } = getWatchLaterTarget(moment)
+  return bvid ? `bvid:${bvid}` : aid ? `aid:${aid}` : ''
 }
 
-function isMomentInWatchLater(moment: TopBarMomentItem): boolean {
-  const { aid, bvid } = getMomentWatchLaterTarget(moment)
-  return Boolean(
-    (aid && topBarStore.addedWatchLaterList.includes(aid))
-    || (bvid && topBarStore.addedWatchLaterBvids.has(bvid)),
-  )
+function isInWatchLater(moment: TopBarMomentItem) {
+  const { aid, bvid } = getWatchLaterTarget(moment)
+  return Boolean((aid && topBarStore.addedWatchLaterList.includes(aid)) || (bvid && topBarStore.addedWatchLaterBvids.has(bvid)))
 }
 
 async function toggleWatchLater(moment: TopBarMomentItem) {
-  if (!moment.isVideo)
+  if (!isVideoMoment(moment))
     return
-
-  const { aid, bvid } = getMomentWatchLaterTarget(moment)
-  const key = getMomentWatchLaterKey(moment)
-  if ((!aid && !bvid) || !key || pendingWatchLaterKeys.has(key))
-    return
-
+  const { aid, bvid } = getWatchLaterTarget(moment)
+  const key = getWatchLaterKey(moment)
   const csrf = getCSRF()
-  if (!csrf)
+  if ((!aid && !bvid) || !key || !csrf || pendingWatchLaterKeys.has(key))
     return
-
   pendingWatchLaterKeys.add(key)
   try {
-    if (!isMomentInWatchLater(moment)) {
-      const params: { aid?: number, bvid?: string, csrf: string } = { csrf }
-      if (aid)
-        params.aid = aid
-      if (bvid)
-        params.bvid = bvid
-      const res = await api.watchlater.saveToWatchLater(params)
+    if (!isInWatchLater(moment)) {
+      const res = await api.watchlater.saveToWatchLater({ csrf, ...(aid ? { aid } : {}), ...(bvid ? { bvid } : {}) })
       if (res?.code === 0) {
         if (aid && !topBarStore.addedWatchLaterList.includes(aid))
           topBarStore.addedWatchLaterList.push(aid)
-        if (!aid && bvid)
+        if (bvid)
           topBarStore.addedWatchLaterBvids.add(bvid)
-        void topBarStore.syncWatchLaterState()
       }
-      return
     }
-
-    let resolvedAid = aid
-    if (!resolvedAid && bvid) {
-      const info = await api.video.getVideoInfo({ bvid })
-      const infoAid = Number(info?.data?.aid)
-      if (!Number.isSafeInteger(infoAid) || infoAid <= 0)
+    else {
+      let resolvedAid = aid
+      if (!resolvedAid && bvid) {
+        resolvedAid = Number((await api.video.getVideoInfo({ bvid }))?.data?.aid) || undefined
+        if (resolvedAid)
+          moment.aid = resolvedAid
+      }
+      if (!resolvedAid)
         return
-      resolvedAid = infoAid
-      moment.aid = infoAid
-      moment.rid = infoAid
+      const res = await api.watchlater.removeFromWatchLater({ aid: resolvedAid, csrf })
+      if (res?.code === 0) {
+        const index = topBarStore.addedWatchLaterList.indexOf(resolvedAid)
+        if (index >= 0)
+          topBarStore.addedWatchLaterList.splice(index, 1)
+        if (bvid)
+          topBarStore.addedWatchLaterBvids.delete(bvid)
+      }
     }
-
-    if (!resolvedAid)
-      return
-
-    const res = await api.watchlater.removeFromWatchLater({ aid: resolvedAid, csrf })
-    if (res?.code === 0) {
-      const index = topBarStore.addedWatchLaterList.indexOf(resolvedAid)
-      if (index >= 0)
-        topBarStore.addedWatchLaterList.splice(index, 1)
-      if (bvid)
-        topBarStore.addedWatchLaterBvids.delete(bvid)
-      void topBarStore.syncWatchLaterState()
-    }
+    void topBarStore.syncWatchLaterState()
   }
   catch (error) {
-    console.error('[BewlyCat] toggle moment watch later failed:', error)
+    console.error('[BewlyCat] 切换动态稍后再看失败:', error)
   }
   finally {
     pendingWatchLaterKeys.delete(key)
@@ -179,7 +155,7 @@ defineExpose({
 
 <template>
   <div
-    style="backdrop-filter: var(--bew-filter-glass-1);" h="[calc(100vh-100px)]" max-h-500px
+    h="[calc(100vh-100px)]" max-h-500px
     important-overflow-y-overlay
     bg="$bew-elevated"
     w="380px"
@@ -251,7 +227,7 @@ defineExpose({
       <TransitionGroup name="list">
         <ALink
           v-for="(moment, index) in topBarStore.moments"
-          :key="index"
+          :key="moment.id_str"
           :href="moment.link"
           type="topBar"
           class="group bew-content-card"
@@ -271,16 +247,16 @@ defineExpose({
             pos="absolute -top-12px -left-12px"
             style="box-shadow: 0 0 4px var(--bew-theme-color)"
           />
-          <section flex="~ row-reverse gap-4 items-start">
-            <div class="bew-top-bar-media-copy">
+          <section flex="~ row-reverse gap-4 items-stretch">
+            <div class="bew-top-bar-media-copy moments-pop__copy">
               <h3
                 :title="moment.title"
-                class="bew-top-bar-media-title bew-top-bar-media-title--emphasis"
+                class="bew-top-bar-media-title moments-pop__title"
               >
                 {{ moment.title }}
               </h3>
 
-              <div flex="~ items-center gap-2" min-w-0 m="t-2">
+              <div class="moments-pop__byline" flex="~ items-center gap-1" min-w-0>
                 <ALink
                   :href="moment.authorJumpUrl"
                   type="topBar"
@@ -288,17 +264,18 @@ defineExpose({
                   rounded="1/2"
                   w="24px" h="24px"
                   bg="$bew-skeleton"
+                  flex="~ items-center justify-center"
                   shrink-0
                 >
                   <img
                     :src="`${moment.authorFace}@48w_48h_1c`"
                     rounded="1/2"
-                    w="24px" h="24px"
+                    w="20px" h="20px"
                   >
                 </ALink>
 
                 <div
-                  class="bew-top-bar-media-author--compact"
+                  class="bew-top-bar-media-author--compact moments-pop__author"
                   min-w-0
                   flex-1
                 >
@@ -353,8 +330,9 @@ defineExpose({
             </div>
 
             <div
-              class="bew-top-bar-media-column bew-top-bar-media-column--narrow"
+              class="bew-top-bar-media-column bew-top-bar-media-column--narrow moments-pop__cover"
               bg="$bew-skeleton"
+              pos="relative"
             >
               <div
                 class="bew-top-bar-media-frame"
@@ -364,28 +342,43 @@ defineExpose({
                   :src="`${moment.cover}@240w_135h_1c`"
                   :alt="moment.title"
                 >
-                <!-- 修改这里，使用 topBarStore.addedWatchLaterList -->
-                <div
-                  v-if="moment.isVideo && getMomentWatchLaterKey(moment)"
-                  class="moment-watch-later-toggle"
-                  opacity-0 group-hover:opacity-100
-                  pos="absolute top-0 right-0"
-                  m="1"
-                  w="24px" h="24px"
-                  grid="~ place-items-center"
-                  duration-300 bg="black opacity-60"
-                  rounded="$bew-radius-half"
-                  z-1 color-white
-                  @click.stop.prevent="toggleWatchLater(moment)"
+              </div>
+              <div
+                v-if="isVideoMoment(moment) && getWatchLaterKey(moment)"
+                class="moments-pop__watch-later"
+                opacity-0 group-hover:opacity-100
+                pos="absolute top-0 right-0"
+                m="1"
+                z-2
+                duration-300
+              >
+                <Tooltip
+                  :content="isInWatchLater(moment)
+                    ? $t('common.added')
+                    : $t('common.save_to_watch_later')"
+                  placement="left"
+                  type="dark"
                 >
-                  <Icon v-if="pendingWatchLaterKeys.has(getMomentWatchLaterKey(moment))" icon="line-md:loading-twotone-loop" />
-                  <Tooltip v-else-if="!isMomentInWatchLater(moment)" :content="$t('common.save_to_watch_later')" placement="bottom" type="dark">
-                    <div i-mingcute:carplay-line />
-                  </Tooltip>
-                  <Tooltip v-else :content="$t('common.added')" placement="bottom" type="dark">
-                    <Icon icon="line-md:confirm" />
-                  </Tooltip>
-                </div>
+                  <div
+                    w="24px" h="24px"
+                    class="moment-watch-later-toggle"
+                    grid="~ place-items-center"
+                    bg="black opacity-60"
+                    rounded="$bew-radius-half"
+                    color-white
+                    @click.stop.prevent="toggleWatchLater(moment)"
+                  >
+                    <Icon
+                      v-if="pendingWatchLaterKeys.has(getWatchLaterKey(moment))"
+                      icon="line-md:loading-twotone-loop"
+                    />
+                    <Icon
+                      v-else-if="isInWatchLater(moment)"
+                      icon="line-md:confirm"
+                    />
+                    <div v-else i-mingcute:carplay-line />
+                  </div>
+                </Tooltip>
               </div>
             </div>
           </section>
@@ -403,6 +396,7 @@ defineExpose({
 <style lang="scss" scoped>
 .tab {
   --uno: "relative text-$bew-text-2";
+  font-weight: var(--bew-font-weight-semibold);
 
   &::after {
     --uno: "absolute bottom-0 left-0 w-full h-12px bg-$bew-theme-color opacity-0 transform scale-x-0 -z-1";
@@ -412,10 +406,49 @@ defineExpose({
 }
 
 .tab-selected {
-  --uno: "font-bold text-$bew-text-1";
+  --uno: "text-$bew-text-1";
 
   &::after {
     --uno: "scale-x-80 opacity-40";
   }
+}
+
+.moments-pop__cover {
+  overflow: visible;
+}
+
+.moments-pop__copy {
+  display: flex;
+  flex-direction: column;
+}
+
+.moments-pop__byline {
+  margin-top: auto;
+  padding-top: var(--bew-space-1);
+}
+
+// 标题字号/行高沿用全局 --bew-top-bar-media-title-*（14/20，与收藏、历史、
+// 稍后再看 Pop 共用），此处仅解除两行截断以完整展示。
+.moments-pop .moments-pop__title {
+  display: block;
+  overflow: visible;
+  text-overflow: unset;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+}
+
+.moments-pop__author {
+  display: block;
+  overflow: hidden;
+  font-weight: var(--bew-font-weight-regular);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+}
+
+.moments-pop__watch-later :deep(.b-tooltip--placement-left) {
+  top: 50%;
+  transform: translateY(-50%);
 }
 </style>

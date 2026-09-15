@@ -1,6 +1,6 @@
 import browser from 'webextension-polyfill'
 
-import { promptPageRefreshFromContentScript } from '~/utils/refreshPrompt'
+import { markBackgroundConnectionHealthy, promptPageRefreshFromContentScript } from '~/utils/refreshPrompt'
 
 export interface Message<T = any> {
   type: string
@@ -30,63 +30,46 @@ export const ERROR_WHITELIST: (keyof SerializedError)[] = ['name', 'message', 'c
 
 export function serializeError(error: unknown): SerializedError {
   if (error instanceof Error) {
-    const serialized: SerializedError = {
-      name: error.name,
-      message: error.message,
-    }
+    const serialized: SerializedError = { name: error.name, message: error.message }
     for (const key of ERROR_WHITELIST) {
       if (key === 'name' || key === 'message')
         continue
       const value = (error as any)[key]
-      if (value !== undefined) {
-        if (key === 'code') {
-          if (typeof value === 'string' || typeof value === 'number')
-            serialized.code = value
-        }
-        else if (key === 'isRiskControl') {
-          if (typeof value === 'boolean')
-            serialized.isRiskControl = value
-        }
-        else if (key === 'originalError') {
-          if (typeof value === 'string')
-            serialized.originalError = value
-        }
-      }
+      if (key === 'code' && (typeof value === 'string' || typeof value === 'number'))
+        serialized.code = value
+      else if (key === 'isRiskControl' && typeof value === 'boolean')
+        serialized.isRiskControl = value
+      else if (key === 'originalError' && typeof value === 'string')
+        serialized.originalError = value
     }
     return serialized
   }
-  return {
-    name: 'Error',
-    message: String(error),
-  }
+  return { name: 'Error', message: String(error) }
 }
 
 export function deserializeError(serialized: SerializedError): Error {
-  const err = new Error(serialized.message)
-  err.name = serialized.name || 'Error'
-  if (serialized.code !== undefined)
-    (err as any).code = serialized.code
-  if (serialized.isRiskControl !== undefined)
-    (err as any).isRiskControl = serialized.isRiskControl
-  if (serialized.originalError !== undefined)
-    (err as any).originalError = serialized.originalError
-  return err
-}
-
-type OnMessageListener = (
-  message: any,
-  sender: browser.Runtime.MessageSender,
-  sendResponse: (response: unknown) => void,
-) => true
-
-export function isExtensionContextInvalidatedError(error: unknown): boolean {
-  return getErrorMessage(error).includes('extension context invalidated')
+  const error = new Error(serialized.message)
+  error.name = serialized.name || 'Error'
+  if (serialized.code !== undefined) {
+    ;(error as any).code = serialized.code
+  }
+  if (serialized.isRiskControl !== undefined) {
+    ;(error as any).isRiskControl = serialized.isRiskControl
+  }
+  if (serialized.originalError !== undefined) {
+    ;(error as any).originalError = serialized.originalError
+  }
+  return error
 }
 
 const TRANSIENT_BACKGROUND_MESSAGE_ATTEMPTS = 3
 
 function getErrorMessage(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).toLowerCase()
+}
+
+export function isExtensionContextInvalidatedError(error: unknown): boolean {
+  return getErrorMessage(error).includes('extension context invalidated')
 }
 
 export function isBackgroundDisconnectedError(error: unknown): boolean {
@@ -105,7 +88,6 @@ function waitForRetry(delay: number) {
 
 /**
  * 从 content script 发送消息到 background
- * 自动解包 {ok, data/error} 响应格式
  */
 export async function sendMessage<T = any, R = any>(type: string, data?: T): Promise<R> {
   const message: Message<T> = { type, data: data as T }
@@ -114,14 +96,15 @@ export async function sendMessage<T = any, R = any>(type: string, data?: T): Pro
 
   for (let attempt = 0; attempt < TRANSIENT_BACKGROUND_MESSAGE_ATTEMPTS; attempt++) {
     try {
-      response = await browser.runtime.sendMessage(message)
+      response = await browser.runtime.sendMessage(message) as MessageResponse<R>
+      markBackgroundConnectionHealthy()
       lastError = undefined
       break
     }
     catch (error) {
       lastError = error
       if (isExtensionContextInvalidatedError(error)) {
-        promptPageRefreshFromContentScript()
+        promptPageRefreshFromContentScript('context-invalidated', attempt + 1)
         throw error
       }
       if (!isBackgroundDisconnectedError(error) || attempt === TRANSIENT_BACKGROUND_MESSAGE_ATTEMPTS - 1)
@@ -132,28 +115,24 @@ export async function sendMessage<T = any, R = any>(type: string, data?: T): Pro
 
   if (lastError) {
     if (isBackgroundDisconnectedError(lastError))
-      promptPageRefreshFromContentScript()
+      promptPageRefreshFromContentScript('background-unreachable', TRANSIENT_BACKGROUND_MESSAGE_ATTEMPTS)
     throw lastError
   }
 
   if (!response) {
-    const err = new Error(`No response from background for message: ${type}`)
-    ;(err as any).code = 'ERR_EXTENSION_NO_RESPONSE'
-    throw err
+    const error = new Error(`No response from background for message: ${type}`)
+    ;(error as any).code = 'ERR_EXTENSION_NO_RESPONSE'
+    throw error
   }
-
   if (typeof response !== 'object' || !('ok' in response)) {
-    const err = new Error(`Malformed background response for message: ${type}`)
-    ;(err as any).code = 'ERR_EXTENSION_MALFORMED_RESPONSE'
-    ;(err as any).originalResponse = response
-    throw err
+    const error = new Error(`Malformed background response for message: ${type}`)
+    ;(error as any).code = 'ERR_EXTENSION_MALFORMED_RESPONSE'
+    ;(error as any).originalResponse = response
+    throw error
   }
   if (!response.ok) {
-    if (!response.error
-      || typeof response.error.name !== 'string'
-      || typeof response.error.message !== 'string') {
+    if (!response.error || typeof response.error.name !== 'string' || typeof response.error.message !== 'string')
       throw new Error('Malformed messaging error response')
-    }
     throw deserializeError(response.error)
   }
   return response.data as R
@@ -161,30 +140,18 @@ export async function sendMessage<T = any, R = any>(type: string, data?: T): Pro
 
 /**
  * 在 background 中监听来自 content script 的消息
- * 使用 return true + sendResponse 模式，兼容 Safari 非持久后台
  */
 export function onMessage<T = any, R = any>(
   type: string,
   handler: MessageHandler<T, R>,
 ): void {
-  const listener: OnMessageListener = (message, sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((message: any, sender, sendResponse) => {
     if (message?.type !== type)
       return false as unknown as true
-
     Promise.resolve()
       .then(() => handler(message.data as T, sender))
-      .then((data) => {
-        sendResponse({ ok: true, data } satisfies MessageResponse)
-      })
-      .catch((error) => {
-        sendResponse({
-          ok: false,
-          error: serializeError(error),
-        } satisfies MessageResponse)
-      })
-
+      .then(data => sendResponse({ ok: true, data } satisfies MessageResponse))
+      .catch(error => sendResponse({ ok: false, error: serializeError(error) } satisfies MessageResponse))
     return true
-  }
-
-  browser.runtime.onMessage.addListener(listener)
+  })
 }

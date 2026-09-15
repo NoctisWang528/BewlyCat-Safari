@@ -3,7 +3,7 @@ import browser from 'webextension-polyfill'
 
 import { deserializeError, ERROR_WHITELIST, onMessage, sendMessage, serializeError } from '~/utils/messaging'
 
-const refreshMocks = vi.hoisted(() => ({ promptPageRefreshFromContentScript: vi.fn() }))
+const refreshMocks = vi.hoisted(() => ({ markBackgroundConnectionHealthy: vi.fn(), promptPageRefreshFromContentScript: vi.fn() }))
 vi.mock('~/utils/refreshPrompt', () => refreshMocks)
 
 describe('messaging error serialization', () => {

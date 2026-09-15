@@ -13,8 +13,6 @@ export const isFirefox = process.env.FIREFOX === 'true'
 export const isSafari = process.env.SAFARI === 'true'
 
 function readBuildCommit(): string {
-  if (!isDev)
-    return ''
   try {
     return execFileSync('git', ['rev-parse', 'HEAD'], {
       cwd: r(),

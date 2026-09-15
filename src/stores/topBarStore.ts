@@ -34,13 +34,14 @@ import type { List as VideoItem } from '~/models/video/watchLater'
 import api from '~/utils/api'
 import { shouldShowBewlyTopBar } from '~/utils/bilibiliTopBar'
 import { getCSRF, isHomePage } from '~/utils/main'
-import { isExtensionContextInvalidatedError, onMessage, sendMessage } from '~/utils/messaging'
+import { isBackgroundUnavailableError, onMessage, sendMessage } from '~/utils/messaging'
 import type { TopBarMomentItem } from '~/utils/momentVideoIdentifier'
 import { extractMomentVideoIdentifier } from '~/utils/momentVideoIdentifier'
 
 export const LOGIN_RECHECK_INTERVAL = 1000 * 60 // 已登录但 userInfo 未填充时重查的间隔
 
 const DAY_MILLISECONDS = 24 * 60 * 60 * 1000
+const MAX_TOP_BAR_MOMENTS = 200
 
 function getNextReceiveAt(nextReceiveDays?: number, periodEndUnix?: number): number | null {
   if (Number.isFinite(periodEndUnix) && periodEndUnix! > 0)
@@ -71,7 +72,7 @@ export const useTopBarStore = defineStore('topBar', () => {
 
   function getLikeUnreadCount(): number {
     const likeCount = typeof unReadMessage.like === 'number' ? unReadMessage.like : 0
-    const recvLike = (unReadMessage as UnReadMessage & { recv_like?: number }).recv_like
+    const recvLike = unReadMessage.recv_like
     const recvLikeCount = typeof recvLike === 'number' ? recvLike : 0
 
     return Math.max(likeCount, recvLikeCount)
@@ -225,6 +226,7 @@ export const useTopBarStore = defineStore('topBar', () => {
     watchLaterLoadingGeneration++
     watchLaterListRequested = false
     addedWatchLaterList.splice(0)
+    addedWatchLaterBvids.clear()
     moments.splice(0)
     livePage.value = 1
     momentUpdateBaseline.value = ''
@@ -747,7 +749,7 @@ export const useTopBarStore = defineStore('topBar', () => {
           (currentPage - 1) * 10 + res.data.list.length,
         )
         // 删除会让服务器列表前移，页边界可能与已加载内容重叠，按 aid 去重兜底
-        const existingIds = new Set(watchLaterList.map((item: VideoItem) => item.aid))
+        const existingIds = new Set(watchLaterList.map(item => item.aid))
         const newItems = res.data.list.filter((item: VideoItem) => !existingIds.has(item.aid))
         watchLaterList.push(...newItems)
       }
@@ -828,6 +830,10 @@ export const useTopBarStore = defineStore('topBar', () => {
     const accountId = userInfo.mid
     if (!isCurrentAccount(accountId) || isLoadingMoments.value || noMoreMomentsContent.value)
       return
+    if (moments.length >= MAX_TOP_BAR_MOMENTS) {
+      noMoreMomentsContent.value = true
+      return
+    }
 
     isLoadingMoments.value = true
     api.moment.getTopBarMoments({
@@ -884,16 +890,13 @@ export const useTopBarStore = defineStore('topBar', () => {
               })
             void recordUploaderLatestVideoTimes(latestVideoTimes, 'topbar-pop')
 
-            // 合并联合投稿视频 - 只对视频类型进行合并
+            // 合并联合投稿视频：按接口返回的时间顺序遍历处理，
+            // 专栏（type 64）无 bvid 会原样保留在原位，仅对视频（type 8）
+            // 做联合投稿合并去重；不能把视频和专栏分开后再拼接，
+            // 否则专栏会被整体排到列表尾部，打乱时间序
             let processedItems = filteredItems
-            if (selectedType === 'video') {
-              // 只合并视频，不合并专栏
-              const videos = filteredItems.filter((item: any) => item.type === 8)
-              const articles = filteredItems.filter((item: any) => item.type === 64)
-              const mergedVideos = mergeCollaborativeVideos(videos)
-              // 将合并后的视频和专栏合并到一起
-              processedItems = [...mergedVideos, ...articles]
-            }
+            if (selectedType === 'video')
+              processedItems = mergeCollaborativeVideos(filteredItems)
 
             // 如果是第一次加载（offset为空），需要根据过滤和合并后的实际数量调整 newMomentsCount
             // 因为过滤专栏和合并联合投稿会导致显示的条目数量少于原始的 update_num
@@ -907,9 +910,12 @@ export const useTopBarStore = defineStore('topBar', () => {
             }
 
             processedItems.forEach((item: any) => {
+              if (moments.length >= MAX_TOP_BAR_MOMENTS)
+                return
               const { aid, bvid } = extractMomentVideoIdentifier(item)
               const momentItem: TopBarMomentItem = {
                 type: selectedType,
+                itemType: item.type,
                 title: item.title,
                 author: item.authors ? item.authors.map((a: any) => a.name).join(' / ') : item.author.name,
                 authorFace: item.author.face,
@@ -923,6 +929,8 @@ export const useTopBarStore = defineStore('topBar', () => {
                 isVideo: item.type === 8 && Boolean(aid || bvid),
                 isCollaborative: !!item.authors,
                 authors: item.authors,
+                // TransitionGroup 子元素需要唯一 key
+                id_str: item.rid != null ? `${item.type}-${item.rid}` : item.jump_url,
               }
 
               moments.push(momentItem)
@@ -938,6 +946,8 @@ export const useTopBarStore = defineStore('topBar', () => {
                 updateMomentCollaborative(momentItem, entry.item)
               }
             })
+            if (moments.length >= MAX_TOP_BAR_MOMENTS)
+              noMoreMomentsContent.value = true
           }
         }
       })
@@ -1030,6 +1040,10 @@ export const useTopBarStore = defineStore('topBar', () => {
       return
     if (noMoreMomentsContent.value)
       return
+    if (moments.length >= MAX_TOP_BAR_MOMENTS) {
+      noMoreMomentsContent.value = true
+      return
+    }
 
     isLoadingMoments.value = true
     const pageSize = 10
@@ -1050,8 +1064,9 @@ export const useTopBarStore = defineStore('topBar', () => {
           if (list.length === pageSize)
             livePage.value++
 
+          const remaining = Math.max(0, MAX_TOP_BAR_MOMENTS - moments.length)
           moments.push(
-            ...list.map((item: any) => ({
+            ...list.slice(0, remaining).map((item: any) => ({
               type: 'live',
               title: item.title,
               author: item.uname,
@@ -1060,9 +1075,13 @@ export const useTopBarStore = defineStore('topBar', () => {
               link: item.link,
               isVideo: false,
               authorJumpUrl: item.link,
+              // TransitionGroup 子元素需要唯一 key
+              id_str: item.roomid ? `live-${item.roomid}` : item.link,
             }),
             ),
           )
+          if (moments.length >= MAX_TOP_BAR_MOMENTS)
+            noMoreMomentsContent.value = true
         }
       })
       .finally(() => {
@@ -1289,11 +1308,11 @@ export const useTopBarStore = defineStore('topBar', () => {
       await syncSharedDataFromBroker(options)
     }
     catch (error) {
-      if (!isExtensionContextInvalidatedError(error))
+      if (!isBackgroundUnavailableError(error))
         throw error
 
-      // 扩展重新加载后，旧 content script 的 runtime 无法恢复。
-      // 停止轮询并让后续同步短路，等待后台刷新提示引导页面加载新脚本。
+      // 扩展重新加载或后台不可达后，旧 content script 的 runtime 无法恢复。
+      // 停止轮询并让后续同步短路，等待刷新提示引导页面加载新脚本。
       disableSharedStateMessaging()
     }
   }
@@ -1328,7 +1347,7 @@ export const useTopBarStore = defineStore('topBar', () => {
       TOP_BAR_STATE_MESSAGE.INVALIDATE,
       { accountId },
     ).catch((error) => {
-      if (!isExtensionContextInvalidatedError(error))
+      if (!isBackgroundUnavailableError(error))
         throw error
 
       disableSharedStateMessaging()
@@ -1344,7 +1363,7 @@ export const useTopBarStore = defineStore('topBar', () => {
       TOP_BAR_STATE_MESSAGE.FAVORITES_CHANGED,
       { accountId },
     ).catch((error) => {
-      if (!isExtensionContextInvalidatedError(error))
+      if (!isBackgroundUnavailableError(error))
         throw error
 
       disableSharedStateMessaging()

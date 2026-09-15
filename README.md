@@ -103,7 +103,7 @@ v1.7.5-safari.1
 v1.7.8-safari.1
 ```
 
-- `1.7.8` 表示跟随的 BewlyCat 上游基线。
+- `1.7.9` 表示当前跟随的 BewlyCat 上游基线。
 - `safari.1` 表示本仓库在该基线上的第 1 个 Safari Release。
 - Safari 修订号只在发布时增加；普通提交不单独占用版本号。
 - Xcode `MARKETING_VERSION` 跟随上游基线，`CURRENT_PROJECT_VERSION`

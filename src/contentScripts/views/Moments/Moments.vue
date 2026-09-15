@@ -3260,6 +3260,12 @@ async function toggleMomentWatchLater(target: WatchLaterTarget) {
     }
 
     const isAdded = watchLaterMomentIds.has(stateKey)
+    if (isAdded && !aid && bvid)
+      aid = Number((await api.video.getVideoInfo({ bvid }))?.data?.aid) || 0
+    if (isAdded && !aid) {
+      toast.error(t('moments.watch_later_info_failed'))
+      return
+    }
     const response = isAdded
       ? await api.watchlater.removeFromWatchLater({ aid, csrf })
       : await api.watchlater.saveToWatchLater({ aid: aid || undefined, bvid, csrf })
