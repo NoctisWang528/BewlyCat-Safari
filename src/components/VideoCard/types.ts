@@ -1,5 +1,18 @@
 import type { ThreePointV2 } from '~/models/video/appForYou'
 
+/** Data-only interaction state survives offscreen card recycling. */
+export interface VideoCardState {
+  removed: boolean
+  selectedDislikeOpt?: { reasonId?: number, feedbackId?: number }
+  videoCurrentTime: number | null
+  isInWatchLater: boolean
+  resolvedWatchLaterAid?: number
+}
+
+export function createVideoCardState(): VideoCardState {
+  return { removed: false, videoCurrentTime: null, isInWatchLater: false }
+}
+
 export interface Video {
   id: number
   duration?: number
@@ -37,7 +50,12 @@ export interface Video {
   liveStatus?: number
   trackId?: string
 
+  /** API-provided display labels, such as recommendation reasons or “1万点赞”. */
   tag?: string | string[]
+  /** Real content tags exposed on search-result pages; clicking these starts a search. */
+  searchableTags?: string[]
+  /** Searchable video partition name from APIs, such as `typename` in search results. */
+  category?: string
   rank?: number
   type?: 'horizontal' | 'vertical' | 'bangumi' | 'ketang'
   threePointV2: ThreePointV2[]

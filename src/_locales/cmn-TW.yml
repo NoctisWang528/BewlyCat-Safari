@@ -112,6 +112,9 @@ player_screenshot:
   failed: 截圖失敗
   video_unavailable: 目前影片畫面無法使用
 settings:
+  following_sort: 新版關注列表排序
+  following_sort_updated: 按更新時間
+  following_sort_group: 按分組
   title: 設定
   menu_general: 一般
   menu_bewly_pages: Bewly 頁面
@@ -269,6 +272,8 @@ settings:
   group_following: 正在跟隨
   group_following_desc: 設定「正在跟隨」頁面的版面、直播內容與影片過濾規則。
   group_favorites: 收藏
+  sidebar_cover_blur: 側邊欄封面高斯漸變
+  sidebar_cover_blur_desc: 在收藏、稍後再看等頁面側邊欄使用封面模糊背景；關閉後使用透出頁面桌布的 Pop 背景，不隨封面染色。
   group_search_page_mode: 搜尋頁模式
   group_home_tabs: 首頁標籤欄
   group_home_layout: 首頁版面
@@ -307,7 +312,7 @@ settings:
   moments_enable_live_preview: 直播動態懸停預覽
   moments_enable_live_preview_desc: 滑鼠懸停直播動態封面時播放直播預覽。
   moments_enable_video_preview: 影片動態懸停預覽
-  moments_enable_video_preview_desc: 滑鼠懸停影片動態封面時播放影片預覽。
+  moments_enable_video_preview_desc: 滑鼠懸停影片動態或轉發影片時播放預覽，可設定觸發範圍、延遲和播放互動。
   moments_grid_columns: 動態欄數
   moments_tabs_position: 動態標籤列位置
   moments_grid_columns_desc: 設定 Bewly 動態頁的期望欄數。卡片尺寸會隨欄數自動調整；視窗空間不足時會自動減少欄數，左側欄與動態流整體保持置中。
@@ -342,8 +347,8 @@ settings:
     inherit: 跟隨動態卡片
   group_moments_wanted_users: 想看分組
   group_moments_wanted_users_desc: 管理想看的 UP 主；支援輸入 UID 或暱稱，名單僅儲存在本機。
-  moments_enable_wanted_filter: 啟用想看篩選
-  moments_enable_wanted_filter_desc: 在動態頁橫向欄顯示「想看」入口，用來只查看名單內 UP 主的動態；關閉後會隱藏入口並退出想看篩選。
+  moments_enable_wanted_filter: 顯示「想看」按鈕
+  moments_enable_wanted_filter_desc: 在動態頁橫向欄顯示「想看」按鈕，用來只查看名單內 UP 主的動態；關閉後會直接移除按鈕並退出想看篩選。
   moments_wanted_users: 想看的 UP 主
   group_moments_pinned_users: 固定 UP 主
   group_moments_pinned_users_desc: 管理固定在動態欄右側的 UP 主；支援輸入 UID 或暱稱，名單僅儲存在本機。
@@ -402,12 +407,13 @@ settings:
   link_opening_behavior_opt:
     current_tab: 目前索引標籤
     current_tab_if_not_homepage: 首頁外目前分頁
+    current_tab_if_homepage: 首頁內目前分頁
     background: 背景打開
     new_tab: 新索引標籤
     drawer: 抽屜開啟
   top_bar_link_opening_behavior: 頂部列連結開啟行為
   video_card_link_opening_behavior: 影片和番劇卡片連結開啟行為
-  link_opening_behavior_desc: 控制點擊連結後的開啟位置。「首頁外目前分頁」表示：目前頁面為首頁時使用新索引標籤開啟，其他頁面使用目前索引標籤開啟；「後台打開」會在瀏覽器允許時開到背景索引標籤。
+  link_opening_behavior_desc: 控制點擊連結後的開啟位置。「首頁外目前分頁」表示：首頁使用新索引標籤開啟，其他頁面使用目前索引標籤開啟；「首頁內目前分頁」表示：Bilibili 首頁（page=Home 或未指定 page）使用目前索引標籤開啟，其他頁面使用新索引標籤開啟；「後台打開」會在瀏覽器允許時開到背景索引標籤。
   video_card_link_opening_behavior_desc: 控制點擊影片和番劇卡片後的開啟位置，可選擇目前索引標籤、抽屜、背景索引標籤或新索引標籤。
   search_bar_link_opening_behavior: 搜尋列連結開啟行為
   close_drawer_without_pressing_esc_again: 關閉抽屜時不用再次按 <kbd>Esc</kbd> 關閉
@@ -448,9 +454,6 @@ settings:
   video_card_shadow_reset: 重設陰影設定
   video_card_layout: 影片卡片版型
   video_card_layout_desc: 在新版與舊版影片卡片呈現之間切換。
-  release_offscreen_images: 回收離屏封面記憶體
-  release_offscreen_images_desc: 影片封面離開保留範圍後卸載圖片資源，降低長清單記憶體用量。
-  release_offscreen_images_warning: 警告：離屏回收記憶體可能造成圖片重新渲染時的效能卡頓，預設不回收。
   video_card_layout_option:
     modern: 新版
     old: 經典版
@@ -492,12 +495,14 @@ settings:
     bewly_widescreen_sidebar_position_desc: 選擇 Bewly 寬螢幕模式下側邊欄的顯示位置
     bewly_widescreen_sidebar_position_left: 左側
     bewly_widescreen_sidebar_position_right: 右側
-    bewly_widescreen_sidebar_priority: Bewly寬螢幕版面優先級
-    bewly_widescreen_sidebar_priority_desc: 影片優先：側欄預設收合為窄條，滑鼠懸停時臨時展開，也可用按鈕切換為完整側欄（會壓縮影片區域）；側欄優先：側欄預設完整顯示並壓縮影片區域。
-    bewly_widescreen_sidebar_priority_video: 影片優先
-    bewly_widescreen_sidebar_priority_sidebar: 側欄優先
-    bewly_widescreen_center_vertical_video: Bewly寬螢幕畫面置中
-    bewly_widescreen_center_vertical_video_desc: 開啟後，寬螢幕模式下若畫面兩側留有足夠容納側欄的黑邊空間，影片將於整個畫面水平置中，側欄完整佔據一側黑邊；空間不足時保持現有版面。
+    bewly_widescreen_auto_collapse_sidebar: 自動收合 Bewly 寬螢幕側欄
+    bewly_widescreen_auto_collapse_sidebar_desc: 開啟後優先保持影片完整高度，並依可用空間調整側欄。一般視窗空間不足時側欄會自動收合；超寬視窗預設顯示為窄條，滑鼠懸停時可暫時展開。關閉後側欄保持完整顯示，並壓縮影片區域。開啟後會關閉手動調整側欄寬度。
+    bewly_widescreen_video_alignment: 影片置中基準
+    bewly_widescreen_video_alignment_desc: 選擇影片在側欄以外的可用區域置中，或在空間允許時相對整個瀏覽器視窗置中。此設定不會改變側欄寬度或展開狀態。
+    bewly_widescreen_video_alignment_sidebar: 側欄外區域（預設）
+    bewly_widescreen_video_alignment_viewport: 整個瀏覽器視窗（空間允許時）
+    enable_bewly_widescreen_sidebar_resize: 允許手動調整 Bewly 寬螢幕側欄寬度
+    enable_bewly_widescreen_sidebar_resize_desc: 開啟後會關閉自動收合，側欄保持完整展開。可拖曳影片與側欄之間的分隔線調整寬度，並記住上次寬度；按兩下分隔線恢復預設寬度。
   enable_video_preview: 啟用影片預覽功能（如果可以的話）
   enable_video_ctrl_bar_on_video_card: 在影片卡片上顯示影片控制欄
   video_preview_swipe_seek: 滑動小範圍跳轉
@@ -506,9 +511,9 @@ settings:
   only_cover_video_preview: 僅封面影片預覽
   show_video_card_author_avatar: 顯示使用者頭像
   show_video_card_author_name: 顯示使用者暱稱
-  show_video_card_video_tag: 顯示影片標籤（搜尋結果頁）
-  show_video_card_video_tag_desc: 顯示搜尋頁等情境提供的影片分類標籤。
-  show_video_card_recommend_tag: 顯示插件計算的推薦標籤
+  show_video_card_video_tag: 顯示 API 與搜尋標籤
+  show_video_card_video_tag_desc: 顯示 API 提供的推薦理由、狀態或分區標籤，以及搜尋頁的影片內容標籤。
+  show_video_card_recommend_tag: 顯示插件計算標籤
   show_video_card_recommend_tag_desc: 顯示插件計算的標籤，如「高讚」、「高互動」、「百萬播放」等
   show_video_card_publish_time: 顯示發布時間
   show_video_card_view_count: 顯示播放量
@@ -639,6 +644,8 @@ settings:
   recommendation_mode: 推薦模式
   recommendation_mode_desc: |
     Web：普通網頁端推薦模式。無 Cookie：請求首頁推薦時不攜帶 Cookie。App：手機端推薦模式，需先授權 access key。
+  show_recommendation_mode_switcher: 顯示推薦模式快速切換按鈕組
+  show_recommendation_mode_switcher_desc: 選取首頁「為你推薦」時，在頂部分頁列右側顯示膠囊按鈕組，可直接選擇 Web、無 Cookie 或 App 模式。
   recommendation_mode_web_no_cookie: 無 Cookie
   remember_no_cookie_recommendation_state: 減少無 Cookie 推薦重複
   remember_no_cookie_recommendation_state_desc: 重新整理頁面後延續推薦刷新進度，並向推薦接口帶上最近曝光記錄，以減少重複推薦。僅無 Cookie 模式生效。
@@ -652,7 +659,7 @@ settings:
   authorize_app_more_info_access_key: 關於 access key
   scan_qrcode_desc: 使用 Bilibili 手機應用程式掃描這個行動條碼，以授權取得 access key。
   show_recommendation_filter_risk_warning: 顯示過濾風控警告
-  show_recommendation_filter_risk_warning_desc: 累計檢查 100 條有效推薦後，如果設定中的過濾條件保留少於 50 條，則提示頻繁請求的風控風險。
+  show_recommendation_filter_risk_warning_desc: 推薦列表已有足夠有效影片填滿視口後，載入更多時連續兩批全部被過濾，或累計檢查 100 條有效推薦後保留少於 50 條時，提示頻繁請求的風控風險。
   disable_filters_for_followed_users: 正在跟隨的使用者不受過濾條件限制
   disable_filters_for_followed_users_desc: |
     如果啟用此選項，正在跟隨的使用者不受過濾條件限制。
@@ -973,7 +980,11 @@ settings:
   hide_comment_image_scrollbar: 評論圖片預覽時隱藏頁面滾動條
   hide_comment_image_scrollbar_desc: 開啟評論區圖片預覽時隱藏頁面右側滾動條，避免滾動條顯示在遮罩右側
   video_player_scroll: 調整顯示模式後滾動
-  video_player_scroll_desc: 啟用後，在默認模式為寬屏和默認時，會自動滾動到合適位置。
+  video_player_scroll_desc: 啟用後，調整顯示模式時會自動捲動到所選位置。
+  video_player_scroll_mode:
+    title: 捲動位置
+    sending_bar: 保持彈幕欄可見
+    player_center: 播放器置中
   enlarge_favorite_dialog: 放大收藏彈窗
   enlarge_favorite_dialog_desc: 啟用後，影片頁收藏彈窗將以更大的尺寸顯示，方便查看和管理收藏夾。
   external_watch_later_button: 稍後再看按鈕外置
@@ -1162,9 +1173,25 @@ video_card:
   watched: 已觀看
   visited_recently: 近一個月內瀏覽過
 home:
+  following_default_group: 預設分組
+  following_special_group: 特別關注
+  following_group_name: '分組 {id}'
+  following_groups_load_failed: 分組載入失敗，暫按更新時間顯示
+  following_groups_retry: 重試
+  following_move_group: 移動分組
+  following_remove_special: 取消特別關注
+  following_add_special: 設為特別關注
+  following_create_group: 新增分組
+  following_rename_group: 重新命名分組
+  following_delete_group: 刪除分組
+  following_group_name_label: 分組名稱（1–16 個字元）
+  following_group_name_invalid: 請輸入 1–16 個字元的分組名稱
+  following_delete_group_confirm: '確定刪除分組「{name}」嗎？不會取消關注其中的 UP 主；沒有其他普通分組的 UP 主將歸入預設分組。'
+  following_action_success: '已更新對 {name} 的關注設定'
+  following_action_failed: '操作失敗：{message}'
   app_authorization_required: App 模式的 access token 已遺失或過期，請重新授權後繼續使用個人化推薦
   reauthorize_app: 重新授權
-  recommendation_filter_risk_warning: 目前過濾條件在 100 條有效推薦中只保留了 {count} 條，容易頻繁請求並觸發介面風控，建議適度放寬過濾條件。
+  recommendation_filter_risk_warning: 目前過濾條件在 {total} 條有效推薦中只保留了 {count} 條，容易頻繁請求並觸發介面風控，建議適度放寬過濾條件。
   tell_us_why: 為什麼這樣做...
   not_interested_desc: >
     你可以用 <kbd>↑</kbd> 和 <kbd>↓</kbd> 來選擇原因，或者直接使用數字鍵來選擇原因，按 <kbd>Enter</kbd>
@@ -1268,11 +1295,15 @@ favorites:
   sidebar_manage_exit: 退出管理
   select_all: 全選
   unselect_all: 取消全選
-  rename_folder: 重新命名
-  rename_folder_dialog_title: 重新命名收藏夾
-  rename_folder_placeholder: 請輸入收藏夾名稱
-  rename_folder_empty: 收藏夾名稱不能為空
-  default_folder_locked: 預設收藏夾不可重新命名或刪除
+  edit_folder: 編輯收藏夾
+  edit_folder_dialog_title: 編輯收藏夾
+  edit_folder_placeholder: 請輸入收藏夾名稱
+  edit_folder_empty: 收藏夾名稱不能為空
+  folder_visibility: 收藏夾可見性
+  folder_visibility_desc: 公開收藏夾可供其他使用者查看
+  folder_public: 公開
+  folder_private: 私密
+  default_folder_locked: 預設收藏夾不可編輯或刪除
   delete_folders_confirm: |-
     要刪除已選的 {count} 個收藏夾嗎？
     夾內影片的收藏關係將一併移除，該操作無法撤銷。
@@ -1402,11 +1433,26 @@ moments:
   go_charge: 去充電
   vote_ongoing: 進行中
   vote_ended: 已結束
+  vote_loading: 正在載入投票
+  vote_load_failed: 投票載入失敗
+  vote_retry: 重試
+  vote_participants: '{count} 人參與'
+  vote_select_up_to: '最多選擇 {count} 項'
+  vote_submit: 投票
+  vote_submitted: 已投票
+  vote_selected: 你選擇了此項
+  vote_time_day: '{count}天'
+  vote_time_hour: '{count}小時'
+  vote_time_minute: '{count}分鐘'
+  vote_ends_in: '{time}後截止'
+  login_to_vote: 登入後才能參與投票
+  vote_submit_failed: 投票失敗，請稍後再試
+  vote_submit_succeeded: 投票成功
   forwarded_post: 轉發了動態
   bilibili_user: B站使用者
   original_author: 原作者
   live_post: 直播動態
-  video_post: 影片動態
+  video_post: 投稿了影片
   image_post: 圖文動態
   text_post: 純文字動態
   original_post: 原動態
@@ -1427,7 +1473,7 @@ moments:
   followers: 粉絲
   posts: 動態
   publish: 發布動態
-  live_now: 正在直播
+  live_now: 直播中
   group_label: 動態分組
   all_posts: 全部動態
   wanted_only: 只看想看的 UP 主
@@ -1465,7 +1511,42 @@ moments:
   fit_window: 適應視窗
   rotate_clockwise: 順時針旋轉
 moment_card:
-  video_post: 影片動態
+  repost_pending: 這則動態正在轉發，請稍候
+  repost_placeholder: 說點什麼吧（選填）
+  repost_login: 請先登入，或重新整理頁面後重試
+  repost_failed: 轉發失敗，請稍後重試
+  repost_success: 轉發成功
+  repost_mention: "搜尋要 {'@'} 的使用者"
+  repost_topic: 選擇話題
+  repost_commercial: 商業聲明
+  repost_mentions_limit: "最多可以 {'@'} {count} 位使用者"
+  repost_emoji_limit: 最多可以新增 20 個動態表情
+  repost_too_long: 已超出規定字數
+  repost_retry: 重試
+  repost_no_results: 暫無結果
+  lottery_details: 抽獎詳情
+  repost: 轉發
+  comment_sex_male: 男
+  comment_sex_female: 女
+  expand_comment_replies: 共 {count} 則回覆，點擊展開
+  collapse_comment_replies: 收起回覆
+  collapse_comments: 收起留言
+  comments_sort: 留言排序
+  comments_sort_hot: 最熱門
+  comments_sort_latest: 最新
+  comments_preview: 留言預覽
+  comments_unavailable: 暫時無法取得此動態的留言區
+  comments_load_failed: 留言載入失敗
+  comment_like_failed: 留言按讚失敗，請稍後重試
+  comment_host: 樓主
+  comment_missing_parent: 留言不在本頁或已刪除
+  expand_comment_thread: 展開此留言及回覆
+  collapse_comment_thread: 收起此留言及回覆
+  comment_image: 檢視留言圖片 {index}
+  comments_retry: 重試
+  load_comment_replies: 載入更多回覆
+  comments_empty: 暫無留言
+  video_post: 投稿了影片
   cancel_reservation: 取消預約
   reserve: 預約
   open_space: 開啟 {name} 的空間
@@ -1473,13 +1554,13 @@ moment_card:
   charging_exclusive: 充電專屬
   added_watch_later: 已加入稍後再看
   add_watch_later: 加入稍後再看
-  added: 已加入
-  watch_later: 稍後再看
   live_post: 直播動態
   open_original_video: '開啟原影片：{title}'
   author_images: '{name} 的動態圖片'
   view_author_images: 檢視 {name} 的動態圖片
   open_origin_moment: 查看 {name} 的原動態
+  view_details: 查看詳情
+  view_original_post: 查看原動態
   additional: 附加內容
   view_hot_comment: 檢視熱門留言
   hot_comment: 熱門留言
@@ -1491,6 +1572,8 @@ moment_card:
   live_popularity: '直播人氣 {value}'
   no_data: 暫無資料
   live_now: 直播中
+  expand_text: 展開正文
+  collapse_text: 收合正文
   like_unsupported: 此動態暫不支援按讚
   unlike: 取消按讚
   like: 按讚
@@ -1502,6 +1585,8 @@ user_card:
   submissions: '{count}個投稿'
   followers: '{count}粉絲'
 widescreen:
+  resize_sidebar: 調整寬螢幕側欄寬度
+  resize_sidebar_title: 拖曳調整寬度，按兩下恢復預設寬度
   show_narrow_right: 顯示窄右欄
   show_narrow_left: 顯示窄左欄
   collapse_right: 收合右欄
@@ -1539,3 +1624,4 @@ inject:
   of: 共
   loading: 載入中…
   load_more: 載入更多
+  expand_all_replies: 展開全部回覆

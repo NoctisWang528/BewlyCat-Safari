@@ -1,12 +1,12 @@
 import { watch } from 'vue'
 
 import { settings } from '~/logic'
-import { applyBewlyWidescreen, ensureNativePlayerModeGuard, exitBewlyWidescreen, isBewlyWidescreenActive, showBewlyWidescreenSwitchHint } from '~/utils/bewlyWidescreen'
+import { applyBewlyWidescreen, ensureNativePlayerModeGuard, exitBewlyWidescreen, isBewlyWidescreenActive, isBewlyWidescreenEngaged, showBewlyWidescreenSwitchHint } from '~/utils/bewlyWidescreen'
 import { i18n } from '~/utils/i18n'
 import { isVideoOrBangumiPage } from '~/utils/main'
 
 const PLAYER_CONTROL_BAR_SELECTOR = '.bpx-player-control-bottom-right'
-const PLAYER_ROOT_SELECTOR = '#playerWrap, #bilibili-player, #bilibiliPlayer, .bpx-player-container, .bilibili-player'
+const PLAYER_ROOT_SELECTOR = '#bilibili-player-wrap, #playerWrap, #bilibili-player, #bilibiliPlayer, .bpx-player-container, .bilibili-player'
 const PLAYER_MODE_BUTTON_SELECTOR = '.bpx-player-ctrl-web, .bilibili-player-video-web-fullscreen'
 const BUTTON_CLASS = 'bewly-widescreen-control'
 const TOOLTIP_CLASS = 'bewly-player-tooltip'
@@ -46,7 +46,7 @@ function findPlayerControlBar(): HTMLElement | null {
 }
 
 function findPlayerRoot(controlBar?: HTMLElement | null): HTMLElement | null {
-  return controlBar?.closest<HTMLElement>('#playerWrap, #bilibili-player, #bilibiliPlayer')
+  return controlBar?.closest<HTMLElement>('#bilibili-player-wrap, #playerWrap, #bilibili-player, #bilibiliPlayer')
     ?? controlBar?.closest<HTMLElement>('.bpx-player-container, .bilibili-player')
     ?? document.querySelector<HTMLElement>(PLAYER_ROOT_SELECTOR)
 }
@@ -73,19 +73,23 @@ function updateControlState(button = controlContainer) {
     return
 
   const active = isBewlyWidescreenActive()
-  const unavailable = isControlUnavailable()
-  const hidden = isBrowserFullscreen() || isWebFullscreen()
   const label = getButtonLabel(active)
 
-  button.hidden = hidden
+  // 全屏/窄屏显隐交给 CSS；相同状态不重复写 DOM，避免触发原生播放器观察器。
+  if (button.getAttribute('aria-label') === label
+    && button.getAttribute('aria-busy') === String(isApplying)
+    && button.classList.contains('bpx-state-entered') === active) {
+    return
+  }
+
   button.setAttribute('aria-label', label)
   const tooltip = button.querySelector<HTMLElement>(`.${TOOLTIP_CLASS}`)
   if (tooltip)
     tooltip.textContent = label
-  button.setAttribute('aria-disabled', String(unavailable || isApplying))
+  button.setAttribute('aria-disabled', String(isApplying))
   button.setAttribute('aria-busy', String(isApplying))
-  button.setAttribute('tabindex', hidden || unavailable || isApplying ? '-1' : '0')
-  button.classList.toggle('is-disabled', unavailable || isApplying)
+  button.setAttribute('tabindex', isApplying ? '-1' : '0')
+  button.classList.toggle('is-disabled', isApplying)
   button.classList.toggle('bpx-state-entered', active)
 }
 
@@ -139,6 +143,8 @@ function createControlContainer(): HTMLElement {
 
     event.preventDefault()
     event.stopPropagation()
+    if (event.repeat)
+      return
     void handleControlClick(container)
   })
 
@@ -150,7 +156,7 @@ async function handleControlClick(button: HTMLElement) {
     return
 
   if (isBewlyWidescreenActive()) {
-    exitBewlyWidescreen()
+    exitBewlyWidescreen({ userInitiated: true })
     updateControlState(button)
     return
   }
@@ -256,7 +262,6 @@ function observePlayerStructure(playerRoot: HTMLElement, controlBar: HTMLElement
       return
     }
 
-    updateControlState()
     if (!playerRoot.isConnected) {
       stopPlayerObservers()
       restartControlDiscovery()
@@ -274,17 +279,6 @@ function observePlayerStructure(playerRoot: HTMLElement, controlBar: HTMLElement
     if (current === playerRoot)
       break
     current = current.parentElement
-  }
-
-  // Web fullscreen is represented by a class on the native control. Watching
-  // that small set of nodes keeps the custom control unavailable while it is
-  // active without observing the entire page for attribute mutations.
-  const modeButtons = Array.from(controlBar.querySelectorAll<HTMLElement>(PLAYER_MODE_BUTTON_SELECTOR))
-  for (const modeButton of modeButtons) {
-    playerStructureObserver.observe(modeButton, {
-      attributes: true,
-      attributeFilter: ['class'],
-    })
   }
 
   const playerParent = playerRoot.parentElement
@@ -349,7 +343,7 @@ function setupPageObserver() {
 
   pageObserver = new MutationObserver(() => {
     if (isApplying && (isBewlyWidescreenActive()
-      || !document.getElementById('bewly-widescreen-loading'))) {
+      || !isBewlyWidescreenEngaged())) {
       finishApplying()
     }
 
@@ -373,8 +367,8 @@ export function initBewlyWidescreenControl() {
   ensureNativePlayerModeGuard()
   setupPageObserver()
   watch(
-    () => settings.value.showBewlyWidescreenButton,
-    (enabled) => {
+    [() => settings.value.showBewlyWidescreenButton, () => settings.value.language],
+    ([enabled]) => {
       if (enabled)
         restartControlDiscovery()
       else
@@ -389,8 +383,6 @@ export function initBewlyWidescreenControl() {
   window.addEventListener('popstate', handlePageLifecycleChange)
   window.addEventListener('hashchange', handlePageLifecycleChange)
   window.addEventListener('pageshow', handlePageLifecycleChange)
-  window.addEventListener('fullscreenchange', () => updateControlState())
-  window.addEventListener('webkitfullscreenchange', () => updateControlState())
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && settings.value.showBewlyWidescreenButton)
       restartControlDiscovery()

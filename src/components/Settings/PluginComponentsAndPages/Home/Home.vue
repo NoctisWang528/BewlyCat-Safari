@@ -8,7 +8,7 @@ import Input from '~/components/Input.vue'
 import Radio from '~/components/Radio.vue'
 import { HomeSubPage } from '~/contentScripts/views/Home/types'
 import { appAuthTokens, settings } from '~/logic'
-import type { RecommendationMode, TabsPosition } from '~/logic/storage'
+import type { RecommendationMode, Settings, TabsPosition } from '~/logic/storage'
 import { useMainStore } from '~/stores/mainStore'
 import { hasValidAppAuthTokens, revokeAccessKey } from '~/utils/authProvider'
 
@@ -27,6 +27,11 @@ const recommendationModeOptions = computed<{ label: string, value: Recommendatio
   { label: 'Web', value: 'web' },
   { label: t('settings.recommendation_mode_web_no_cookie'), value: 'webNoCookie' },
   { label: 'App', value: 'app' },
+])
+
+const followingUploaderSortOptions = computed<{ label: string, value: Settings['followingUploaderSort'] }[]>(() => [
+  { label: t('settings.following_sort_updated'), value: 'updated' },
+  { label: t('settings.following_sort_group'), value: 'group' },
 ])
 
 const homeTabsPositionOptions = computed<{ label: string, value: TabsPosition }[]>(() => [
@@ -165,6 +170,14 @@ function handleToggleHomeTab(tab: any) {
           :options="recommendationModeOptions"
           @change="handleRecommendationModeChange"
         />
+      </SettingsItem>
+
+      <SettingsItem
+        :title="$t('settings.show_recommendation_mode_switcher')"
+        :desc="$t('settings.show_recommendation_mode_switcher_desc')"
+        right-width="auto"
+      >
+        <Radio v-model="settings.showRecommendationModeSwitcher" />
       </SettingsItem>
 
       <SettingsItem
@@ -444,6 +457,13 @@ function handleToggleHomeTab(tab: any) {
     >
       <SettingsItem :title="$t('settings.use_following_new_layout')" :desc="$t('settings.use_following_new_layout_desc')" right-width="auto">
         <Radio v-model="settings.useFollowingNewLayout" />
+      </SettingsItem>
+      <SettingsItem :title="$t('settings.following_sort')" right-width="auto">
+        <SettingsSegmentedControl
+          v-model="settings.followingUploaderSort"
+          :label="$t('settings.following_sort')"
+          :options="followingUploaderSortOptions"
+        />
       </SettingsItem>
       <SettingsItem :title="$t('settings.following_tab_show_livestreaming_videos')" right-width="auto">
         <Radio v-model="settings.followingTabShowLivestreamingVideos" />

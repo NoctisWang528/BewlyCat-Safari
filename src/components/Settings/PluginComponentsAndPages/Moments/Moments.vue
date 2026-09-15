@@ -197,6 +197,24 @@ const momentsTabsPositionOptions = computed<{ label: string, value: TabsPosition
       >
         <Radio v-model="settings.momentsEnableVideoPreview" />
       </SettingsItem>
+      <template v-if="settings.momentsEnableVideoPreview">
+        <SettingsItem :title="$t('settings.enable_video_ctrl_bar_on_video_card')" right-width="auto">
+          <Radio v-model="settings.momentsEnableVideoControls" />
+        </SettingsItem>
+        <SettingsItem
+          :title="$t('settings.video_preview_swipe_seek')"
+          :desc="$t('settings.video_preview_swipe_seek_desc')"
+          right-width="auto"
+        >
+          <Radio v-model="settings.momentsEnableVideoPreviewSwipeSeek" />
+        </SettingsItem>
+        <SettingsItem :title="$t('settings.hover_video_card_delayed')" right-width="auto">
+          <Radio v-model="settings.momentsVideoPreviewDelayed" />
+        </SettingsItem>
+        <SettingsItem :title="$t('settings.only_cover_video_preview')" right-width="auto">
+          <Radio v-model="settings.momentsOnlyCoverVideoPreview" />
+        </SettingsItem>
+      </template>
       <SettingsItem
         :title="$t('settings.moments_filtered_types')"
         :desc="$t('settings.moments_filtered_types_desc')"

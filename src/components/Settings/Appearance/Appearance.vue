@@ -149,6 +149,13 @@ function changeWallpaper(url: string) {
 
     <SettingsItemGroup :title="$t('settings.group_visual_effects')">
       <SettingsItem
+        :title="$t('settings.sidebar_cover_blur')"
+        :desc="$t('settings.sidebar_cover_blur_desc')"
+        right-width="auto"
+      >
+        <Radio v-model="settings.enableSidebarCoverBlur" />
+      </SettingsItem>
+      <SettingsItem
         :title="$t('settings.enable_frosted_glass')"
         :badge="$t('settings.badge_performance_impact')"
         right-width="auto"

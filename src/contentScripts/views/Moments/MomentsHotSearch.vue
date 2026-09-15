@@ -51,7 +51,7 @@ onMounted(loadHotSearch)
 </script>
 
 <template>
-  <section class="moments-hot-search" :aria-label="$t('search_bar.hot_search_title')">
+  <section class="moments-hot-search bew-popover-surface bew-popover-surface--wallpaper" :aria-label="$t('search_bar.hot_search_title')">
     <header class="moments-hot-search__header">
       <span i-tabler-flame aria-hidden="true" />
       <strong>{{ $t('search_bar.hot_search_title') }}</strong>
@@ -96,9 +96,7 @@ onMounted(loadHotSearch)
 .moments-hot-search {
   overflow: auto;
   overscroll-behavior: contain;
-  padding: var(--bew-space-3);
-  border-radius: var(--bew-panel-radius);
-  background: var(--bew-elevated);
+  padding: var(--bew-space-4);
   scrollbar-width: thin;
 }
 

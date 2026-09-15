@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { onClickOutside, onKeyStroke, useDebounceFn, useElementBounding, useMediaQuery } from '@vueuse/core'
+import { onClickOutside, onKeyStroke, useDebounceFn, useDocumentVisibility, useElementBounding, useMediaQuery } from '@vueuse/core'
 import DOMPurify from 'dompurify'
 import type { CSSProperties } from 'vue'
 import { computed, inject, reactive, ref, shallowRef, watch } from 'vue'
 
 import type { BewlyAppProvider } from '~/composables/useAppProvider'
 import { resolveSearchBarCharacterUrl } from '~/constants/imgs'
+import { AppPage } from '~/enums/appEnums'
 import { settings } from '~/logic'
 import api from '~/utils/api'
 import { findLeafActiveElement } from '~/utils/element'
-import { buildKeywordSearchUrl, navigateToPluginSearchResultsInPlace, openSearchResults } from '~/utils/searchNavigation'
+import { isHomePage } from '~/utils/main'
+import { buildKeywordSearchUrl, navigateToPluginSearchResults, navigateToPluginSearchResultsInPlace, openSearchResults } from '~/utils/searchNavigation'
 
 import type { HistoryItem, SuggestionItem, SuggestionResponse } from './searchHistoryProvider'
 import {
@@ -89,6 +91,7 @@ const isLoadingHotSearch = ref<boolean>(false)
 // 搜索推荐相关状态
 const searchRecommendation = ref<SearchRecommendationItem | null>(null)
 const isLoadingSearchRecommendation = ref<boolean>(false)
+const documentVisibility = useDocumentVisibility()
 const isNarrowLayout = useMediaQuery('(max-width: 767px)')
 
 const searchMode = computed(() => props.searchBehavior ?? 'navigate')
@@ -226,7 +229,7 @@ async function loadSearchRecommendation() {
   try {
     isLoadingSearchRecommendation.value = true
     const res: SearchRecommendationResponse = await api.search.getDefaultSearchRecommendation()
-    if (res && res.code === 0) {
+    if (res && res.code === 0 && settings.value.showSearchRecommendation) {
       searchRecommendation.value = res.data
     }
   }
@@ -243,18 +246,16 @@ let recommendationTimer: ReturnType<typeof setInterval> | null = null
 
 // 初始化搜索推荐（组件挂载时调用）
 function initSearchRecommendation() {
-  if (!settings.value.showSearchRecommendation)
+  cleanupRecommendationTimer()
+  if (!settings.value.showSearchRecommendation || documentVisibility.value !== 'visible')
     return
 
   // 立即加载一次
   loadSearchRecommendation()
 
-  // 设置10分钟定时更新
-  if (recommendationTimer)
-    clearInterval(recommendationTimer)
-
+  // 仅可见标签页定时更新；后台缓存负责多个搜索框和标签页之间的请求去重。
   recommendationTimer = setInterval(() => {
-    if (settings.value.showSearchRecommendation) {
+    if (settings.value.showSearchRecommendation && documentVisibility.value === 'visible') {
       loadSearchRecommendation()
     }
   }, 10 * 60 * 1000) // 10分钟
@@ -268,8 +269,8 @@ function cleanupRecommendationTimer() {
   }
 }
 
-// 监听设置变化，动态启用或停止推荐功能
-watch(() => settings.value.showSearchRecommendation, (enabled) => {
+// 标签页重新可见时从后台获取最新缓存，隐藏时停止刷新。
+watch([() => settings.value.showSearchRecommendation, documentVisibility], ([enabled]) => {
   if (enabled) {
     initSearchRecommendation()
   }
@@ -456,9 +457,15 @@ async function navigateToSearchResultPage(rawKeyword: string) {
     return
   }
 
-  // 开启插件搜索结果页且为就地打开模式时，优先切到扩展内搜索结果，避免落到 B 站原站搜索页；
-  // 其余情况按「搜索栏链接打开行为」统一打开，开启插件搜索页时链接同样指向插件搜索结果页
-  if (navigateToPluginSearchResultsInPlace(normalized)) {
+  // 插件搜索结果页的顶栏始终原地更新结果；其他入口遵循「搜索栏链接打开行为」。
+  const isSearchResultsTopBar = props.topBarMode
+    && isHomePage()
+    && bewlyApp?.activatedPage.value === AppPage.SearchResults
+  const didNavigate = isSearchResultsTopBar
+    ? navigateToPluginSearchResults(normalized)
+    : navigateToPluginSearchResultsInPlace(normalized)
+
+  if (didNavigate) {
     emit('search', normalized)
     isFocus.value = false
     resetKeyboardSelection()

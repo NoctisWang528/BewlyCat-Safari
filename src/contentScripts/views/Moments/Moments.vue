@@ -4,21 +4,24 @@ import { useToast } from 'vue-toastification'
 
 import Dialog from '~/components/Dialog.vue'
 import LiquidSegmentIndicator from '~/components/LiquidSegmentIndicator.vue'
+import { createCommentPreview } from '~/components/MomentCard/commentPreview'
+import { isMomentLotteryUrl } from '~/components/MomentCard/lottery'
 import MomentCard from '~/components/MomentCard/MomentCard.vue'
+import MomentLotteryDialog from '~/components/MomentCard/MomentLotteryDialog.vue'
 import type { DisplayForwardVideo, DisplayMoment, DisplayRichTextSegment, WatchLaterTarget } from '~/components/MomentCard/types'
 import type { MomentLinkKind } from '~/components/MomentCard/utils'
 import {
   classifyMomentLink,
+  computeMomentImageGridHeight,
   computeMultiImageGalleryHeight,
   formatCount,
   getCardPreviewText,
-  getMomentOriginalImageUrl,
-  getMomentThumbnailUrl,
   getWatchLaterStateKey,
   isCompactPlainTextMoment,
   isUsableImageRatio,
   LANDSCAPE_SINGLE_IMAGE_MAX_WIDTH,
   shouldUseMomentImageGallery,
+  shouldUseMomentImageGrid,
 } from '~/components/MomentCard/utils'
 import { useBewlyApp } from '~/composables/useAppProvider'
 import { useLayoutEditMode } from '~/composables/useLayoutEditMode'
@@ -31,7 +34,9 @@ import { recordUploaderLatestVideoTimes } from '~/logic/uploaderLatestVideoTimes
 import type { DataItem, MomentResult } from '~/models/moment/moment'
 import { useTopBarStore } from '~/stores/topBarStore'
 import api from '~/utils/api'
+import { numFormatter } from '~/utils/dataFormatter'
 import { getCSRF } from '~/utils/main'
+import { MasonryColumnMetrics } from '~/utils/masonryColumnMetrics'
 import { resolvePgcEpisodeVideoIds } from '~/utils/pgcEpisode'
 import { openLinkInBackground } from '~/utils/tabs'
 import { recordVideoVisit } from '~/utils/videoVisitHistory'
@@ -168,7 +173,8 @@ const momentsFeedCache = useStorageLocal<MomentsFeedCache>('momentsFeedCache', {
 })
 type MomentGroup = 'all' | 'wanted'
 const activeMomentGroup = ref<MomentGroup>('all')
-const wantedCacheCursor = ref(0)
+/** 只保留“想看”尚未扫描的缓存段；已展示数据交给虚拟列表管理。 */
+let wantedFeedBuffer: MomentsFeedCacheEntry | undefined
 const portalUser = ref<MomentsPortalUser | null>(null)
 const portalLiveUsers = ref<MomentsPortalLiveUser[]>([])
 const portalLiveCount = ref(0)
@@ -184,13 +190,14 @@ const showMomentsSidebar = ref(true)
 const showMomentsRightbar = ref(true)
 const pinnedListExpanded = ref(false)
 let pinnedListCollapseTimer = 0
-const UP_LIST_ITEM_WIDTH = 64
+const UP_LIST_ITEM_WIDTH = 72
 const UP_LIST_ITEM_GAP = 4
 const PINNED_DIVIDER_SPACE = 10
 const momentColumns = ref<DisplayMoment[][]>([])
 const selectedMoment = ref<DisplayMoment | null>(null)
 const detailFrameUrl = ref('')
 const detailFrameLoaded = ref(false)
+const lotteryDialogUrl = ref('')
 const detailIframeRef = ref<HTMLIFrameElement | null>(null)
 const detailPlayerImmersive = ref(false)
 const detailImageViewerRef = ref<HTMLElement | null>(null)
@@ -207,8 +214,10 @@ let detailLoadTimer: ReturnType<typeof setTimeout> | null = null
 let detailFocusRetryTimer: ReturnType<typeof setTimeout> | null = null
 const layoutRef = ref<HTMLElement | null>(null)
 const gridRef = ref<HTMLElement | null>(null)
-/** 按当前实际列数限制单张动态卡片的最大宽度。 */
-const GRID_GAP = 16
+/** 与 .moments-grid__column 的 gap 及 CSS 变量联动，虚拟滚动测量按此计算。 */
+const GRID_GAP = 20
+/** 与 .moments-layout 的 column-gap(--bew-space-6) 一致。 */
+const LAYOUT_GAP = 24
 const CARD_MAX_WIDTH_BY_COLUMNS = {
   1: 720,
   2: 610,
@@ -220,6 +229,16 @@ const gridColumnCount = ref(1)
 const gridCardWidth = ref<number>(CARD_MAX_WIDTH_BY_COLUMNS[1])
 let rebalanceTimer: ReturnType<typeof setTimeout> | null = null
 const hoveredMediaId = ref('')
+let previewEnterTimer: ReturnType<typeof setTimeout> | undefined
+let previewRequestGeneration = 0
+function cancelPendingPreview() {
+  previewRequestGeneration += 1
+  clearTimeout(previewEnterTimer)
+  previewEnterTimer = undefined
+}
+watch(hoveredMediaId, cancelPendingPreview, { flush: 'sync' })
+onBeforeUnmount(cancelPendingPreview)
+
 const previewUrls = reactive<Record<string, string>>({})
 const likingMomentIds = reactive(new Set<string>())
 const reservationLoadingMomentIds = reactive(new Set<string>())
@@ -228,21 +247,31 @@ const watchLaterLoadingMomentIds = reactive(new Set<string>())
 const videoCidCache = new Map<string, number>()
 const videoCidRequests = new Map<string, Promise<number | undefined>>()
 const videoAspectRatios = reactive<Record<string, number>>({})
-const videoAspectRatioRequests = new Map<string, Promise<number | undefined>>()
 const cardHeights = reactive<Record<string, number>>({})
 const visibleMomentIds = reactive(new Set<string>())
-const readyCoverIds = reactive(new Set<string>())
 const readyCardIds = reactive(new Set<string>())
 const enteringCardIds = reactive(new Set<string>())
 const revealedCardIds = new Set<string>()
 const cardEnterTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const cardElements = new Map<string, HTMLElement>()
+// 虚拟列表卸载卡片后，仍保留展开状态、已加载评论和内部滚动位置。
+const commentPreviews = new WeakMap<DisplayMoment, ReturnType<typeof createCommentPreview>>()
+function getCommentPreview(moment: DisplayMoment) {
+  let preview = commentPreviews.get(moment)
+  if (!preview) {
+    preview = createCommentPreview()
+    commentPreviews.set(moment, preview)
+  }
+  return preview
+}
 interface VirtualColumn {
   topPad: number
   bottomPad: number
   items: DisplayMoment[]
 }
 const virtualColumns = ref<VirtualColumn[]>([])
+let columnMetrics: MasonryColumnMetrics[] = []
+const cardMetricPositions = new Map<string, { column: number, index: number }>()
 /** 单图宽高比（宽/高），用于图文卡片比例和详情视频的封面比例兜底 */
 const coverRatios = reactive<Record<string, number>>({})
 
@@ -253,6 +282,8 @@ function getSafeImageRatio(width: number, height: number) {
 let gridObserver: ResizeObserver | undefined
 let liveFlvPlayer: any = null
 let liveHlsPlayer: any = null
+let activePreviewVideo: { id: string, element: HTMLVideoElement } | null = null
+let previewPlaybackGeneration = 0
 const isLoading = ref(false)
 const isInitialLoading = ref(true)
 const noMoreContent = ref(false)
@@ -275,12 +306,13 @@ const MAX_POST_LOAD_AUTOFILL_PAGES = 1
 const WANTED_SCAN_LIMIT = 100
 /** 开启类型过滤时单次最多请求的原始动态页数 */
 const FILTERED_MAX_REQUEST_PAGES = 2
+/** 仅限制持久化缓存，不能作为动态浏览或“想看”扫描的上限。 */
 const MOMENTS_CACHE_MAX_ITEMS = 1000
 const MOMENTS_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000
 /** 虚拟瀑布流需要在全局哨兵进入视口前主动预取，避免高度修正后漏掉相交事件 */
 const LOAD_MORE_AHEAD_PX = 640
 const DETAIL_DIALOG_MIN_WIDTH = 860
-let scrollListenerAttached = false
+let attachedScrollViewport: HTMLElement | null = null
 let cardMeasureObserver: ResizeObserver | undefined
 let visibilityObserver: IntersectionObserver | undefined
 /** 最近滚动时间，用于避免滚动中重排导致抖动 */
@@ -288,6 +320,7 @@ let lastScrollAt = 0
 /** 重置后尚未滚动时不自动连刷，避免首屏连打多页才出内容 */
 let hasFeedScrollSinceReset = false
 let virtualRaf = 0
+let isMomentsDisposed = false
 let feedRequestToken = 0
 let portalRequestToken = 0
 let suppressBottomRebalanceUntil = 0
@@ -549,7 +582,7 @@ function normalizeDescText(desc: any) {
   return pickText(desc.text, desc)
 }
 
-function extractRichTextSegments(...nodeLists: any[]): DisplayRichTextSegment[] {
+function extractRichTextSegments(momentId: string, ...nodeLists: any[]): DisplayRichTextSegment[] {
   const nodes = nodeLists.find(value => Array.isArray(value) && value.length)
   if (!nodes)
     return []
@@ -571,17 +604,18 @@ function extractRichTextSegments(...nodeLists: any[]): DisplayRichTextSegment[] 
       }]
     }
 
+    const isLottery = node?.type === 'RICH_TEXT_NODE_TYPE_LOTTERY'
     const isAtMention = node?.type === 'RICH_TEXT_NODE_TYPE_AT'
-    // VOTE：投票节点，jump_url 指向官方投票页
     const isSupportedLink = node?.type === 'RICH_TEXT_NODE_TYPE_TOPIC'
       || node?.type === 'RICH_TEXT_NODE_TYPE_WEB'
-      || node?.type === 'RICH_TEXT_NODE_TYPE_VOTE'
       || isAtMention
+      || isLottery
     const rawJumpUrl = node?.jump_url
+      || (isLottery && /^\d+$/.test(momentId) ? `https://www.bilibili.com/h5/lottery/result?business_id=${momentId}&business_type=1&isWeb=1` : '')
       || (isAtMention && node?.rid ? `https://space.bilibili.com/${node.rid}` : '')
-    const url = isSupportedLink ? normalizeRichTextJumpUrl(rawJumpUrl) : ''
+    const url = isSupportedLink || isMomentLotteryUrl(rawJumpUrl || '') ? normalizeRichTextJumpUrl(rawJumpUrl) : ''
     if (text && url)
-      return [{ type: 'link' as const, text, url }]
+      return [{ type: 'link' as const, text, url, isLottery: isLottery || isMomentLotteryUrl(url) }]
 
     return text ? [{ type: 'text' as const, text }] : []
   })
@@ -678,15 +712,24 @@ function getMomentContent(item: any) {
 
   // 图文/纯文字（itemOpusStyle）正文：major.opus.summary.text
   // 旧结构可能在 module_dynamic.desc.text；视频/专栏等再回落到各自 desc
-  let text = pickText(
+  // 视频动态的 module_dynamic.desc 是简介副本，归入继承来源，避免被当成本人正文
+  const isVideoMajor = Boolean(major.archive || major.ugc_season || major.pgc)
+  const selfText = pickText(
     opus.summary?.text,
     typeof opus.summary === 'string' ? opus.summary : '',
-    normalizeDescText(dynamic.desc),
-    archive.desc,
-    article.desc,
+    isVideoMajor ? '' : normalizeDescText(dynamic.desc),
     common.desc,
   )
+  const inheritedText = pickText(
+    isVideoMajor ? normalizeDescText(dynamic.desc) : '',
+    archive.desc,
+    article.desc,
+  )
+  let text = pickText(selfText, inheritedText)
+  /** 简介继承自视频/专栏元数据时标记，卡片内做弱化展示 */
+  const descInherited = !selfText && Boolean(inheritedText)
   const richText = extractRichTextSegments(
+    String(item.id_str || item.id || ''),
     opus.summary?.rich_text_nodes,
     dynamic.desc?.rich_text_nodes,
   )
@@ -709,7 +752,9 @@ function getMomentContent(item: any) {
           additionalCard.button,
           additional.type === 'ADDITIONAL_TYPE_RESERVE',
         ),
-        url: httpsUrl(additionalCard.jump_url || additionalCard.button?.jump_url || ''),
+        url: isVoteAdditional
+          ? ''
+          : httpsUrl(additionalCard.jump_url || additionalCard.button?.jump_url || ''),
         isUpRecommendation: additional.type === 'ADDITIONAL_TYPE_UP_RCMD'
           || pickText(additionalCard.head_text, additionalCard.title) === 'UP主的推荐',
         isVideoReservation: additional.type === 'ADDITIONAL_TYPE_RESERVE'
@@ -717,6 +762,7 @@ function getMomentContent(item: any) {
         isLiveReservation: additional.type === 'ADDITIONAL_TYPE_RESERVE'
           && Number(additionalCard.button?.type) === 2,
         isVote: isVoteAdditional,
+        voteId: isVoteAdditional ? String(additionalCard.vote_id || '') : '',
         voteEndTime: isVoteAdditional ? Number(additionalCard.end_time) || 0 : 0,
         reservationId: additional.type === 'ADDITIONAL_TYPE_RESERVE'
           ? String(additionalCard.rid || '')
@@ -749,6 +795,7 @@ function getMomentContent(item: any) {
       isVideoReservation: false,
       isLiveReservation: false,
       isVote: false,
+      voteId: '',
       voteEndTime: 0,
       reservationId: '',
       reservationTotal: 0,
@@ -787,13 +834,16 @@ function getMomentContent(item: any) {
     return getSafeImageRatio(Number(meta?.width || 0), Number(meta?.height || 0))
   })
   const firstImageRatio = imageRatios[0]
+  const isNineGrid = shouldUseMomentImageGrid(images, major?.type === 'MAJOR_TYPE_DRAW')
 
   return {
     title: pickText(live?.title, opus.title, archive.title, article.title, common.title),
     text,
+    descInherited,
     richText,
     images,
     imageRatios,
+    isNineGrid,
     firstImageRatio,
     isVideo: isRegularVideo || isUgcSeason,
     isRegularVideo,
@@ -1092,12 +1142,14 @@ const DETAIL_SAFE_WIDTH = `calc(100vw - ${DETAIL_VIEWPORT_GUTTER}px)`
 const DETAIL_REFERENCE_HEIGHT = 'min(88dvh, 49.5vw)'
 const DETAIL_SAFE_HEIGHT = `min(calc(100dvh - ${DETAIL_VIEWPORT_GUTTER}px), max(280px, ${DETAIL_REFERENCE_HEIGHT}))`
 const DETAIL_PLAYER_MAX_WIDTH = `min(92vw, calc(${PLAYER_DIALOG_WIDTH_SCALE * 100}dvh * 16 / 9), ${DETAIL_SAFE_WIDTH})`
-/** 图文弹窗评论区固定占页宽（小红书 note 详情） */
+/** 图文弹窗信息区固定占页宽（小红书 note 详情）。 */
 const OPUS_DETAIL_COMMENT_PAGE_RATIO = 0.29
 /** 长图阈值：宽/高 ≤ 1/2 时按 1:2 定弹窗，图宽占满后纵向滚动 */
 const OPUS_DETAIL_LONG_IMAGE_RATIO = 0.5
-/** 图文弹窗最大宽：与视频共用 92vw / 视口 gutter，不含 16:9 约束 */
-const OPUS_DETAIL_MAX_WIDTH = `min(${PLAYER_DIALOG_WIDTH_SCALE * 100}vw, 100vw - ${DETAIL_VIEWPORT_GUTTER}px)`
+/** 图文弹窗最大宽 90vw；与视频宽度规则分离。 */
+const OPUS_DETAIL_MAX_WIDTH = `min(90vw, 100vw - ${DETAIL_VIEWPORT_GUTTER}px)`
+/** 分栏图文基础宽度为两个 29vw 等宽列：左侧媒体、右侧信息。 */
+const OPUS_SPLIT_DETAIL_BASE_WIDTH = `${OPUS_DETAIL_COMMENT_PAGE_RATIO * 200}vw`
 /** 图文弹窗最大高：可用视口高度内取值，且高不大于宽（宽上限同 OPUS_DETAIL_MAX_WIDTH），避免竖屏下过度拉长 */
 const OPUS_DETAIL_MAX_HEIGHT = `min(100dvh - ${DETAIL_VIEWPORT_GUTTER}px, max(280px, 88dvh), ${OPUS_DETAIL_MAX_WIDTH})`
 /** 与 Bewly 宽屏模式的完整评论面板宽度一致，避免方形/竖屏视频收窄时挤压评论区。 */
@@ -1114,7 +1166,7 @@ const isSelectedSquareOrVerticalVideo = computed(() => {
   return Boolean(ratio && ratio <= 1)
 })
 
-/** 图文分栏详情（转发/专栏/纯文字除外）：弹窗尺寸以首图为基准 */
+/** 图文分栏详情（转发/专栏/纯文字除外） */
 function isOpusSplitDetailMoment(moment: DisplayMoment | null | undefined) {
   if (!moment || isPlayerMoment(moment) || moment.isArticle || moment.isForward)
     return false
@@ -1161,10 +1213,10 @@ const detailDialogWidth = computed(() => {
   }
   const moment = selectedMoment.value
   if (isOpusSplitDetailMoment(moment)) {
-    // 宽度按正常高度预算与首图比例计算；评论列由 iframe 固定为视口宽的 29%
-    // （经 BEWLY_OPUS_VIEWPORT 同步）。达到最大宽度后，横图由媒体区 contain 居中显示。
+    // 以 58vw 等宽双栏为基础；宽图按首图比例扩展媒体列，但不超过 90vw。
     const commentWidth = `${OPUS_DETAIL_COMMENT_PAGE_RATIO * 100}vw`
-    return `min(${OPUS_DETAIL_MAX_WIDTH}, calc(${getOpusSplitLayoutRatio(moment)} * ${detailDialogHeight.value} + ${commentWidth}))`
+    const contentWidth = `calc(${getOpusSplitLayoutRatio(moment)} * ${detailDialogHeight.value} + ${commentWidth})`
+    return `min(${OPUS_DETAIL_MAX_WIDTH}, max(${OPUS_SPLIT_DETAIL_BASE_WIDTH}, ${contentWidth}))`
   }
   // 纯文字 / 专栏 / 转发：参考小红书 note-container 1088px
   return `min(1088px, ${DETAIL_SAFE_WIDTH})`
@@ -1356,53 +1408,6 @@ function resolveLinkOpenMode(kind: MomentLinkKind): ResolvedMomentOpenMode {
   return mode === 'dialog' ? 'newTab' : mode
 }
 
-function createLinkMoment(url: string, kind: Extract<MomentLinkKind, 'video' | 'moment'>, video?: DisplayForwardVideo): DisplayMoment {
-  const bvid = video?.bvid || url.match(/\/video\/(BV\w+)/i)?.[1]
-  const aid = video?.aid || url.match(/\/video\/av(\d+)/i)?.[1]
-  return {
-    id: `link-${kind}-${bvid || aid || url}`,
-    author: { mid: '', name: '', face: '' },
-    publishedAt: 0,
-    title: video?.title || '',
-    text: '',
-    richText: [],
-    images: video?.cover ? [video.cover] : [],
-    time: '',
-    likeCount: 0,
-    isLiked: false,
-    isLikeDisabled: true,
-    commentCount: 0,
-    url,
-    isVideo: kind === 'video',
-    isRegularVideo: kind === 'video',
-    isUgcSeason: false,
-    isDraw: false,
-    isPgc: false,
-    isLive: false,
-    isChargeExclusive: false,
-    isForward: false,
-    isArticle: false,
-    isUpRecommendation: false,
-    isVideoReservation: false,
-    isLiveReservation: false,
-    mediaMeta: video?.duration || '',
-    liveArea: '',
-    livePopularity: '',
-    duration: video?.duration || '',
-    videoPlay: video?.play || '',
-    videoDanmaku: video?.danmaku || '',
-    aid,
-    bvid,
-    videoUrl: kind === 'video' ? (video?.url || url) : undefined,
-  }
-}
-
-function shouldOpenMomentExternally(moment: DisplayMoment, openMode: ResolvedMomentOpenMode) {
-  return moment.isLive
-    || openMode !== 'dialog'
-    || window.innerWidth <= DETAIL_DIALOG_MIN_WIDTH
-}
-
 function openMomentImagePreview(urls: string[], index: number, trigger: HTMLElement | null) {
   openDetailImageViewer(urls, index, null, trigger)
 }
@@ -1448,28 +1453,42 @@ function openDetailFrameInNewTab() {
   }
 }
 
-function openMomentDetail(moment: DisplayMoment, forceDialog = false) {
+function openMomentMedia(moment: DisplayMoment) {
   if (moment.isVideo && !moment.isLive)
     recordVideoVisit(moment)
 
-  const openMode = forceDialog ? 'dialog' : resolveMomentOpenMode(moment)
+  const openMode = resolveMomentOpenMode(moment)
+  openMomentExternally(moment, openMode === 'dialog' ? 'newTab' : openMode)
+}
 
-  // 小屏、直播与外部打开设置：离开详情 Dialog，避免狭窄 Dialog 与跨域直播占用。
-  // 弹窗模式在小屏和直播动态上回退为新标签页。
-  if (!forceDialog && shouldOpenMomentExternally(moment, openMode)) {
-    openMomentExternally(moment, openMode === 'dialog' ? 'newTab' : openMode)
+function openMomentDetail(moment: DisplayMoment, forceDialog = false) {
+  // 明确查看动态正文；视频/直播封面不能作为图文相册参与详情分栏。
+  const detailMoment: DisplayMoment = moment.isVideo || moment.isLive
+    ? {
+        ...moment,
+        isVideo: false,
+        isRegularVideo: false,
+        isUgcSeason: false,
+        isPgc: false,
+        isLive: false,
+        isDraw: false,
+        images: [],
+        imageRatios: [],
+      }
+    : moment
+
+  const openMode = forceDialog ? 'dialog' : settings.value.momentsCardOpenMode
+  if (openMode !== 'dialog' || (!forceDialog && window.innerWidth <= DETAIL_DIALOG_MIN_WIDTH)) {
+    openMomentExternally(detailMoment, openMode === 'dialog' ? 'newTab' : openMode)
     return
   }
-
-  if (moment.isVideo && !moment.isLive && moment.bvid)
-    void loadVideoAspectRatio(moment.bvid)
 
   // 若已有详情在开，先销毁旧 iframe，避免叠内存
   if (selectedMoment.value || detailFrameUrl.value)
     destroyDetailIframe()
 
-  selectedMoment.value = moment
-  detailFrameUrl.value = resolveDetailUrl(moment)
+  selectedMoment.value = detailMoment
+  detailFrameUrl.value = resolveDetailUrl(detailMoment)
   detailFrameLoaded.value = false
   setDetailPlayerImmersive(false)
   // 打开详情时释放悬停预览资源
@@ -1477,18 +1496,14 @@ function openMomentDetail(moment: DisplayMoment, forceDialog = false) {
   cleanupLivePreviewPlayer()
   clearDetailLoadTimer()
   destroyDetailIframe()
-  // 视频/直播、转发（原页直接展示）：load 后即可；图文等待布局 ready 兜底避免遮罩卡住
-  const fallbackMs = isPlayerMoment(moment)
-    ? 1800
-    : moment.isForward
-      ? 1200
-      : 4500
+  // 转发原页直接展示；图文等待布局 ready，超时后解除加载遮罩。
+  const fallbackMs = moment.isForward ? 1200 : 4500
   detailLoadTimer = setTimeout(() => {
     detailFrameLoaded.value = true
   }, fallbackMs)
 }
 
-/** 告知 opus iframe 真实视口宽：跨源时它读不到 window.top，评论列（视口宽 29%）需要以此为准 */
+/** 告知 opus iframe 真实视口宽：跨源时它读不到 window.top，信息列（视口宽 29%）需要以此为准 */
 function syncDetailFrameViewport() {
   const win = detailIframeRef.value?.contentWindow
   if (!win || !detailFrameUrl.value)
@@ -1502,11 +1517,20 @@ function syncDetailFrameViewport() {
 }
 
 function handleDetailIframeLoad(event: Event) {
+  // 与抽屉一致：同域时去掉顶栏占位，并保证视频/直播页可滚动
+  const iframe = event.target as HTMLIFrameElement | null
+  if (
+    !iframe
+    || iframe !== detailIframeRef.value
+    || !selectedMoment.value
+    || !detailFrameUrl.value
+  ) {
+    return
+  }
+
   clearDetailLoadTimer()
   syncDetailFrameViewport()
 
-  // 与抽屉一致：同域时去掉顶栏占位，并保证视频/直播页可滚动
-  const iframe = event.target as HTMLIFrameElement | null
   const win = iframe?.contentWindow
   if (win) {
     try {
@@ -1554,6 +1578,8 @@ function destroyDetailIframe() {
   const iframe = detailIframeRef.value
   if (!iframe)
     return
+  // 先断开组件侧引用，about:blank 的迟到 load 事件不得重新注册观察器。
+  detailIframeRef.value = null
 
   // 通知同域 iframe 内部主动释放观察器/媒体
   try {
@@ -1572,9 +1598,12 @@ function destroyDetailIframe() {
         const media = el as HTMLMediaElement
         try {
           media.pause()
+          media.srcObject = null
           media.removeAttribute('src')
-          while (media.firstChild)
-            media.removeChild(media.firstChild)
+          media.querySelectorAll('source').forEach((source) => {
+            source.removeAttribute('src')
+            source.removeAttribute('srcset')
+          })
           media.load()
         }
         catch {
@@ -1609,17 +1638,15 @@ function destroyDetailIframe() {
   catch {
     // ignore
   }
-
-  detailIframeRef.value = null
 }
 
 function closeMomentDetail() {
   closeDetailImageViewer()
   clearDetailLoadTimer()
-  destroyDetailIframe()
   selectedMoment.value = null
   detailFrameUrl.value = ''
   detailFrameLoaded.value = false
+  destroyDetailIframe()
 }
 
 function collectVideoPublicationTimes(items: DataItem[]) {
@@ -1669,7 +1696,7 @@ function mapMoment(item: DataItem): DisplayMoment {
     ? (normalizeDescText(dynamic.desc) || t('moments.forwarded_post'))
     : content.text
   const richText = isForward
-    ? extractRichTextSegments(dynamic.desc?.rich_text_nodes)
+    ? extractRichTextSegments(String(id), dynamic.desc?.rich_text_nodes)
     : content.richText
   const additional = content.additional || selfContent.additional
   const isChargeExclusive = content.isChargeExclusive || selfContent.isChargeExclusive
@@ -1677,7 +1704,7 @@ function mapMoment(item: DataItem): DisplayMoment {
     (interaction: any) => Number(interaction?.type) === 1,
   )?.desc
   const hotCommentText = normalizeDescText(commentInteraction)
-  const hotCommentRichText = extractRichTextSegments(commentInteraction?.rich_text_nodes)
+  const hotCommentRichText = extractRichTextSegments(String(id), commentInteraction?.rich_text_nodes)
 
   if (content.firstImageRatio && !coverRatios[id])
     coverRatios[id] = content.firstImageRatio
@@ -1692,10 +1719,12 @@ function mapMoment(item: DataItem): DisplayMoment {
     publishedAt: Number(author.pub_ts || 0),
     title: content.title,
     text,
+    descInherited: !isForward && Boolean(content.descInherited),
     richText,
     // 转发卡片只展示原动态摘要，不能把原动态图片提升为外层卡片媒体。
     images: isForward || (isChargeExclusive && !content.isVideo) ? [] : content.images,
     imageRatios: isForward || (isChargeExclusive && !content.isVideo) ? [] : content.imageRatios,
+    isNineGrid: !isForward && !isChargeExclusive && content.isNineGrid,
     time: author.pub_time || '',
     likeCount: Number(raw.modules?.module_stat?.like?.count || 0),
     isLiked: raw.modules?.module_stat?.like?.status === true
@@ -1704,7 +1733,12 @@ function mapMoment(item: DataItem): DisplayMoment {
       raw.modules?.module_stat?.like?.forbidden
       || raw.modules?.module_stat?.like?.disabled,
     ),
+    forwardCount: Number(raw.modules?.module_stat?.forward?.count || 0),
+    isForwardDisabled: Boolean(raw.modules?.module_stat?.forward?.forbidden),
     commentCount: Number(raw.modules?.module_stat?.comment?.count || 0),
+    commentTarget: raw.basic?.comment_id_str && Number(raw.basic.comment_type) > 0
+      ? { oid: raw.basic.comment_id_str, type: Number(raw.basic.comment_type) }
+      : undefined,
     hotComment: hotCommentText || hotCommentRichText.length
       ? {
           text: hotCommentText,
@@ -1733,7 +1767,7 @@ function mapMoment(item: DataItem): DisplayMoment {
     chargeBadge: content.chargeBadge || selfContent.chargeBadge,
     chargeHint: content.chargeHint || selfContent.chargeHint,
     chargeCover: content.chargeCover || selfContent.chargeCover,
-    mediaMeta: content.mediaMeta,
+    mediaMeta: isForward ? '' : content.mediaMeta,
     liveArea: content.liveArea,
     livePopularity: content.livePopularity,
     roomId: content.roomId,
@@ -1748,8 +1782,11 @@ function mapMoment(item: DataItem): DisplayMoment {
       ? {
           author: forwardedAuthor.name || t('moments.original_author'),
           authorMid: String(forwardedAuthor.mid || ''),
+          authorFace: httpsUrl(forwardedAuthor.face || ''),
+          authorAction: forwardedAuthor.pub_action || '',
           title: content.title,
           text: content.text,
+          richText: content.richText,
           fallback: content.isChargeExclusive
             ? (content.chargeBadge || t('moments.charging_exclusive_post'))
             : content.isLive
@@ -1773,9 +1810,13 @@ function mapMoment(item: DataItem): DisplayMoment {
           imageRatios: !content.isVideo && !content.isLive && !content.isChargeExclusive
             ? content.imageRatios
             : [],
+          isNineGrid: !content.isVideo && !content.isLive && !content.isChargeExclusive
+            ? content.isNineGrid
+            : false,
           video: forwardedArchive
             ? {
                 title: pickText(forwardedArchive.title, content.title),
+                desc: pickText(forwardedArchive.desc),
                 cover: httpsUrl(forwardedArchive.cover || content.images[0] || ''),
                 duration: pickText(forwardedArchive.duration_text, content.duration),
                 play: pickText(forwardedArchive.stat?.play, content.videoPlay),
@@ -1793,6 +1834,14 @@ function mapMoment(item: DataItem): DisplayMoment {
         }
       : undefined,
   }
+}
+
+/** 横条视频卡高度：封面 44% 宽 16:9，与信息区（标题两行 + 简介两行 + 作者一行）取较大者。 */
+function estimateVideoCardStripHeight(contentWidth: number) {
+  const coverWidth = Math.max(150, contentWidth * 0.44)
+  const coverHeight = Math.round(coverWidth * 9 / 16)
+  const infoHeight = 136
+  return Math.max(coverHeight, infoHeight) + 2 /* 描边 */
 }
 
 function estimateCardHeight(moment: DisplayMoment) {
@@ -1818,82 +1867,67 @@ function estimateCardHeight(moment: DisplayMoment) {
     // Forward galleries sit inside the bordered card with 12px side/bottom
     // insets; subtract the 16px main inset and the 2px card border as well.
     const galleryWidth = Math.max(1, columnWidth - 58)
-    const useForwardGallery = shouldUseMomentImageGallery(moment.forward.images, {
+    const useForwardGrid = shouldUseMomentImageGrid(moment.forward.images, moment.forward.isNineGrid)
+    const useForwardGallery = !useForwardGrid && shouldUseMomentImageGallery(moment.forward.images, {
       imageRatio: moment.forward.imageRatios?.[0] ?? coverRatios[moment.id],
       imageRatios: moment.forward.imageRatios,
     })
     const forwardGalleryWidth = useForwardGallery
       ? galleryWidth
       : Math.min(galleryWidth, LANDSCAPE_SINGLE_IMAGE_MAX_WIDTH)
-    const galleryHeight = useForwardGallery
-      ? computeMultiImageGalleryHeight(
-          forwardGalleryWidth,
-          moment.forward.imageRatios?.[0] ? moment.forward.imageRatios : [coverRatios[moment.id]],
-        )
-      : Math.round(forwardGalleryWidth / Math.max(1, moment.forward.imageRatios?.[0] || coverRatios[moment.id] || 1))
+    const galleryHeight = useForwardGrid
+      ? computeMomentImageGridHeight(galleryWidth, moment.forward.images.length)
+      : useForwardGallery
+        ? computeMultiImageGalleryHeight(
+            forwardGalleryWidth,
+            moment.forward.imageRatios?.[0] ? moment.forward.imageRatios : [coverRatios[moment.id]],
+          )
+        : Math.round(forwardGalleryWidth / Math.max(1, moment.forward.imageRatios?.[0] || coverRatios[moment.id] || 1))
     return 190 + introLines * 21 + galleryHeight + interactionHeight
   }
   if (moment.forward?.video) {
     const introLines = Math.min(7, Math.max(1, Math.ceil((moment.text || '').length / 28)))
-    const forwardMediaWidth = Math.max(150, contentWidth * 0.44)
-    return 117 + Math.round(forwardMediaWidth * 9 / 16) + introLines * 21 + interactionHeight
+    return 126 + 12 + estimateVideoCardStripHeight(contentWidth) + introLines * 24 + (moment.additional ? 68 : 0) + interactionHeight
   }
   if (moment.isChargeExclusive && !moment.isVideo)
     return 230 + scaledTextBodyExtra + interactionHeight
   if (columnWidth < CARD_MIN_WIDTH) {
     if (moment.isLive)
       return Math.round(columnWidth * 9 / 16) + 210 + interactionHeight
-    if (moment.isVideo) {
-      const mediaWidth = Math.max(1, contentWidth)
-      const charsPerLine = Math.max(12, Math.floor(mediaWidth / 14))
-      const titleLines = moment.title
-        ? Math.min(2, Math.max(1, Math.ceil(Array.from(moment.title).length / charsPerLine)))
-        : 0
-      const previewText = getCardPreviewText(moment)
-      const descLines = previewText
-        ? Math.min(8, Math.max(1, Math.ceil(Array.from(previewText).length / charsPerLine)))
-        : 0
-      const bodyHeight = titleLines * 22
-        + (titleLines && descLines ? 8 : 0)
-        + descLines * 24
-      return Math.round(mediaWidth * 9 / 16)
-        + 126
-        + bodyHeight
-        + (moment.additional ? 68 : 0)
-        + interactionHeight
-    }
   }
   if (moment.isLive)
     return Math.round(contentWidth * 9 / 16) + 190 + interactionHeight
   if (moment.isVideo) {
-    // 左封面右简介：高度由半宽 16:9 封面决定，标题单独落在底部。
-    const innerWidth = contentWidth
-    const coverWidth = Math.max(1, Math.floor((innerWidth - 12) / 2))
-    const titleCharsPerLine = Math.max(12, Math.floor(innerWidth / 14))
-    const titleLines = moment.title
-      ? Math.min(2, Math.max(1, Math.ceil(Array.from(moment.title).length / titleCharsPerLine)))
+    // 官方式横条视频卡：左封面右信息，附言在条上方，继承简介固定两行
+    const noteText = moment.descInherited ? '' : getCardPreviewText(moment)
+    const noteCharsPerLine = Math.max(12, Math.floor(contentWidth / 15))
+    const noteLines = noteText
+      ? Math.min(7, Math.max(1, Math.ceil(Array.from(noteText).length / noteCharsPerLine)))
       : 0
-    const titleHeight = titleLines ? 12 + titleLines * 22 : 0
-    return Math.round(coverWidth * 9 / 16)
-      + titleHeight
-      + 126
+    return 126
+      + 12 /* 条与上方内容的间距 */
+      + estimateVideoCardStripHeight(contentWidth)
+      + noteLines * 24
       + (moment.additional ? 68 : 0)
       + interactionHeight
   }
   if (moment.images.length && !moment.isVideo && !moment.isLive) {
-    const useGallery = shouldUseMomentImageGallery(moment.images, {
+    const useGrid = shouldUseMomentImageGrid(moment.images, moment.isNineGrid)
+    const useGallery = !useGrid && shouldUseMomentImageGallery(moment.images, {
       imageRatio: coverRatios[moment.id],
       imageRatios: moment.imageRatios,
     })
     const galleryWidth = useGallery
       ? contentWidth
       : Math.min(contentWidth, LANDSCAPE_SINGLE_IMAGE_MAX_WIDTH)
-    const galleryHeight = useGallery
-      ? computeMultiImageGalleryHeight(
-          galleryWidth,
-          moment.imageRatios?.[0] ? moment.imageRatios : [coverRatios[moment.id]],
-        )
-      : Math.round(galleryWidth / Math.max(1, coverRatios[moment.id] || 1))
+    const galleryHeight = useGrid
+      ? computeMomentImageGridHeight(contentWidth, moment.images.length)
+      : useGallery
+        ? computeMultiImageGalleryHeight(
+            galleryWidth,
+            moment.imageRatios?.[0] ? moment.imageRatios : [coverRatios[moment.id]],
+          )
+        : Math.round(galleryWidth / Math.max(1, coverRatios[moment.id] || 1))
     return galleryHeight + 220 + interactionHeight
   }
   return 230 + scaledTextBodyExtra + interactionHeight
@@ -1931,7 +1965,6 @@ function handleMomentGroupChange(group: MomentGroup) {
   if (group === 'wanted')
     selectedHostMid.value = ''
   activeMomentGroup.value = group
-  wantedCacheCursor.value = 0
   void loadMoments(true)
 }
 
@@ -1960,7 +1993,6 @@ function handleUpFilterChange(mid = '') {
   prepareMomentListTransition()
   selectedHostMid.value = nextMid
   activeMomentGroup.value = 'all'
-  wantedCacheCursor.value = 0
   if (nextMid)
     clearUpUpdateDot(nextMid)
   void loadMoments(true)
@@ -2047,8 +2079,17 @@ function getValidMomentsCache(filter: MomentFilter) {
     && typeof moment.videoDanmaku === 'string'
     && !(moment.isForward && moment.isVideo)
   ))
-  if (usesCurrentVideoShape && Date.now() - entry.updatedAt < MOMENTS_CACHE_TTL_MS)
+  const usesCurrentVoteShape = entry.items.every(moment => (
+    !moment.additional?.isVote
+    || (Boolean(moment.additional.voteId) && !moment.additional.url)
+  ))
+  if (
+    usesCurrentVideoShape
+    && usesCurrentVoteShape
+    && Date.now() - entry.updatedAt < MOMENTS_CACHE_TTL_MS
+  ) {
     return entry
+  }
 
   const { [filter]: _expired, ...validEntries } = momentsFeedCache.value
   momentsFeedCache.value = validEntries
@@ -2063,17 +2104,16 @@ function mergeCachedMoments(primary: DisplayMoment[], secondary: DisplayMoment[]
       continue
     ids.add(moment.id)
     result.push(moment)
-    if (result.length >= MOMENTS_CACHE_MAX_ITEMS)
-      break
   }
   return result
 }
 
 function saveMomentsCache(filter: MomentFilter, entry: MomentsFeedCacheEntry) {
-  const items = entry.items.slice(0, MOMENTS_CACHE_MAX_ITEMS)
+  // offset 对应当前段的末尾。裁掉头部才能保证恢复缓存后继续分页时不跳过动态。
+  const items = entry.items.slice(-MOMENTS_CACHE_MAX_ITEMS)
   const continuationLimit = Math.max(0, MOMENTS_CACHE_MAX_ITEMS - items.length)
   const continuation = entry.continuation && continuationLimit > 0
-    ? { ...entry.continuation, items: entry.continuation.items.slice(0, continuationLimit) }
+    ? { ...entry.continuation, items: entry.continuation.items.slice(-continuationLimit) }
     : undefined
   momentsFeedCache.value = {
     ...momentsFeedCache.value,
@@ -2348,6 +2388,7 @@ function redistributeColumns() {
   })
 
   momentColumns.value = balanceColumnBottoms(next).columns
+  rebuildColumnMetrics()
   updateVirtualColumns()
 }
 
@@ -2361,7 +2402,7 @@ function updateGridColumnCount() {
   const wantRight = settings.value.momentsSidebarShowHotSearch
 
   function tryLayout(cols: number, left: boolean, right: boolean) {
-    const reserve = (left ? SIDEBAR_WIDTH + GRID_GAP : 0) + (right ? SIDEBAR_WIDTH + GRID_GAP : 0)
+    const reserve = (left ? SIDEBAR_WIDTH + LAYOUT_GAP : 0) + (right ? SIDEBAR_WIDTH + LAYOUT_GAP : 0)
     const budget = layoutWidth - reserve
     if (budget < CARD_COMPACT_MIN_WIDTH)
       return null
@@ -2407,14 +2448,18 @@ function updateGridColumnCount() {
   gridColumnCount.value = nextCols
   gridCardWidth.value = nextCardWidth
 
-  if (colsChanged || needInitColumns)
+  if (colsChanged || needInitColumns) {
     redistributeColumns()
-  else if (widthChanged)
+  }
+  else if (widthChanged) {
+    rebuildColumnMetrics()
     updateVirtualColumns()
+  }
 }
 
 function appendMoments(items: DisplayMoment[]) {
   const wasEmpty = moments.value.length === 0
+  const appended: DisplayMoment[] = []
   if (!momentColumns.value.length)
     momentColumns.value = Array.from({ length: Math.max(1, gridColumnCount.value) }, () => [])
 
@@ -2427,6 +2472,7 @@ function appendMoments(items: DisplayMoment[]) {
 
     const columnIndex = findShortestColumnIndex(momentColumns.value, columnHeights)
     moments.value.push(item)
+    appended.push(item)
     momentColumns.value[columnIndex].push(item)
     columnHeights[columnIndex] += (columnHeights[columnIndex] > 0 ? GRID_GAP : 0) + getCardHeight(item)
     existingIds.add(item.id)
@@ -2434,8 +2480,10 @@ function appendMoments(items: DisplayMoment[]) {
   // 初始布局可整体平衡；分页只追加，不能搬动用户正在查看的旧卡片
   if (wasEmpty)
     momentColumns.value = balanceColumnBottoms(momentColumns.value).columns
+  rebuildColumnMetrics()
   updateVirtualColumns()
   scheduleBottomRebalance()
+  return appended
 }
 
 const momentsGridStyle = computed(() => ({
@@ -2479,6 +2527,7 @@ function scheduleBottomRebalance() {
     const balanced = balanceColumnBottoms(momentColumns.value)
     if (balanced.changed) {
       momentColumns.value = balanced.columns
+      rebuildColumnMetrics()
       updateVirtualColumns()
     }
   }, 720)
@@ -2494,6 +2543,9 @@ function commitCardHeight(id: string, next: number, options?: { force?: boolean 
     return false
 
   cardHeights[id] = next
+  const position = cardMetricPositions.get(id)
+  if (position)
+    columnMetrics[position.column]?.set(position.index, next)
   // 连续两次接近的高度视为稳定，后续忽略小幅 Resize 抖动
   if (prev > 0 && Math.abs(next - prev) < 24)
     settledHeights.add(id)
@@ -2504,7 +2556,7 @@ function commitCardHeight(id: string, next: number, options?: { force?: boolean 
 }
 
 function scheduleVirtualUpdate() {
-  if (virtualRaf)
+  if (isMomentsDisposed || virtualRaf)
     return
   virtualRaf = window.requestAnimationFrame(() => {
     virtualRaf = 0
@@ -2545,7 +2597,23 @@ function getGridOffsetTop() {
   return gridRect.top - viewportRect.top + viewport.scrollTop
 }
 
+function rebuildColumnMetrics() {
+  if (isMomentsDisposed)
+    return
+  cardMetricPositions.clear()
+  columnMetrics = momentColumns.value.map((column, columnIndex) => {
+    const metrics = new MasonryColumnMetrics()
+    metrics.reset(column.map((moment, index) => {
+      cardMetricPositions.set(moment.id, { column: columnIndex, index })
+      return getCardHeight(moment)
+    }), GRID_GAP)
+    return metrics
+  })
+}
+
 function updateVirtualColumns() {
+  if (isMomentsDisposed)
+    return
   if (!momentColumns.value.length) {
     virtualColumns.value = []
     return
@@ -2555,35 +2623,23 @@ function updateVirtualColumns() {
   const scrollTop = viewport?.scrollTop ?? 0
   const viewportHeight = viewport?.clientHeight ?? window.innerHeight
   const gridOffsetTop = getGridOffsetTop()
-  const viewStart = scrollTop - OVERSCAN_PX
-  const viewEnd = scrollTop + viewportHeight + OVERSCAN_PX
-  const gap = GRID_GAP
+  const viewStart = scrollTop - gridOffsetTop - OVERSCAN_PX
+  const viewEnd = scrollTop - gridOffsetTop + viewportHeight + OVERSCAN_PX
 
-  virtualColumns.value = momentColumns.value.map((column) => {
-    let y = 0
-    let topPad = 0
-    let bottomPad = 0
-    const items: DisplayMoment[] = []
-
-    column.forEach((moment) => {
-      const height = getCardHeight(moment)
-      const start = gridOffsetTop + y
-      const end = start + height
-      if (end < viewStart) {
-        topPad += height + gap
-      }
-      else if (start > viewEnd) {
-        bottomPad += height + gap
-      }
-      else {
-        items.push(moment)
-      }
-      y += height + gap
-    })
-
-    // 最后一项不需要 gap，修正 padding 里多加的 gap 边界误差可忽略
-    return { topPad, bottomPad, items }
+  const previous = virtualColumns.value
+  const next = momentColumns.value.map((column, columnIndex) => {
+    const { start, end, topPad, bottomPad } = columnMetrics[columnIndex].getWindow(viewStart, viewEnd)
+    return { topPad, bottomPad, items: column.slice(start, end) }
   })
+  // 滚动尚未跨卡片边界时复用窗口，避免每帧触发卡片 patch / ref 回调与测量。
+  if (next.length !== previous.length || next.some((column, index) => {
+    const old = previous[index]
+    return column.topPad !== old.topPad || column.bottomPad !== old.bottomPad
+      || column.items.length !== old.items.length
+      || column.items.some((moment, itemIndex) => moment !== old.items[itemIndex])
+  })) {
+    virtualColumns.value = next
+  }
 
   prunePreviewCache()
 }
@@ -2666,6 +2722,12 @@ function bindCardEl(el: Element | null, moment: DisplayMoment) {
       cardElements.delete(moment.id)
     }
     visibleMomentIds.delete(moment.id)
+    readyCardIds.delete(moment.id)
+    enteringCardIds.delete(moment.id)
+    const enterTimer = cardEnterTimers.get(moment.id)
+    if (enterTimer)
+      clearTimeout(enterTimer)
+    cardEnterTimers.delete(moment.id)
     if (hoveredMediaId.value === moment.id) {
       hoveredMediaId.value = ''
       cleanupLivePreviewPlayer()
@@ -2698,7 +2760,7 @@ function bindCardEl(el: Element | null, moment: DisplayMoment) {
     })
   }
   else if (!cardHeights[moment.id]) {
-    cardHeights[moment.id] = estimateCardHeight(moment)
+    commitCardHeight(moment.id, estimateCardHeight(moment), { force: true })
   }
 }
 
@@ -2763,17 +2825,16 @@ function handleViewportScroll() {
 
 function attachViewportScroll() {
   const viewport = scrollViewportRef.value
-  if (!viewport || scrollListenerAttached)
+  if (!viewport || attachedScrollViewport === viewport)
     return
+  detachViewportScroll()
   viewport.addEventListener('scroll', handleViewportScroll, { passive: true })
-  scrollListenerAttached = true
+  attachedScrollViewport = viewport
 }
 
 function detachViewportScroll() {
-  const viewport = scrollViewportRef.value
-  if (viewport && scrollListenerAttached)
-    viewport.removeEventListener('scroll', handleViewportScroll)
-  scrollListenerAttached = false
+  attachedScrollViewport?.removeEventListener('scroll', handleViewportScroll)
+  attachedScrollViewport = null
 }
 
 function handleCoverLoad(event: Event, momentId: string) {
@@ -2781,7 +2842,6 @@ function handleCoverLoad(event: Event, momentId: string) {
   if (!img.naturalWidth || !img.naturalHeight)
     return
 
-  readyCoverIds.add(momentId)
   const ratio = getSafeImageRatio(img.naturalWidth, img.naturalHeight)
   if (!ratio)
     return
@@ -2798,58 +2858,33 @@ function handleCoverLoad(event: Event, momentId: string) {
   }
 }
 
-async function prepareMomentCovers(items: DisplayMoment[], requestToken: number) {
-  const imageItems = items.filter(item => item.images[0] || item.forward?.images?.[0])
-  await Promise.all(imageItems.map(item => new Promise<void>((resolve) => {
-    const image = new Image()
-    let finished = false
-    let timeout = 0
-    const finish = () => {
-      if (finished)
-        return
-      finished = true
-      clearTimeout(timeout)
-      image.onload = null
-      image.onerror = null
-      resolve()
-    }
-    timeout = window.setTimeout(finish, 5000)
-    image.decoding = 'async'
-    image.onload = async () => {
-      if (requestToken === feedRequestToken && image.naturalWidth && image.naturalHeight) {
-        const ratio = getSafeImageRatio(image.naturalWidth, image.naturalHeight)
-        if (ratio)
-          coverRatios[item.id] = ratio
-      }
-      try {
-        await image.decode()
-      }
-      catch {
-        // 浏览器已完成加载但不支持显式解码时继续
-      }
-      if (requestToken === feedRequestToken)
-        readyCoverIds.add(item.id)
-      finish()
-    }
-    image.onerror = finish
-    const coverUrl = item.images[0] || item.forward?.images?.[0] || ''
-    const isSingleStillImage = (
-      item.images.length === 1
-      && !item.isVideo
-      && !item.isLive
-    ) || (
-      !item.images.length
-      && item.forward?.images?.length === 1
-    )
-    image.src = isSingleStillImage
-      ? getMomentOriginalImageUrl(coverUrl)
-      : getMomentThumbnailUrl(coverUrl)
-  })))
+function releasePreviewVideoElement(video: HTMLVideoElement | null | undefined) {
+  if (!video)
+    return
+  try {
+    video.pause()
+    video.srcObject = null
+    video.removeAttribute('src')
+    video.querySelectorAll('source').forEach((source) => {
+      source.removeAttribute('src')
+      source.removeAttribute('srcset')
+    })
+    video.load()
+  }
+  catch {
+    // 已卸载的媒体元素可能拒绝 load；其引用仍会在下方释放。
+  }
 }
 
 function cleanupLivePreviewPlayer() {
+  previewPlaybackGeneration += 1
   if (liveHlsPlayer) {
-    liveHlsPlayer.destroy()
+    try {
+      liveHlsPlayer.destroy()
+    }
+    catch {
+      // 即使播放器库销毁失败，也必须继续释放媒体元素引用。
+    }
     liveHlsPlayer = null
   }
   if (liveFlvPlayer) {
@@ -2864,18 +2899,28 @@ function cleanupLivePreviewPlayer() {
     }
     liveFlvPlayer = null
   }
+  releasePreviewVideoElement(activePreviewVideo?.element)
+  activePreviewVideo = null
 }
 
-async function setupStreamPreview(url: string, videoEl: HTMLVideoElement) {
+async function setupStreamPreview(url: string, videoEl: HTMLVideoElement, momentId: string) {
   cleanupLivePreviewPlayer()
-  videoEl.removeAttribute('src')
-  videoEl.load()
+  const generation = previewPlaybackGeneration
+  activePreviewVideo = { id: momentId, element: videoEl }
+
+  const isCurrentPreview = () => (
+    generation === previewPlaybackGeneration
+    && activePreviewVideo?.element === videoEl
+    && activePreviewVideo.id === momentId
+    && hoveredMediaId.value === momentId
+    && videoEl.isConnected
+  )
 
   if (url.includes('.flv')) {
     try {
       const flvjsModule = await import('flv.js')
       const flvjs = flvjsModule.default
-      if (!flvjs.isSupported() || hoveredMediaId.value === '')
+      if (!flvjs.isSupported() || !isCurrentPreview())
         return
 
       liveFlvPlayer = flvjs.createPlayer({
@@ -2901,6 +2946,8 @@ async function setupStreamPreview(url: string, videoEl: HTMLVideoElement) {
   if (url.includes('m3u8')) {
     try {
       const Hls = (await import('hls.js')).default
+      if (!isCurrentPreview())
+        return
       if (Hls.isSupported()) {
         liveHlsPlayer = new Hls({
           enableWorker: true,
@@ -2910,7 +2957,8 @@ async function setupStreamPreview(url: string, videoEl: HTMLVideoElement) {
         liveHlsPlayer.loadSource(url)
         liveHlsPlayer.attachMedia(videoEl)
         liveHlsPlayer.on(Hls.Events.MANIFEST_PARSED, () => {
-          void videoEl.play().catch(() => {})
+          if (isCurrentPreview())
+            void videoEl.play().catch(() => {})
         })
         return
       }
@@ -2932,7 +2980,7 @@ async function setupStreamPreview(url: string, videoEl: HTMLVideoElement) {
 function isMomentPreviewEnabled(moment: DisplayMoment) {
   if (moment.isLive)
     return settings.value.momentsEnableLivePreview
-  if (moment.isVideo)
+  if (moment.isVideo || moment.forward?.video)
     return settings.value.momentsEnableVideoPreview
   return false
 }
@@ -2953,29 +3001,6 @@ function cacheVideoAspectRatio(bvid: string, dimension: any) {
   if (ratio)
     videoAspectRatios[bvid] = ratio
   return ratio
-}
-
-function loadVideoAspectRatio(bvid: string) {
-  if (videoAspectRatios[bvid])
-    return Promise.resolve(videoAspectRatios[bvid])
-
-  const pendingRequest = videoAspectRatioRequests.get(bvid)
-  if (pendingRequest)
-    return pendingRequest
-
-  const request = api.video.getVideoInfo({ bvid })
-    .then((response) => {
-      if (response.code !== 0)
-        return undefined
-      return cacheVideoAspectRatio(
-        bvid,
-        response.data?.dimension || response.data?.pages?.[0]?.dimension,
-      )
-    })
-    .catch(() => undefined)
-    .finally(() => videoAspectRatioRequests.delete(bvid))
-  videoAspectRatioRequests.set(bvid, request)
-  return request
 }
 
 async function getVideoCid(bvid: string) {
@@ -3005,13 +3030,23 @@ async function getVideoCid(bvid: string) {
   return request
 }
 
-async function handleMediaEnter(moment: DisplayMoment) {
-  if (!isMomentPreviewEnabled(moment))
+function handleMediaEnter(moment: DisplayMoment) {
+  if (!isMomentPreviewEnabled(moment) || hoveredMediaId.value === moment.id)
     return
 
   hoveredMediaId.value = moment.id
+  const generation = previewRequestGeneration
+  const delay = moment.isLive ? 0 : (settings.value.momentsVideoPreviewDelayed ? 1200 : 500)
+  previewEnterTimer = setTimeout(() => {
+    previewEnterTimer = undefined
+    void loadMomentPreview(moment, generation)
+  }, delay)
+}
 
-  if (previewUrls[moment.id])
+async function loadMomentPreview(moment: DisplayMoment, generation: number) {
+  const isCurrentRequest = () => generation === previewRequestGeneration
+    && hoveredMediaId.value === moment.id && isMomentPreviewEnabled(moment)
+  if (!isCurrentRequest() || previewUrls[moment.id])
     return
 
   try {
@@ -3021,26 +3056,26 @@ async function handleMediaEnter(moment: DisplayMoment) {
         platform: 'web',
         qn: 80,
       })
-      if (hoveredMediaId.value !== moment.id || !isMomentPreviewEnabled(moment))
+      if (!isCurrentRequest())
         return
       if (res.code === 0 && res.data?.durl?.[0]?.url)
         previewUrls[moment.id] = httpsUrl(res.data.durl[0].url)
       return
     }
 
-    if (!moment.isVideo || !moment.bvid)
+    const video = moment.forward?.video || moment
+    if (!video.bvid)
       return
 
-    const cid = await getVideoCid(moment.bvid)
-    if (!cid || hoveredMediaId.value !== moment.id || !isMomentPreviewEnabled(moment))
+    const cid = await getVideoCid(video.bvid)
+    if (!cid || !isCurrentRequest())
       return
 
-    const preview = await api.video.getVideoPreview({ bvid: moment.bvid, cid })
+    const preview = await api.video.getVideoPreview({ bvid: video.bvid, cid })
     if (
       preview.code === 0
       && preview.data?.durl?.[0]?.url
-      && hoveredMediaId.value === moment.id
-      && isMomentPreviewEnabled(moment)
+      && isCurrentRequest()
     ) {
       previewUrls[moment.id] = httpsUrl(preview.data.durl[0].url)
     }
@@ -3051,6 +3086,8 @@ async function handleMediaEnter(moment: DisplayMoment) {
 }
 
 function handleMediaLeave(moment: DisplayMoment) {
+  if (activePreviewVideo?.id === moment.id && activePreviewVideo.element.matches(':fullscreen'))
+    return
   if (hoveredMediaId.value !== moment.id)
     return
   hoveredMediaId.value = ''
@@ -3068,11 +3105,6 @@ function openClassifiedLink(url: string, kind: MomentLinkKind, video?: DisplayFo
     recordVideoVisit(video)
 
   const mode = resolveLinkOpenMode(kind)
-  if (mode === 'dialog' && kind !== 'other') {
-    openMomentDetail(createLinkMoment(url, kind, video))
-    return
-  }
-
   hoveredMediaId.value = ''
   cleanupLivePreviewPlayer()
   if (mode === 'background')
@@ -3088,16 +3120,25 @@ function handleOpenLink(payload: { url: string, kind: MomentLinkKind, video?: Di
 }
 
 function bindPreviewVideo(el: Element | null, moment: DisplayMoment) {
-  if (!(el instanceof HTMLVideoElement))
+  if (!(el instanceof HTMLVideoElement)) {
+    if (activePreviewVideo?.id === moment.id)
+      cleanupLivePreviewPlayer()
     return
+  }
   const url = previewUrls[moment.id]
   if (!url || hoveredMediaId.value !== moment.id)
     return
 
-  if (moment.isLive || url.includes('.flv') || url.includes('m3u8'))
-    void setupStreamPreview(url, el)
-  else
+  if (moment.isLive || url.includes('.flv') || url.includes('m3u8')) {
+    void setupStreamPreview(url, el, moment.id)
+  }
+  else {
+    if (activePreviewVideo?.element !== el) {
+      cleanupLivePreviewPlayer()
+    }
+    activePreviewVideo = { id: moment.id, element: el }
     void el.play().catch(() => {})
+  }
 }
 
 function playPreview(event: Event) {
@@ -3252,13 +3293,15 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
 
   if (reset) {
     feedRequestToken += 1
+    wantedFeedBuffer = undefined
     moments.value = []
     momentColumns.value = []
+    columnMetrics = []
+    cardMetricPositions.clear()
     virtualColumns.value = []
     Object.keys(cardHeights).forEach(key => delete cardHeights[key])
     Object.keys(previewUrls).forEach(key => delete previewUrls[key])
     Object.keys(coverRatios).forEach(key => delete coverRatios[key])
-    readyCoverIds.clear()
     readyCardIds.clear()
     enteringCardIds.clear()
     revealedCardIds.clear()
@@ -3358,8 +3401,8 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
           return
         }
         rawItems = response.data?.items || []
-        hasMore = Boolean(response.data?.has_more) && rawItems.length > 0
         nextOffset = response.data?.offset || ''
+        hasMore = Boolean(response.data?.has_more) && rawItems.length > 0 && nextOffset !== offset.value
         nextUpdateBaseline = response.data?.update_baseline || ''
         nextPage += 1
       }
@@ -3367,10 +3410,12 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
     }
     else if (requestGroup === 'wanted') {
       await momentsFeedCacheReady
+      if (!isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid))
+        return
       // 类型过滤开启时，首批缓存刷新与后续填充共用两页请求预算。
       const maxRequestPages = hasActiveMomentFilters() ? FILTERED_MAX_REQUEST_PAGES : Infinity
       let requestPages = 0
-      let cacheEntry = getValidMomentsCache(requestType) ?? {
+      let cacheEntry = wantedFeedBuffer ?? getValidMomentsCache(requestType) ?? {
         items: [],
         offset: '',
         updateBaseline: '',
@@ -3379,13 +3424,12 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
       }
 
       if (!momentsWantedUsers.value.length) {
-        wantedCacheCursor.value = 0
+        wantedFeedBuffer = undefined
         cachedBatch = []
       }
       else {
         let cacheChanged = false
         if (reset) {
-          wantedCacheCursor.value = 0
           const existingCache = cacheEntry
           const existingIds = new Set(existingCache.items.map(moment => moment.id))
           const freshItems: DisplayMoment[] = []
@@ -3436,7 +3480,7 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
                 updateBaseline: scanUpdateBaseline,
                 hasMore: canContinue,
                 updatedAt: Date.now(),
-                continuation: existingCache.items.length
+                continuation: canContinue && existingCache.items.length
                   ? {
                       items: existingCache.items,
                       offset: existingCache.offset,
@@ -3448,10 +3492,9 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
           cacheChanged = true
         }
 
-        const batchEnd = Math.min(wantedCacheCursor.value + WANTED_SCAN_LIMIT, MOMENTS_CACHE_MAX_ITEMS)
+        const batchEnd = WANTED_SCAN_LIMIT
         while (
           cacheEntry.items.length < batchEnd
-          && cacheEntry.items.length < MOMENTS_CACHE_MAX_ITEMS
           && cacheEntry.hasMore
           && requestPages < maxRequestPages
         ) {
@@ -3494,7 +3537,9 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
                 && pageItems.length > 0
                 && responseOffset !== cacheEntry.offset,
               updatedAt: Date.now(),
-              continuation: cacheEntry.continuation,
+              continuation: response.data?.has_more && pageItems.length > 0 && responseOffset !== cacheEntry.offset
+                ? cacheEntry.continuation
+                : undefined,
             }
           }
           cacheChanged = true
@@ -3506,13 +3551,14 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
           saveMomentsCache(requestType, cacheEntry)
         // 连续缓存可一次全部展示；存在缺口时仍按 API 原始条数每批推进 100 条。
         const displayEnd = cacheEntry.continuation ? batchEnd : cacheEntry.items.length
-        cachedBatch = cacheEntry.items.slice(wantedCacheCursor.value, displayEnd)
-        wantedCacheCursor.value += cachedBatch.length
+        cachedBatch = cacheEntry.items.slice(0, displayEnd)
+        wantedFeedBuffer = {
+          ...cacheEntry,
+          items: cacheEntry.items.slice(cachedBatch.length),
+        }
         nextOffset = cacheEntry.offset
         nextUpdateBaseline = cacheEntry.updateBaseline
-        hasMore = wantedCacheCursor.value < cacheEntry.items.length
-          || Boolean(cacheEntry.continuation)
-          || (cacheEntry.hasMore && cacheEntry.items.length < MOMENTS_CACHE_MAX_ITEMS)
+        hasMore = wantedFeedBuffer.items.length > 0 || cacheEntry.hasMore
       }
     }
     else if (hasActiveMomentFilters()) {
@@ -3568,8 +3614,8 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
         return
       }
       rawItems = response.data?.items || []
-      hasMore = Boolean(response.data?.has_more) && rawItems.length > 0
       nextOffset = response.data?.offset || ''
+      hasMore = Boolean(response.data?.has_more) && rawItems.length > 0 && nextOffset !== offset.value
       nextUpdateBaseline = response.data?.update_baseline || ''
     }
 
@@ -3607,8 +3653,6 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
     }
     filterScanRawCount.value += normalizedItems.length
     filterScanKeptCount.value += items.length
-    // 封面预加载不阻塞首屏：卡片先按估算高度渲染，比例随后续 onload 修正
-    void prepareMomentCovers(items, requestToken)
     if (!reset)
       preservedPaginationScrollTop = scrollViewportRef.value?.scrollTop ?? null
     if (!reset)
@@ -3777,6 +3821,9 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  isMomentsDisposed = true
+  feedRequestToken += 1
+  wantedFeedBuffer = undefined
   gridObserver?.disconnect()
   cardMeasureObserver?.disconnect()
   visibilityObserver?.disconnect()
@@ -3789,9 +3836,10 @@ onBeforeUnmount(() => {
   videoCidCache.clear()
   videoCidRequests.clear()
   Object.keys(videoAspectRatios).forEach(key => delete videoAspectRatios[key])
-  videoAspectRatioRequests.clear()
   visibleMomentIds.clear()
   cardElements.clear()
+  columnMetrics = []
+  cardMetricPositions.clear()
   cardEnterTimers.forEach(timer => clearTimeout(timer))
   cardEnterTimers.clear()
   clearDetailLoadTimer()
@@ -3856,6 +3904,7 @@ watch(
     settledHeights.clear()
     await nextTick()
     updateGridColumnCount()
+    rebuildColumnMetrics()
     updateVirtualColumns()
   },
 )
@@ -3900,7 +3949,6 @@ watch(
       return
 
     activeMomentGroup.value = 'all'
-    wantedCacheCursor.value = 0
     resetMomentsScroll()
     void loadMoments(true)
   },
@@ -3932,10 +3980,12 @@ watch(
   [
     () => settings.value.momentsEnableLivePreview,
     () => settings.value.momentsEnableVideoPreview,
+    () => settings.value.momentsVideoPreviewDelayed,
+    () => settings.value.momentsOnlyCoverVideoPreview,
   ],
   () => {
     const activeMoment = moments.value.find(moment => moment.id === hoveredMediaId.value)
-    if (!activeMoment || isMomentPreviewEnabled(activeMoment))
+    if (!activeMoment)
       return
 
     hoveredMediaId.value = ''
@@ -4000,9 +4050,36 @@ watch(
               </span>
             </a>
             <div v-if="portalUser" class="moments-user-card__stats">
-              <span><strong>{{ portalUser.following }}</strong><small>{{ t('moments.following') }}</small></span>
-              <span><strong>{{ portalUser.follower }}</strong><small>{{ t('moments.followers') }}</small></span>
-              <span><strong>{{ portalUser.dyns }}</strong><small>{{ t('moments.posts') }}</small></span>
+              <a
+                class="moments-user-card__stat"
+                :href="`https://space.bilibili.com/${portalUser.mid}/fans/follow`"
+                :title="`${portalUser.following}`"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <strong>{{ numFormatter(portalUser.following) }}</strong>
+                <small>{{ t('moments.following') }}</small>
+              </a>
+              <a
+                class="moments-user-card__stat"
+                :href="`https://space.bilibili.com/${portalUser.mid}/fans/fans`"
+                :title="`${portalUser.follower}`"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <strong>{{ numFormatter(portalUser.follower) }}</strong>
+                <small>{{ t('moments.followers') }}</small>
+              </a>
+              <a
+                class="moments-user-card__stat"
+                :href="`https://space.bilibili.com/${portalUser.mid}/dynamic`"
+                :title="`${portalUser.dyns}`"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <strong>{{ numFormatter(portalUser.dyns) }}</strong>
+                <small>{{ t('moments.posts') }}</small>
+              </a>
             </div>
             <div v-else class="moments-sidebar-editor-placeholder">
               {{ $t('settings.moments_show_user_card') }}
@@ -4046,7 +4123,7 @@ watch(
               >
                 <span class="moments-live-card__avatar">
                   <img :src="getSidebarAvatarUrl(liveUser.face, 64)" :alt="liveUser.uname" loading="lazy" decoding="async">
-                  <em><span i-tabler-chart-bar />{{ t('moments.live_now') }}</em>
+                  <em>{{ t('moments.live_now') }}</em>
                 </span>
                 <span class="moments-live-card__info">
                   <strong>{{ liveUser.uname }}</strong>
@@ -4125,7 +4202,7 @@ watch(
               <span class="moments-up-list__name">{{ t('moments.all_posts') }}</span>
             </button>
             <button
-              v-if="isLayoutEditing || settings.momentsEnableWantedFilter"
+              v-if="settings.momentsEnableWantedFilter"
               type="button"
               class="moments-up-list__item"
               data-layout-edit-target="moments-wanted-users"
@@ -4324,6 +4401,7 @@ watch(
               <MomentCard
                 v-for="moment in column.items" :key="moment.id"
                 :moment="moment"
+                :comment-preview="getCommentPreview(moment)"
                 :card-width="gridCardWidth"
                 :image-ratio="coverRatios[moment.id]"
                 :ready="readyCardIds.has(moment.id)"
@@ -4336,6 +4414,7 @@ watch(
                 :is-watch-later-loading="isWatchLaterLoading"
                 @card-element="element => bindCardEl(element, moment)"
                 @open-detail="openMomentDetail"
+                @open-media="openMomentMedia"
                 @open-image-preview="openMomentImagePreview"
                 @media-enter="handleMediaEnter"
                 @media-leave="handleMediaLeave"
@@ -4343,6 +4422,7 @@ watch(
                 @preview-video="bindPreviewVideo"
                 @preview-canplay="playPreview"
                 @open-link="handleOpenLink"
+                @open-lottery="lotteryDialogUrl = $event"
                 @toggle-watch-later="toggleMomentWatchLater"
                 @toggle-like="toggleMomentLike"
                 @toggle-reservation="toggleMomentReservation"
@@ -4410,6 +4490,8 @@ watch(
         </div>
       </aside>
     </div>
+
+    <MomentLotteryDialog v-if="lotteryDialogUrl" :url="lotteryDialogUrl" @close="lotteryDialogUrl = ''" />
 
     <Dialog
       v-if="selectedMoment && detailFrameUrl"
@@ -4573,14 +4655,14 @@ watch(
 
 <style scoped lang="scss">
 .moments-page {
-  padding: var(--bew-space-2) var(--bew-space-3) var(--bew-space-12);
+  padding: var(--bew-space-2) var(--bew-space-5) var(--bew-space-12);
 }
 .moments-layout {
   display: grid;
   justify-content: center;
   align-items: start;
-  column-gap: var(--bew-space-4);
-  row-gap: var(--bew-space-4);
+  column-gap: var(--bew-space-6);
+  row-gap: var(--bew-space-6);
   width: 100%;
   grid-template-columns: auto;
   grid-template-areas:
@@ -4617,7 +4699,7 @@ watch(
   align-items: stretch;
   gap: 0;
   margin-bottom: var(--bew-space-4);
-  padding: var(--bew-space-3) var(--bew-space-2) var(--bew-space-2);
+  padding: var(--bew-space-4);
   border-radius: var(--bew-card-radius);
   background: var(--bew-elevated);
   box-shadow: none;
@@ -4739,8 +4821,9 @@ watch(
   flex-direction: column;
   align-items: center;
   gap: var(--bew-space-1);
-  width: 64px;
-  min-width: 64px;
+  // 72px：48px 头像 + 上下留白后内容区 64px
+  width: 72px;
+  min-width: 72px;
   padding: var(--bew-space-1);
   border: 0;
   border-radius: var(--bew-interactive-radius);
@@ -4757,15 +4840,31 @@ watch(
   outline: 2px solid var(--bew-theme-color);
   outline-offset: 2px;
 }
-.moments-up-list__item--active .moments-up-list__name {
-  color: var(--bew-theme-color);
+// hover 即选中态：光环与名称变色复用 active 样式，移开时平滑过渡
+@mixin up-item-selected {
+  .moments-up-list__name {
+    color: var(--bew-theme-color);
+  }
+
+  .moments-up-list__avatar > img,
+  .moments-up-list__avatar--all,
+  .moments-up-list__avatar--wanted {
+    box-shadow:
+      0 0 0 2px var(--bew-elevated),
+      0 0 0 4px var(--bew-theme-color);
+  }
+
+  .moments-up-list__avatar--all,
+  .moments-up-list__avatar--wanted {
+    border-color: var(--bew-theme-color);
+    color: #fff;
+    background: var(--bew-theme-color);
+  }
 }
-.moments-up-list__item--active .moments-up-list__avatar > img,
-.moments-up-list__item--active .moments-up-list__avatar--all,
-.moments-up-list__item--active .moments-up-list__avatar--wanted {
-  box-shadow:
-    0 0 0 2px var(--bew-elevated),
-    0 0 0 4px var(--bew-theme-color);
+
+.moments-up-list__item--active,
+.moments-up-list__item:hover:not(:disabled) {
+  @include up-item-selected;
 }
 .moments-up-list__item--skeleton {
   pointer-events: none;
@@ -4784,6 +4883,7 @@ watch(
   border-radius: 50%;
   object-fit: cover;
   background: var(--bew-fill-1);
+  transition: box-shadow var(--bew-duration-fast) var(--bew-ease-standard);
 }
 .moments-up-list__avatar--all,
 .moments-up-list__avatar--wanted {
@@ -4792,16 +4892,15 @@ watch(
   width: 48px;
   height: 48px;
   box-sizing: border-box;
-  border: 0;
+  border: 2px solid transparent;
   border-radius: 50%;
   color: var(--bew-theme-color);
   background: var(--bew-theme-color-20);
-}
-.moments-up-list__item--active .moments-up-list__avatar--all,
-.moments-up-list__item--active .moments-up-list__avatar--wanted {
-  border: 2px solid var(--bew-theme-color);
-  color: #fff;
-  background: var(--bew-theme-color);
+  transition:
+    color var(--bew-duration-fast) var(--bew-ease-standard),
+    background-color var(--bew-duration-fast) var(--bew-ease-standard),
+    border-color var(--bew-duration-fast) var(--bew-ease-standard),
+    box-shadow var(--bew-duration-fast) var(--bew-ease-standard);
 }
 .moments-up-list__item:disabled {
   opacity: 0.45;
@@ -4836,6 +4935,7 @@ watch(
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: color var(--bew-duration-fast) var(--bew-ease-standard);
 }
 .moments-up-list__item--skeleton .moments-up-list__name {
   width: 40px;
@@ -4852,7 +4952,7 @@ watch(
   max-width: 100%;
   max-height: calc(100dvh - var(--bew-top-bar-height, 64px) - var(--bew-space-6));
   flex-direction: column;
-  gap: var(--bew-space-3);
+  gap: var(--bew-space-5);
   min-width: 0;
   overflow-x: hidden;
   overflow-y: auto;
@@ -4917,7 +5017,7 @@ watch(
   overflow: hidden;
   color: var(--bew-text-1);
   font-size: var(--bew-font-size-heading);
-  font-weight: var(--bew-font-weight-semibold);
+  font-weight: var(--bew-font-weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -4946,30 +5046,41 @@ watch(
   color: #fb7299;
   border: 1px solid currentcolor;
 }
+// 统计区对齐 UserPanelPop 的 channel-info-item：竖线分隔、hover 变主题色、可跳转
 .moments-user-card__stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  margin-top: var(--bew-space-5);
+  gap: var(--bew-space-2);
+  margin-top: var(--bew-space-4);
 }
-.moments-user-card__stats > span {
+.moments-user-card__stat {
   display: flex;
   min-width: 0;
   flex-direction: column;
   align-items: center;
   gap: var(--bew-space-1);
+  color: inherit;
+  text-decoration: none;
 }
-.moments-user-card__stats strong {
+.moments-user-card__stat:hover strong,
+.moments-user-card__stat:hover small {
+  color: var(--bew-theme-color);
+}
+.moments-user-card__stat strong {
   overflow: hidden;
   max-width: 100%;
   color: var(--bew-text-1);
   font-size: var(--bew-font-size-heading);
   font-weight: var(--bew-font-weight-semibold);
   text-overflow: ellipsis;
+  transition: color var(--bew-duration-normal) var(--bew-ease-standard);
 }
-.moments-user-card__stats small {
-  color: var(--bew-text-3);
-  font-size: var(--bew-font-size-control);
-  line-height: var(--bew-line-height-control);
+.moments-user-card__stat small {
+  color: var(--bew-text-2);
+  font-size: var(--bew-font-size-caption);
+  font-weight: var(--bew-font-weight-semibold);
+  line-height: var(--bew-line-height-caption);
+  transition: color var(--bew-duration-normal) var(--bew-ease-standard);
 }
 .moments-publish-link {
   display: flex;
@@ -4978,7 +5089,7 @@ watch(
   min-height: 44px;
   padding: 0 var(--bew-space-4);
   border: 0;
-  border-radius: var(--bew-interactive-radius);
+  border-radius: var(--bew-panel-radius);
   color: var(--bew-text-1);
   background: var(--bew-elevated);
   box-shadow: none;
@@ -5012,6 +5123,7 @@ watch(
 .moments-live-card > header strong {
   color: var(--bew-text-1);
   font-size: var(--bew-font-size-title);
+  font-weight: var(--bew-font-weight-semibold);
   line-height: var(--bew-line-height-title);
 }
 .moments-live-card > header span {
@@ -5037,7 +5149,7 @@ watch(
   height: 72px;
   min-width: 0;
   flex: 0 0 72px;
-  padding: var(--bew-space-2) var(--bew-space-1);
+  padding: var(--bew-space-2);
   border-radius: var(--bew-interactive-radius);
   color: inherit;
   text-decoration: none;
@@ -5066,12 +5178,11 @@ watch(
   bottom: 0;
   display: inline-flex;
   align-items: center;
-  gap: var(--bew-space-0-5);
-  height: 17px;
-  padding: 0 var(--bew-space-1);
+  height: 16px;
+  padding: 0 var(--bew-space-2);
   border-radius: var(--bew-radius-full);
   color: #fff;
-  background: #fb7299;
+  background: var(--bew-theme-color);
   font-size: var(--bew-font-size-caption);
   font-style: normal;
   line-height: var(--bew-line-height-caption);
@@ -5081,7 +5192,7 @@ watch(
 .moments-live-card__avatar em::after {
   position: absolute;
   inset: -3px;
-  border: 1px solid #fb7299;
+  border: 1px solid var(--bew-theme-color);
   border-radius: inherit;
   content: "";
   pointer-events: none;
@@ -5173,13 +5284,12 @@ watch(
   display: grid;
   align-items: start;
   justify-content: center;
-  gap: var(--bew-space-4);
   width: 100%;
 }
 .moments-skeleton-column {
   display: flex;
   flex-direction: column;
-  gap: var(--bew-space-4);
+  gap: var(--bew-space-5);
   width: 100%;
   max-width: 100%;
   min-width: 0;
@@ -5352,7 +5462,6 @@ watch(
 }
 .moments-grid {
   display: grid;
-  gap: var(--bew-space-4);
   width: 100%;
   justify-content: center;
   justify-items: stretch;
@@ -5365,7 +5474,8 @@ watch(
   max-width: 100%;
   min-width: 0;
   flex-direction: column;
-  gap: var(--bew-space-4);
+  /* 与 JS 的 GRID_GAP 一致 */
+  gap: var(--bew-space-5);
 }
 .moments-grid :deep(.moment-card) {
   width: 100%;

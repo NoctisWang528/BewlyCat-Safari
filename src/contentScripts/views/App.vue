@@ -5,8 +5,10 @@ import { provide, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import Button from '~/components/Button.vue'
+import ElementSettingsContextMenu from '~/components/ElementSettingsContextMenu.vue'
 import Icon from '~/components/Icon.vue'
 import Radio from '~/components/Radio.vue'
+import TopBarModeSwitcher from '~/components/TopBar/components/TopBarModeSwitcher.vue'
 import type { BewlyAppProvider, SettingsNavigationTarget } from '~/composables/useAppProvider'
 import { DrawerType, UndoForwardState } from '~/composables/useAppProvider'
 import type { ConfirmDialogOptions, ConfirmDialogToggleField } from '~/composables/useConfirmDialog'
@@ -25,6 +27,7 @@ import { setOriginalBilibiliTopBarScrolled } from '~/utils/bilibiliTopBar'
 import { isHomePage, isInIframe, isNotificationPage, isSearchResultsPage, isVideoOrBangumiPage, openLinkToNewTab, queryDomUntilFound, scrollToTop } from '~/utils/main'
 import emitter from '~/utils/mitt'
 import { applyPendingSettingsMigrations, formatSettingsMigrationConfirmMessage, getPendingSettingsMigrationChoices, hasPendingSettingsMigrations } from '~/utils/settingsMigration'
+import { isComponentVisible } from '~/utils/topBarBadge'
 
 import { setupNecessarySettingsWatchers } from './necessarySettingsWatchers'
 
@@ -218,20 +221,6 @@ function getPageParam(): AppPage | null {
 
 const activatedPage = ref<AppPage>(getPageParam() || (settings.value.dockItemsConfig.find(e => e.visible === true)?.page || AppPage.Home))
 
-// 监听 URL 变化,同步更新 activatedPage
-useEventListener(window, 'pushstate', () => {
-  const pageParam = getPageParam()
-  if (pageParam && pageParam !== activatedPage.value) {
-    activatedPage.value = pageParam
-  }
-})
-useEventListener(window, 'popstate', () => {
-  const pageParam = getPageParam()
-  if (pageParam && pageParam !== activatedPage.value) {
-    activatedPage.value = pageParam
-  }
-})
-
 // 清理搜索相关的URL参数（仅在首页生效）
 function clearSearchParamsFromUrl() {
   // 只在首页清理搜索参数，避免影响其他B站页面（如搜索结果页）
@@ -282,10 +271,36 @@ function getDefaultHomeSubPage(tabConfig: { page: HomeSubPage, visible: boolean 
   return HomeSubPage.ForYou
 }
 
-// 添加Home页面的子页面状态
-const homeActivatedPage = ref<HomeSubPage>(getDefaultHomeSubPage(settings.value.homePageTabVisibilityList))
-const homeActivatedPageTouched = ref<boolean>(false)
+function getHomeTabParam(url = new URL(window.location.href)): HomeSubPage | null {
+  const tab = url.searchParams.get('tab') as HomeSubPage | null
+  return isHomePage(url.href) && url.searchParams.get('page') === AppPage.Home
+    && tab && Object.values(HomeSubPage).includes(tab)
+    ? tab
+    : null
+}
+
+// URL 中的显式 tab 优先于设置中的默认首页标签。
+const initialHomeTab = getHomeTabParam()
+const homeActivatedPage = ref<HomeSubPage>(initialHomeTab ?? getDefaultHomeSubPage(settings.value.homePageTabVisibilityList))
+const homeActivatedPageTouched = ref<boolean>(initialHomeTab !== null)
 const isHomeTabSwitching = ref<boolean>(false)
+
+function syncNavigationFromUrl() {
+  // 注入层的 pushstate 事件在原生方法执行前派发，延后读取最终地址。
+  queueMicrotask(() => {
+    const page = getPageParam()
+    if (page)
+      activatedPage.value = page
+    if (page === AppPage.Home) {
+      const tab = getHomeTabParam()
+      homeActivatedPage.value = tab ?? getDefaultHomeSubPage(settings.value.homePageTabVisibilityList)
+      homeActivatedPageTouched.value = tab !== null
+    }
+  })
+}
+useEventListener(window, 'pushstate', syncNavigationFromUrl)
+useEventListener(window, 'popstate', syncNavigationFromUrl)
+
 watch(
   () => settings.value.homePageTabVisibilityList,
   (tabConfig) => {
@@ -964,6 +979,13 @@ useEventListener(window, 'resize', scheduleLayoutEditTargetsRefresh)
 useEventListener(window, 'scroll', scheduleLayoutEditTargetsRefresh, { passive: true })
 onUnmounted(stopLayoutEditTargetObserver)
 const scrollViewportRef = ref<HTMLElement | null>(null)
+
+function handlePageBackgroundMouseDown(event: MouseEvent) {
+  // Only background elements bind this with .self. Avoid starting a native
+  // selection across the feed from its gutters, while keeping card text selectable.
+  if (activatedPage.value === AppPage.Home && event.button === 0)
+    event.preventDefault()
+}
 const loadMoreSentinelRef = ref<HTMLElement>() // ✅ IntersectionObserver 哨兵元素
 const handlePageRefresh = ref<() => void>()
 const handleReachBottom = ref<() => void>()
@@ -975,7 +997,17 @@ const undoForwardState = ref<UndoForwardState>(UndoForwardState.Hidden)
 const canRefreshCurrentPage = computed((): boolean => {
   return activatedPage.value !== AppPage.Home || homeActivatedPage.value === HomeSubPage.ForYou || canRefreshHomeSubPage.value
 })
+let refreshScrollTimer: ReturnType<typeof setTimeout> | undefined
+
+function cancelPendingPageRefresh() {
+  clearTimeout(refreshScrollTimer)
+  refreshScrollTimer = undefined
+}
+
+onBeforeUnmount(cancelPendingPageRefresh)
+
 const handleThrottledPageRefresh = useThrottleFn(() => {
+  cancelPendingPageRefresh()
   if (!canRefreshCurrentPage.value)
     return
 
@@ -989,15 +1021,21 @@ const handleThrottledPageRefresh = useThrottleFn(() => {
   }
   else {
     handleBackToTop()
+    const refresh = handlePageRefresh.value
+    const deadline = performance.now() + 3000
     const checkScrollComplete = () => {
-      if (viewport.scrollTop === 0) {
-        handlePageRefresh.value?.()
+      refreshScrollTimer = undefined
+      if (!viewport.isConnected || viewport !== scrollViewportRef.value || refresh !== handlePageRefresh.value)
+        return
+
+      if (viewport.scrollTop <= 1) {
+        refresh?.()
       }
-      else {
-        setTimeout(checkScrollComplete, 50)
+      else if (performance.now() < deadline) {
+        refreshScrollTimer = setTimeout(checkScrollComplete, 50)
       }
     }
-    setTimeout(checkScrollComplete, 100)
+    refreshScrollTimer = setTimeout(checkScrollComplete, 100)
   }
 }, 500)
 const handleThrottledReachBottom = useThrottleFn(() => handleReachBottom.value?.(), 200)
@@ -1164,6 +1202,18 @@ const showBewlyPage = computed((): boolean => {
   return isHomePage() && !settings.value.useOriginalBilibiliHomepage
 })
 
+// App outlives page components. Drop outgoing closures before the next page
+// registers its actions so evicted KeepAlive pages and their lists can be collected.
+watch([activatedPage, () => activatedPage.value === AppPage.Home ? homeActivatedPage.value : undefined, showBewlyPage], () => {
+  cancelPendingPageRefresh()
+  handlePageRefresh.value = undefined
+  handleReachBottom.value = undefined
+  handleUndoRefresh.value = undefined
+  handleForwardRefresh.value = undefined
+  undoForwardState.value = UndoForwardState.Hidden
+  canRefreshHomeSubPage.value = false
+}, { flush: 'sync' })
+
 // Keep the browser tab title in sync with the page selected from the Dock.
 // Search results manages its own keyword-aware title in SearchResults.vue.
 const dockPageTitle = computed<string | undefined>(() => {
@@ -1238,14 +1288,27 @@ function focusScrollViewport(options: { force?: boolean } = {}) {
 }
 
 const isFirstTimeActivatedPageChange = ref<boolean>(true)
+function syncNavigationUrl() {
+  const url = new URL(window.location.href)
+  url.searchParams.set('page', activatedPage.value)
+  if (activatedPage.value === AppPage.Home)
+    url.searchParams.set('tab', homeActivatedPage.value)
+  else
+    url.searchParams.delete('tab')
+  if (url.href !== window.location.href)
+    window.history.replaceState(window.history.state, '', url.href)
+}
+
+watch(homeActivatedPage, () => {
+  if (isHomePage() && activatedPage.value === AppPage.Home)
+    syncNavigationUrl()
+}, { immediate: true })
+
 watch(
   () => activatedPage.value,
   () => {
     if (!isFirstTimeActivatedPageChange.value) {
-      // Update the URL query parameter when activatedPage changes
-      const url = new URL(window.location.href)
-      url.searchParams.set('page', activatedPage.value)
-      window.history.replaceState({}, '', url.toString())
+      syncNavigationUrl()
     }
 
     scrollViewportRef.value?.scrollTo({ top: 0 })
@@ -1331,9 +1394,6 @@ onMounted(() => {
   }
 
   if (isHomePage()) {
-    // Force overwrite Bilibili Evolved body tag & html tag background color
-    document.body.style.setProperty('background-color', 'unset', 'important')
-
     focusScrollViewport()
 
     // Windows/Linux: 监听 Home 键
@@ -1621,6 +1681,7 @@ provide<BewlyAppProvider>('BEWLY_APP', {
 if (settings.value.cleanUrlArgument) {
   const BASE_PARAMS_TO_REMOVE = new Set([
     'spm_id_from',
+    'hcfrom',
     'from_source',
     'msource',
     'bsource',
@@ -1670,10 +1731,13 @@ if (settings.value.cleanUrlArgument) {
 
     try {
       isCleaningUrl = true
+      const sourceUrl = window.location.href
       const currentUrl = new URL(window.location.href)
       let hasChanged = false
 
       for (const param of BASE_PARAMS_TO_REMOVE) {
+        if (param === 'tab' && getHomeTabParam(currentUrl))
+          continue
         if (currentUrl.searchParams.has(param)) {
           currentUrl.searchParams.delete(param)
           hasChanged = true
@@ -1695,20 +1759,22 @@ if (settings.value.cleanUrlArgument) {
           .replace(/%3D/gi, '=')
           .replace(/%26/g, '&')
 
+        const applyCleanUrl = () => {
+          // 空闲回调执行前可能已切换 tab，旧地址不能覆盖新的导航状态。
+          if (window.location.href === sourceUrl) {
+            history.replaceState(history.state, '', newUrl)
+            lastCleanedUrl = window.location.href
+          }
+          isCleaningUrl = false
+          if (window.location.href !== newUrl)
+            scheduleCleanup()
+        }
         // 使用 requestIdleCallback 来避免阻塞页面加载
         if (window.requestIdleCallback) {
-          window.requestIdleCallback(() => {
-            history.replaceState(null, '', newUrl)
-            lastCleanedUrl = window.location.href
-            isCleaningUrl = false
-          })
+          window.requestIdleCallback(applyCleanUrl)
         }
         else {
-          setTimeout(() => {
-            history.replaceState(null, '', newUrl)
-            lastCleanedUrl = window.location.href
-            isCleaningUrl = false
-          }, 0)
+          setTimeout(applyCleanUrl, 0)
         }
       }
       else {
@@ -1796,6 +1862,8 @@ if (settings.value.cleanUrlArgument) {
     <template v-if="showBewlyPage">
       <AppBackground :activated-page="activatedPage" />
     </template>
+
+    <ElementSettingsContextMenu />
 
     <!-- Settings -->
     <KeepAlive>
@@ -1989,6 +2057,14 @@ if (settings.value.cleanUrlArgument) {
       />
     </div>
 
+    <TopBarModeSwitcher
+      v-if="isInIframe()
+        && settings.enableTopBar
+        && settings.useOriginalBilibiliTopBar
+        && isComponentVisible('topBarSwitcher')"
+      native
+    />
+
     <div
       v-if="!settings.useOriginalBilibiliHomepage"
       pos="absolute top-0 left-0" w-full h-full
@@ -2005,14 +2081,16 @@ if (settings.value.cleanUrlArgument) {
             tabindex="-1"
             style="overscroll-behavior: contain;"
             @scroll.passive="handleNativeScroll"
+            @mousedown.self="handlePageBackgroundMouseDown"
           >
-            <main m-auto max-w="$bew-page-max-width">
+            <main m-auto max-w="$bew-page-max-width" @mousedown.self="handlePageBackgroundMouseDown">
               <div
                 p="t-[calc(var(--bew-top-bar-height)+10px)]" m-auto
                 w="lg:[calc(100%-200px)] [calc(100%-150px)]"
                 :style="settings.enableTopBar && settings.useOriginalBilibiliTopBar && !reachTop
                   ? { paddingTop: 'calc(var(--bew-top-bar-height) + 120px)' }
                   : undefined"
+                @mousedown.self="handlePageBackgroundMouseDown"
               >
                 <Transition name="page-fade">
                   <Component :is="pages[activatedPage]" :key="activatedPage" />

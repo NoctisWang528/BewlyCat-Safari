@@ -186,10 +186,19 @@ export function fullscreen() {
   }).start()
 }
 
-export function webFullscreen() {
+export interface PlayerModeApplication {
+  shouldApply: () => boolean
+  onApplied: () => void
+}
+
+export function webFullscreen(application?: PlayerModeApplication) {
   new RetryTask(20, 500, () => {
+    if (application && !application.shouldApply())
+      return true
+
     // 检查是否已经处于网页全屏状态
     if (document.querySelector('[data-screen=\'web\']')) {
+      application?.onApplied()
       // 即使已经是网页全屏状态，也应用倍速记忆
       setTimeout(() => {
         applyPlayerEnhancements()
@@ -199,6 +208,7 @@ export function webFullscreen() {
 
     const result = webFullscreenClick()
     if (result) {
+      application?.onApplied()
       // 在成功进入网页全屏后应用倍速记忆
       setTimeout(() => {
         applyPlayerEnhancements()
@@ -208,7 +218,7 @@ export function webFullscreen() {
   }).start()
 }
 
-// 将播放器滚动到合适位置，优先保证弹幕栏可见
+// 将播放器滚动到设置的位置
 function scrollPlayerToOptimalPosition(delay = 1000) {
   // 如果设置了不滚动，直接返回
   if (!settings.value.videoPlayerScroll)
@@ -218,6 +228,15 @@ function scrollPlayerToOptimalPosition(delay = 1000) {
     const playerElement = document.querySelector(_videoClassTag.player)
     if (!playerElement)
       return
+
+    if (settings.value.videoPlayerScrollMode === 'playerCenter') {
+      const rect = playerElement.getBoundingClientRect()
+      window.scrollBy({
+        top: rect.top + rect.height / 2 - window.innerHeight / 2,
+        behavior: 'smooth',
+      })
+      return
+    }
 
     // 查找弹幕发送栏
     const sendingBar = document.querySelector('.bpx-player-sending-bar')
@@ -246,10 +265,14 @@ function scrollPlayerToOptimalPosition(delay = 1000) {
   }
 }
 
-export function widescreen() {
+export function widescreen(application?: PlayerModeApplication) {
   new RetryTask(20, 500, () => {
+    if (application && !application.shouldApply())
+      return true
+
     // 检查是否已经处于宽屏状态
     if (document.querySelector('[data-screen=\'wide\']')) {
+      application?.onApplied()
       // 即使已经是宽屏状态，也执行滚动和倍速记忆
       scrollPlayerToOptimalPosition()
       setTimeout(() => {
@@ -260,6 +283,7 @@ export function widescreen() {
 
     const result = widescreenClick()
     if (result) {
+      application?.onApplied()
       scrollPlayerToOptimalPosition()
       // 在成功进入宽屏后应用倍速记忆
       setTimeout(() => {
@@ -456,26 +480,8 @@ export function detectVideoType(): VideoType {
     return VideoType.PLAYLIST
   }
 
-  // 检测多P视频和合集视频的关键区别：
-  // 分P视频有 .view-mode 切换视图组件，合集视频没有
-  const hasViewMode = !!document.querySelector('.view-mode')
-  const hasVideoPod = !!document.querySelector(
-    '.video-pod__item, .video-pod__list .simple-base-item, .multi-page__item, .page-item',
-  )
-
-  if (hasVideoPod) {
-    // 有视频列表项
-    if (hasViewMode) {
-      // 有切换视图组件 = 分P视频
-      return VideoType.MULTIPART
-    }
-    else {
-      // 没有切换视图组件 = 合集视频
-      return VideoType.COLLECTION
-    }
-  }
-
-  // 尝试从页面中获取视频数据（备用方案）
+  // 优先根据当前稿件的分 P 数判断。合集可以包含多 P 稿件，
+  // 如果先根据右侧合集列表判断，这类稿件会错用合集的播放设置。
   const app = document.querySelector('#app') as any
   if (app?.__vue__) {
     const videoData = app.__vue__.videoData
@@ -492,6 +498,23 @@ export function detectVideoType(): VideoType {
         return VideoType.COLLECTION
       }
     }
+  }
+
+  // DOM 兜底：普通分 P 视频有 .view-mode 切换视图组件，
+  // 只有合集列表的视频没有。合集中的多 P 稿件会同时渲染
+  // 分 P 列表和新版合集列表，即使 .view-mode 被合集面板隐去也要视为分 P。
+  const hasViewMode = !!document.querySelector('.view-mode')
+  const hasMultipartItems = !!document.querySelector(
+    '.video-pod__item, .multi-page__item, .page-item',
+  )
+  const hasCollectionItems = !!document.querySelector('.video-pod__list .simple-base-item')
+  const hasVideoPod = hasMultipartItems || hasCollectionItems
+
+  if (hasVideoPod) {
+    if (hasViewMode || (hasMultipartItems && hasCollectionItems))
+      return VideoType.MULTIPART
+
+    return VideoType.COLLECTION
   }
 
   // 如果以上都不是，检测是否为合集视频（通过DOM）
@@ -807,6 +830,31 @@ export function isPlayerShowingAdvertisement(): boolean {
     '.bpx-player-ads-skip',
     '.bpx-player-btn-skip',
   ].join(','))
+}
+
+const PLAYER_ENDING_PANEL_SELECTOR = [
+  '.bpx-player-ending-wrap',
+  '.bilibili-player-ending-panel',
+].join(',')
+
+export function isPlayerEndingPanelVisible(): boolean {
+  return Array.from(document.querySelectorAll<HTMLElement>(PLAYER_ENDING_PANEL_SELECTOR)).some((panel) => {
+    if (panel.classList.contains('bpx-state-hidden') || !panel.getClientRects().length)
+      return false
+    const style = getComputedStyle(panel)
+    return style.display !== 'none' && style.visibility !== 'hidden' && style.visibility !== 'collapse'
+  })
+}
+
+/** 播放器是否停在播完推荐页。此时不要再点全屏或搬宽屏，否则会把推荐页打回最后一帧。 */
+export function isPlayerShowingEndingRecommendation(): boolean {
+  if (isPlayerShowingAdvertisement())
+    return false
+
+  if (isPlayerEndingPanelVisible())
+    return true
+
+  return !!getVideoElement()?.ended
 }
 
 /** 关闭 B 站原生的续播行为，让自定义播放独占视频结束后的切集。 */
@@ -1407,7 +1455,10 @@ export function showClockTime(firstShow = false) {
     }
   }
   else {
-    clockInterval = null
+    if (clockInterval) {
+      clearInterval(clockInterval)
+      clockInterval = null
+    }
     if (clockElement) {
       clockElement.style.display = 'none'
     }

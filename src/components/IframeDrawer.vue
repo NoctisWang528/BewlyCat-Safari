@@ -3,8 +3,9 @@ import { useEventListener } from '@vueuse/core'
 
 import { DrawerType, useBewlyApp } from '~/composables/useAppProvider'
 import { useDark } from '~/composables/useDark'
-import { DRAWER_VIDEO_ENTER_PAGE_FULL, DRAWER_VIDEO_EXIT_PAGE_FULL, IFRAME_DARK_MODE_CHANGE } from '~/constants/globalEvents'
+import { BEWLY_IFRAME_DRAWER_HOST_CLASS, DRAWER_VIDEO_ENTER_PAGE_FULL, DRAWER_VIDEO_EXIT_PAGE_FULL, IFRAME_DARK_MODE_CHANGE } from '~/constants/globalEvents'
 import { settings } from '~/logic'
+import { releaseIframeMedia } from '~/utils/iframe'
 import { isHomePage, isInIframe } from '~/utils/main'
 import { lockPageScroll, unlockPageScroll } from '~/utils/pageScrollLock'
 
@@ -43,6 +44,10 @@ let stopIframePopStateListener: (() => void) | null = null
 let stopIframeDOMContentLoadedListener: (() => void) | null = null
 let focusRetryTimer: ReturnType<typeof setTimeout> | null = null
 let initialDarkModeTimer: ReturnType<typeof setTimeout> | null = null
+let focusFrame: number | null = null
+let focusVersion = 0
+let navigationVersion = 0
+let isDisposed = false
 
 // 计算iframe容器的样式
 const iframeContainerClasses = computed(() => {
@@ -127,7 +132,7 @@ watch(() => showIframe.value, (newValue) => {
 })
 
 watch(() => props.url, async (newUrl, oldUrl) => {
-  if (!show.value || newUrl === oldUrl)
+  if (isDisposed || isClosing.value || !show.value || newUrl === oldUrl)
     return
 
   history.replaceState(null, '', newUrl.replace(/\/$/, ''))
@@ -144,6 +149,11 @@ function cleanupIframeWindowListeners() {
 }
 
 function clearFocusRetryTimer() {
+  focusVersion++
+  if (focusFrame !== null) {
+    cancelAnimationFrame(focusFrame)
+    focusFrame = null
+  }
   if (focusRetryTimer) {
     clearTimeout(focusRetryTimer)
     focusRetryTimer = null
@@ -164,9 +174,14 @@ function clearDrawerTimers() {
 
 function focusIframe(retryCount = 3) {
   clearFocusRetryTimer()
+  const version = focusVersion
 
   nextTick(() => {
-    requestAnimationFrame(() => {
+    if (version !== focusVersion || isDisposed || isClosing.value)
+      return
+
+    focusFrame = requestAnimationFrame(() => {
+      focusFrame = null
       const iframe = iframeRef.value
       if (!iframe || !show.value || activeDrawer.value !== DrawerType.IframeDrawer)
         return
@@ -189,9 +204,9 @@ function focusIframe(retryCount = 3) {
 }
 
 function injectStyleClass() {
-  if (headerShow.value && iframeRef.value?.contentWindow?.document) {
+  if (headerShow.value) {
     try {
-      iframeRef.value.contentWindow.document.documentElement.classList.add('remove-top-bar-without-placeholder')
+      iframeRef.value?.contentDocument?.documentElement.classList.add('remove-top-bar-without-placeholder')
       removeTopBarClassInjected.value = true
     }
     catch (error) {
@@ -201,7 +216,7 @@ function injectStyleClass() {
 }
 
 function handleIframeLoad() {
-  if (isClosing.value || !renderIframe.value)
+  if (isDisposed || isClosing.value || !renderIframe.value)
     return
 
   const iframeWindow = iframeRef.value?.contentWindow
@@ -220,7 +235,11 @@ function handleIframeLoad() {
 }
 
 async function remountIframe(url: string) {
+  const version = ++navigationVersion
   await releaseIframeResources()
+  if (isDisposed || isClosing.value || version !== navigationVersion)
+    return
+
   currentUrl.value = url
   iframeKey.value += 1
   renderIframe.value = true
@@ -229,6 +248,9 @@ async function remountIframe(url: string) {
 
 onMounted(() => {
   originUrl.value = window.location.href
+  // 抽屉会用 iframe URL 替换地址栏，但父文档仍是 Bewly 页面外壳。
+  // 显式标记宿主，避免父文档把临时视频 URL 当成自身播放器导航。
+  document.documentElement.classList.add(BEWLY_IFRAME_DRAWER_HOST_CLASS)
   history.pushState(null, '', props.url)
   show.value = true
   headerShow.value = true
@@ -242,6 +264,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  isDisposed = true
+  navigationVersion++
   isClosing.value = true
   cleanupIframeWindowListeners()
   if (activeDrawer.value === DrawerType.IframeDrawer)
@@ -260,6 +284,7 @@ onBeforeUnmount(() => {
 
 onUnmounted(() => {
   history.replaceState(null, '', originUrl.value)
+  document.documentElement.classList.remove(BEWLY_IFRAME_DRAWER_HOST_CLASS)
 })
 
 function updateCurrentUrl(e: any) {
@@ -290,10 +315,11 @@ async function updateIframeUrl() {
 }
 
 async function handleClose() {
-  if (isClosing.value)
+  if (isDisposed || isClosing.value)
     return
 
   isClosing.value = true
+  navigationVersion++
   if (delayCloseTimer.value) {
     clearTimeout(delayCloseTimer.value)
   }
@@ -305,6 +331,9 @@ async function handleClose() {
   headerShow.value = false
   setActiveDrawer(DrawerType.None) // 清除活跃抽屉状态
   await releaseIframeResources()
+  if (isDisposed)
+    return
+
   delayCloseTimer.value = setTimeout(() => {
     delayCloseTimer.value = null
     emit('close')
@@ -323,35 +352,10 @@ async function releaseIframeResources() {
     return
   }
 
-  // 同源抽屉在销毁 browsing context 前主动停掉媒体管线，避免视频解码器、
-  // MediaSource 和音频节点继续占用资源直到浏览器下一次 GC。
-  try {
-    iframe.contentDocument?.querySelectorAll<HTMLMediaElement>('video, audio').forEach((media) => {
-      media.pause()
-      media.srcObject = null
-      media.removeAttribute('src')
-      media.querySelectorAll('source').forEach(source => source.removeAttribute('src'))
-      media.load()
-    })
-  }
-  catch {
-    // sandbox/cross-origin 场景交给 about:blank 导航释放。
-  }
-
-  // Navigate to about:blank and close browsing context BEFORE removing from DOM.
-  // Previously, renderIframe was set to false first, which removed the iframe via v-if
-  // and made iframeRef null — so contentWindow.close() was never actually called.
-  // This is especially important for Firefox which doesn't always release media
-  // resources (video decoders, buffers) when an iframe is simply removed from DOM.
+  // Stop media before v-if clears the template ref. Removing the iframe destroys
+  // its browsing context; Window.close() does not close an embedded window.
+  releaseIframeMedia(iframe)
   currentUrl.value = 'about:blank'
-  iframe.src = 'about:blank'
-
-  try {
-    iframe.contentWindow?.close()
-  }
-  catch {
-    // Cross-origin may block this
-  }
 
   // Now safe to remove from DOM
   renderIframe.value = false
@@ -367,6 +371,14 @@ function handleOpenInNewTab() {
   }
 }
 
+function resetEscPressedState() {
+  if (escPressedTimer.value) {
+    clearTimeout(escPressedTimer.value)
+    escPressedTimer.value = null
+  }
+  isEscPressed.value = false
+}
+
 /**
  * Listen to Escape key on the main window using capture phase
  * Only active when this drawer is the active drawer
@@ -374,46 +386,58 @@ function handleOpenInNewTab() {
 function handleKeydown(e: KeyboardEvent) {
   if (e.key !== 'Escape' && e.code !== 'Escape')
     return
+  if (e.repeat || e.isComposing)
+    return
 
   // Only handle when this drawer is the active drawer
   if (activeDrawer.value !== DrawerType.IframeDrawer)
     return
-  e.preventDefault()
-  e.stopPropagation()
 
-  if (settings.value.closeDrawerWithoutPressingEscAgain) {
-    if (escPressedTimer.value) {
-      clearTimeout(escPressedTimer.value)
-      escPressedTimer.value = null
+  // 捕获阶段不抢占 ESC；Dialog、Pop、全屏等内部功能处理完仍未消费时，才兜底关闭抽屉。
+  const hadEscapePriorityState = disableEscPress.value
+    || isPageFullscreen.value
+    || !!(document.fullscreenElement
+      || (document as Document & { webkitFullscreenElement?: Element | null }).webkitFullscreenElement)
+
+  window.setTimeout(() => {
+    if (hadEscapePriorityState
+      || disableEscPress.value
+      || isPageFullscreen.value
+      || e.defaultPrevented
+      || e.cancelBubble
+      || activeDrawer.value !== DrawerType.IframeDrawer) {
+      return
     }
-    handleClose()
-    return
-  }
-  if (disableEscPress.value)
-    return
-  if (isEscPressed.value) {
-    handleClose()
-  }
-  else {
-    isEscPressed.value = true
-    if (escPressedTimer.value) {
-      clearTimeout(escPressedTimer.value)
+
+    if (settings.value.closeDrawerWithoutPressingEscAgain) {
+      if (escPressedTimer.value) {
+        clearTimeout(escPressedTimer.value)
+        escPressedTimer.value = null
+      }
+      handleClose()
+      return
     }
-    escPressedTimer.value = setTimeout(() => {
-      escPressedTimer.value = null
-      isEscPressed.value = false
-    }, 1300)
-  }
+    if (isEscPressed.value) {
+      handleClose()
+    }
+    else {
+      isEscPressed.value = true
+      if (escPressedTimer.value)
+        clearTimeout(escPressedTimer.value)
+      escPressedTimer.value = setTimeout(() => {
+        escPressedTimer.value = null
+        isEscPressed.value = false
+      }, 1300)
+    }
+  }, 0)
 }
 
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown, true)
-  document.addEventListener('keydown', handleKeydown, true)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeydown, true)
-  document.removeEventListener('keydown', handleKeydown, true)
 })
 
 function handleWindowMessage({ data, source }: MessageEvent) {
@@ -431,6 +455,9 @@ function handleWindowMessage({ data, source }: MessageEvent) {
       headerShow.value = true
       disableEscPress.value = false
       isPageFullscreen.value = false
+      break
+    case 'BEWLY_DRAWER_ESCAPE_HANDLED':
+      resetEscPressedState()
       break
     case 'BEWLY_DRAWER_CLOSE_REQUEST':
       // 来自 iframe 的关闭请求

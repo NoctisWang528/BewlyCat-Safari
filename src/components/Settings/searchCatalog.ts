@@ -76,12 +76,6 @@ const momentsRoute: SearchRoute = {
   secondaryTitleKey: 'settings.plugin.moments',
   storageKey: bewlyPagesStorageKey,
 }
-const favoritesRoute: SearchRoute = {
-  menu: MenuType.BewlyPages,
-  secondaryPage: 'favorites',
-  secondaryTitleKey: 'settings.plugin.favorites',
-  storageKey: bewlyPagesStorageKey,
-}
 const videoCardRoute: SearchRoute = {
   menu: MenuType.BewlyComponents,
   secondaryPage: 'video-card',
@@ -154,6 +148,7 @@ const wallpaperTitleKeys = [
 const linkOpeningOptionKeys = [
   'settings.link_opening_behavior_opt.current_tab',
   'settings.link_opening_behavior_opt.current_tab_if_not_homepage',
+  'settings.link_opening_behavior_opt.current_tab_if_homepage',
   'settings.link_opening_behavior_opt.background',
   'settings.link_opening_behavior_opt.new_tab',
 ]
@@ -224,14 +219,13 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.menu_bewly_components',
   ], { targetTitleKey: 'settings.plugin.video_card' }),
 
-  ...createEntries(favoritesRoute, [
-    'settings.plugin.favorites',
-    'settings.group_favorites',
-  ]),
-
+  ...createEntries(homeRoute, ['settings.following_sort'], {
+    keywordKeys: ['settings.following_sort_updated', 'settings.following_sort_group'],
+  }),
   ...createEntries(homeRoute, [
     'settings.plugin.home',
     'settings.group_recommendation_mode',
+    'settings.show_recommendation_mode_switcher',
     'settings.remember_no_cookie_recommendation_state',
     'settings.authorize_app',
     'settings.auto_switch_recommendation_mode',
@@ -285,6 +279,10 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.moments_tabs_position',
     'settings.moments_enable_live_preview',
     'settings.moments_enable_video_preview',
+    'settings.enable_video_ctrl_bar_on_video_card',
+    'settings.video_preview_swipe_seek',
+    'settings.hover_video_card_delayed',
+    'settings.only_cover_video_preview',
     'settings.moments_filter_video_dynamic',
     'settings.moments_filter_draw_dynamic',
     'settings.moments_filter_ugc_season_dynamic',
@@ -321,7 +319,6 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.grid_breakpoints',
     'settings.group_video_card_display',
     'settings.video_card_layout',
-    'settings.release_offscreen_images',
     'settings.enable_video_preview',
     'settings.enable_video_ctrl_bar_on_video_card',
     'settings.video_preview_swipe_seek',
@@ -473,6 +470,9 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.bilibili_features.video_playback',
     'settings.group_player_display_mode',
     'settings.video_player_mode.bewly_widescreen_sidebar_position',
+    'settings.video_player_mode.bewly_widescreen_auto_collapse_sidebar',
+    'settings.video_player_mode.bewly_widescreen_video_alignment',
+    'settings.video_player_mode.enable_bewly_widescreen_sidebar_resize',
     'settings.video_player_mode.enable_overrides',
     'settings.video_player_mode.overrides',
     'settings.video_player_scroll',
@@ -488,6 +488,14 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.show_bewly_widescreen_button',
     'settings.show_video_screenshot_button',
   ]),
+  ...createEntries(playerRoute, [
+    'settings.video_player_scroll_mode.title',
+  ], {
+    keywordKeys: [
+      'settings.video_player_scroll_mode.sending_bar',
+      'settings.video_player_scroll_mode.player_center',
+    ],
+  }),
   ...createEntries(playerRoute, [
     'settings.video_default_player_mode',
   ], { keywordKeys: playerModeOptionKeys }),
@@ -560,6 +568,7 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
   ...createEntries(appearanceRoute, [
     'settings.menu_appearance',
     'settings.group_visual_effects',
+    'settings.sidebar_cover_blur',
     'settings.enable_frosted_glass',
     'settings.frosted_glass_blur_intensity',
     'settings.enable_liquid_segment_indicator',

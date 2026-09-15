@@ -136,6 +136,7 @@ export type CustomPlayOrderOverrides = Record<CustomPlayOrderContext, CustomPlay
 /** 订阅合集「播放全部」起播策略 */
 export type CollectedSeasonPlayAllMode = 'beginning' | 'latest' | 'lastWatched'
 export type DefaultVideoPlayerMode = 'default' | 'webFullscreen' | 'widescreen' | 'bewlyWidescreen'
+export type VideoPlayerScrollMode = 'sendingBar' | 'playerCenter'
 export type BewlyWidescreenSidebarPosition = 'left' | 'right'
 export type BewlyWidescreenSidebarPriority = 'video' | 'sidebar'
 export type PlayerDefaultState = 'system' | 'remember' | 'on' | 'off'
@@ -168,6 +169,9 @@ export interface LocalSettings {
   // 自定义CSS
   customizeCSS: boolean
   customizeCSSContent: string
+
+  // Bewly 宽屏侧栏手动宽度（px），0 表示自动布局
+  bewlyWidescreenSidebarWidth: number
 }
 
 /**
@@ -244,6 +248,7 @@ export interface Settings {
   adjustCommentImageHeight: boolean // 调整评论区图片高度以匹配实际比例
   hideCommentImageScrollbar: boolean // 评论区图片预览时隐藏页面滚动条
   enlargeFavoriteDialog: boolean // 视频页收藏夹放大样式增强
+  enableSidebarCoverBlur: boolean // 页面侧栏封面高斯渐变背景
   externalWatchLaterButton: boolean // 稍后再看按钮外置
 
   // Grid 相关设置
@@ -255,7 +260,6 @@ export interface Settings {
   videoCardCoverRatioOneColumn: number
   /** Cover width percentage in horizontal two-column video cards. */
   videoCardCoverRatioTwoColumns: number
-  releaseOffscreenVideoCardImages: boolean
 
   language: string
   customizeFont: 'default' | 'recommend' | 'custom'
@@ -273,8 +277,8 @@ export interface Settings {
 
   // Link Opening Behavior
   videoCardLinkOpenMode: 'drawer' | 'newTab' | 'currentTab' | 'background'
-  topBarLinkOpenMode: 'currentTab' | 'currentTabIfNotHomepage' | 'newTab' | 'background'
-  searchBarLinkOpenMode: 'currentTab' | 'currentTabIfNotHomepage' | 'newTab' | 'background'
+  topBarLinkOpenMode: 'currentTab' | 'currentTabIfNotHomepage' | 'currentTabIfHomepage' | 'newTab' | 'background'
+  searchBarLinkOpenMode: 'currentTab' | 'currentTabIfNotHomepage' | 'currentTabIfHomepage' | 'newTab' | 'background'
   closeDrawerWithoutPressingEscAgain: boolean
 
   blockAds: boolean
@@ -337,6 +341,10 @@ export interface Settings {
   momentsTabsPosition: TabsPosition
   momentsEnableLivePreview: boolean
   momentsEnableVideoPreview: boolean
+  momentsEnableVideoControls: boolean
+  momentsEnableVideoPreviewSwipeSeek: boolean
+  momentsVideoPreviewDelayed: boolean
+  momentsOnlyCoverVideoPreview: boolean
   /** Bewly 动态页期望列数；窄屏会自动降列 */
   momentsGridColumns: '1' | '2'
   momentsEnableWantedFilter: boolean
@@ -422,6 +430,7 @@ export interface Settings {
   searchResultsPaginationMode: 'scroll' | 'pagination' // 搜索结果分页模式：滚动加载或翻页
 
   recommendationMode: RecommendationMode
+  showRecommendationModeSwitcher: boolean
   autoSwitchRecommendationMode: boolean
 
   // filter setting
@@ -445,6 +454,7 @@ export interface Settings {
   followingFilterChargingVideos: boolean // 过滤充电专属视频
   followingFilterDynamicVideos: boolean // 过滤动态视频
   useFollowingNewLayout: boolean
+  followingUploaderSort: 'updated' | 'group'
   collectedSeasonPlayAllMode: CollectedSeasonPlayAllMode // 订阅合集「播放全部」起播：开头 / 最新 / 上次观看
 
   homePageTabVisibilityList: { page: HomeSubPage, visible: boolean }[]
@@ -482,8 +492,9 @@ export interface Settings {
   // Video Player
   defaultVideoPlayerMode: DefaultVideoPlayerMode
   bewlyWidescreenSidebarPosition: BewlyWidescreenSidebarPosition
-  bewlyWidescreenSidebarPriority: BewlyWidescreenSidebarPriority // Bewly宽屏布局优先级
-  bewlyWidescreenCenterVerticalVideo: boolean // Bewly宽屏竖屏视频画面居中
+  bewlyWidescreenSidebarPriority: BewlyWidescreenSidebarPriority // 兼容字段：video 自动收起侧栏，sidebar 完整显示侧栏
+  bewlyWidescreenCenterVerticalVideo: boolean // 视频居中基准：false 侧栏外区域，true 整个浏览器窗口
+  enableBewlyWidescreenSidebarResize: boolean // 允许手动调整 Bewly 宽屏侧栏宽度
   defaultDanmakuState: PlayerDefaultState
   defaultCaptionState: PlayerDefaultState
   lastDanmakuState: boolean
@@ -509,6 +520,7 @@ export interface Settings {
   keyboard: boolean
   shortcuts: ShortcutsSettings
   videoPlayerScroll: boolean // 添加视频播放器滚动设置
+  videoPlayerScrollMode: VideoPlayerScrollMode
 
   // 倍速记忆设置
   rememberPlaybackRate: boolean // 启用倍速记忆功能
@@ -532,6 +544,7 @@ export const originalLocalSettings: LocalSettings = {
   locallyUploadedWallpaper: null,
   customizeCSS: false,
   customizeCSSContent: '',
+  bewlyWidescreenSidebarWidth: 0,
 }
 
 export const originalSettings: Settings = {
@@ -549,6 +562,7 @@ export const originalSettings: Settings = {
   adjustCommentImageHeight: true, // 默认启用评论图片高度调整
   hideCommentImageScrollbar: false, // 默认不隐藏评论图片预览时的页面滚动条
   enlargeFavoriteDialog: false, // 默认关闭收藏夹放大样式
+  enableSidebarCoverBlur: true, // 默认启用页面侧栏封面高斯渐变背景
   externalWatchLaterButton: true, // 默认开启稍后再看按钮外置
 
   // Grid 相关默认设置
@@ -557,7 +571,6 @@ export const originalSettings: Settings = {
   autoSwitchListLayoutBreakpoint: MOBILE_LIST_LAYOUT_BREAKPOINT,
   videoCardCoverRatioOneColumn: 40,
   videoCardCoverRatioTwoColumns: 50,
-  releaseOffscreenVideoCardImages: false,
 
   language: '',
   customizeFont: 'default',
@@ -648,6 +661,10 @@ export const originalSettings: Settings = {
   momentsTabsPosition: 'left',
   momentsEnableLivePreview: true,
   momentsEnableVideoPreview: true,
+  momentsEnableVideoControls: false,
+  momentsEnableVideoPreviewSwipeSeek: false,
+  momentsVideoPreviewDelayed: false,
+  momentsOnlyCoverVideoPreview: true,
   momentsGridColumns: '2',
   momentsEnableWantedFilter: true,
   momentsFilterUpRecommendation: false,
@@ -723,6 +740,7 @@ export const originalSettings: Settings = {
   searchResultsPaginationMode: 'scroll', // 默认使用滚动加载
 
   recommendationMode: 'web',
+  showRecommendationModeSwitcher: false,
   autoSwitchRecommendationMode: true,
 
   // filter setting
@@ -746,6 +764,7 @@ export const originalSettings: Settings = {
   followingFilterChargingVideos: false, // 默认不过滤充电视频
   followingFilterDynamicVideos: false, // 默认不过滤动态视频
   useFollowingNewLayout: false, // 默认使用旧布局
+  followingUploaderSort: 'updated',
   collectedSeasonPlayAllMode: 'beginning', // 默认从合集开头播放
 
   homePageTabVisibilityList: [],
@@ -780,8 +799,9 @@ export const originalSettings: Settings = {
   // Video Player
   defaultVideoPlayerMode: 'default',
   bewlyWidescreenSidebarPosition: 'right',
-  bewlyWidescreenSidebarPriority: 'video', // 默认视频优先，侧栏收起为窄条
-  bewlyWidescreenCenterVerticalVideo: false, // 默认关闭，保持现有布局
+  bewlyWidescreenSidebarPriority: 'video', // 默认根据可用空间自动收起侧栏
+  bewlyWidescreenCenterVerticalVideo: false, // 默认在侧栏外区域居中
+  enableBewlyWidescreenSidebarResize: false, // 默认使用自动布局
   defaultDanmakuState: 'system',
   defaultCaptionState: 'system',
   lastDanmakuState: true,
@@ -812,6 +832,7 @@ export const originalSettings: Settings = {
 
   keyboard: true, // 总快捷键开关，默认为 true
   videoPlayerScroll: true, // 默认开启视频播放器滚动
+  videoPlayerScrollMode: 'sendingBar',
   shortcuts: {
     danmuStatus: { key: 'Shift+D', enabled: true },
     webFullscreen: { key: 'Shift+W', enabled: true },
@@ -879,9 +900,15 @@ watch(
   (value) => {
     const record = value as Record<string, any>
 
+    if (typeof record.enableFavoriteCoverBlur === 'boolean') {
+      record.enableSidebarCoverBlur = record.enableFavoriteCoverBlur
+      Reflect.deleteProperty(record, 'enableFavoriteCoverBlur')
+    }
+
     Reflect.deleteProperty(record, 'detectCommentShadowBan')
     Reflect.deleteProperty(record, 'showBewlyOrBiliTopBarSwitcher')
     Reflect.deleteProperty(record, 'enableHomeGridVirtualization')
+    Reflect.deleteProperty(record, 'releaseOffscreenVideoCardImages')
 
     const validTabsPositions: TabsPosition[] = ['left', 'center']
     if (!validTabsPositions.includes(record.homeTabsPosition))
@@ -1101,6 +1128,10 @@ watch(
     Reflect.deleteProperty(record, 'rememberDanmakuState')
     Reflect.deleteProperty(record, 'rememberCaptionState')
 
+    const validVideoPlayerScrollModes: VideoPlayerScrollMode[] = ['sendingBar', 'playerCenter']
+    if (!validVideoPlayerScrollModes.includes(record.videoPlayerScrollMode))
+      record.videoPlayerScrollMode = originalSettings.videoPlayerScrollMode
+
     const validPlayerDefaultStates: PlayerDefaultState[] = ['system', 'remember', 'on', 'off']
     if (!validPlayerDefaultStates.includes(record.defaultDanmakuState))
       record.defaultDanmakuState = originalSettings.defaultDanmakuState
@@ -1110,6 +1141,10 @@ watch(
     // 旧开关与新的按场景覆盖语义不同，直接清理并让用户重新设置。
     Reflect.deleteProperty(record, 'keepCollectionVideoDefaultMode')
     Reflect.deleteProperty(record, 'keepWatchLaterVideoDefaultMode')
+
+    // 兼容旧配置和导入设置：手动调宽时侧栏必须保持展开，避免悬停布局与拖动冲突。
+    if (record.enableBewlyWidescreenSidebarResize === true)
+      record.bewlyWidescreenSidebarPriority = 'sidebar'
 
     const modeOverrideContexts: VideoPlayerModeContext[] = ['multipart', 'collection', 'bangumi', 'watchLater', 'playlist']
     const validModeOverrides: VideoPlayerModeOverride[] = ['inherit', 'default', 'webFullscreen', 'widescreen', 'bewlyWidescreen']
@@ -1145,6 +1180,7 @@ watch(
     // 迁移旧的 locallyUploadedWallpaper/customizeCSS/customizeCSSContent 到 localSettings
     if ('locallyUploadedWallpaper' in record || 'customizeCSS' in record || 'customizeCSSContent' in record) {
       localSettings.value = {
+        ...localSettings.value,
         locallyUploadedWallpaper: record.locallyUploadedWallpaper ?? localSettings.value.locallyUploadedWallpaper,
         customizeCSS: record.customizeCSS ?? localSettings.value.customizeCSS,
         customizeCSSContent: record.customizeCSSContent ?? localSettings.value.customizeCSSContent,

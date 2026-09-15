@@ -1,5 +1,5 @@
 import { settings } from '~/logic'
-import { applyBewlyWidescreen, exitBewlyWidescreen, isBewlyWidescreenActive } from '~/utils/bewlyWidescreen'
+import { applyBewlyWidescreen, exitBewlyWidescreen, isBewlyWidescreenActive, isBewlyWidescreenEngaged } from '~/utils/bewlyWidescreen'
 import { isVideoOrBangumiPage } from '~/utils/main'
 // 导入需要的函数
 import {
@@ -136,8 +136,12 @@ export function setupShortcutHandlers() {
       return
     }
 
-    // 检查是否事件来自插件容器
     const target = e.target as HTMLElement
+    // 分隔线使用方向键和 Home/End 调宽，不能被播放器快捷键提前拦截。
+    if (target?.closest?.('.bewly-widescreen-sidebar-resize-handle'))
+      return
+
+    // 检查是否事件来自插件容器
     if ((target && target.id === 'bewly') || document.getElementById('bewly')?.classList.contains('settings-open')) {
       return
     }
@@ -230,21 +234,24 @@ export function registerDefaultHandlers(): void {
   // 网页全屏
   registerShortcutHandler('webFullscreen', () => {
     if (isBewlyWidescreenActive())
-      exitBewlyWidescreen()
+      exitBewlyWidescreen({ userInitiated: true })
     webFullscreenClick()
   })
 
   // 宽屏
   registerShortcutHandler('widescreen', () => {
     if (isBewlyWidescreenActive())
-      exitBewlyWidescreen()
+      exitBewlyWidescreen({ userInitiated: true })
     widescreenClick()
   })
 
   // Bewly 宽屏
-  registerShortcutHandler('bewlyWidescreen', () => {
-    if (isBewlyWidescreenActive()) {
-      exitBewlyWidescreen()
+  registerShortcutHandler('bewlyWidescreen', (event) => {
+    if (event.repeat)
+      return
+
+    if (isBewlyWidescreenEngaged()) {
+      exitBewlyWidescreen({ userInitiated: true })
       return
     }
 

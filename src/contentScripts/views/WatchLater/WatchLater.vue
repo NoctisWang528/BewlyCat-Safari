@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import Icon from '~/components/Icon.vue'
 import LiquidSegmentIndicator from '~/components/LiquidSegmentIndicator.vue'
 import type { Video } from '~/components/VideoCard/types'
+import { getAuthorJumpUrl } from '~/components/VideoCard/utils'
 import VideoCardGrid from '~/components/VideoCardGrid.vue'
 import { useBewlyApp } from '~/composables/useAppProvider'
 import { useConfirmDialog } from '~/composables/useConfirmDialog'
@@ -16,6 +17,7 @@ import api from '~/utils/api'
 import { calcCurrentTime } from '~/utils/dataFormatter'
 import { getCSRF, openLinkToNewTab, removeHttpFromUrl } from '~/utils/main'
 import { openLinkInBackground } from '~/utils/tabs'
+import { getWatchLaterAuthor } from '~/utils/watchLater'
 
 const { t } = useI18n()
 const { confirm: showConfirmDialog } = useConfirmDialog()
@@ -170,11 +172,7 @@ function transformWatchLaterItem(item: VideoItem): Video {
     title: item.title,
     desc: item.desc,
     cover: item.pic,
-    author: {
-      name: item.owner.name,
-      authorFace: item.owner.face,
-      mid: item.owner.mid,
-    },
+    author: getWatchLaterAuthor(item),
     publishedTimestamp: item.pubdate,
     bvid: item.bvid,
     aid: item.aid,
@@ -443,11 +441,11 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
                       hover:bg="$bew-theme-color-10"
                       duration-300
                       pr-2
-                      :href="`//space.bilibili.com/${item.owner.mid}`" target="_blank"
+                      :href="getAuthorJumpUrl(getWatchLaterAuthor(item))" target="_blank"
                       @click.stop
                     >
                       <img
-                        :src="removeHttpFromUrl(`${item.owner.face}@40w_40h_1c`)"
+                        :src="removeHttpFromUrl(`${getWatchLaterAuthor(item).authorFace}@40w_40h_1c`)"
                         w-30px
                         aspect-square
                         object-cover
@@ -455,7 +453,7 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
                         rounded="1/2"
                         mr-2
                       >
-                      {{ item.owner.name }}
+                      {{ getWatchLaterAuthor(item).name }}
                     </a>
                     <p display="block xl:none" text="$bew-text-3 sm" mt-auto mb-2>
                       {{
@@ -520,6 +518,11 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
 
     <aside relative w="full md:40% lg:30% xl:25%" order="1 md:2 lg:2">
       <div
+        class="watch-later-sidebar-panel"
+        :class="{
+          'watch-later-sidebar-panel--cover': settings.enableSidebarCoverBlur,
+          'bew-popover-surface bew-popover-surface--wallpaper': !settings.enableSidebarCoverBlur,
+        }"
         pos="sticky top-120px"
         w-full h="230px md:[calc(100vh-160px)]"
         my-10
@@ -528,12 +531,13 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
       >
         <!-- Frosted Glass Cover -->
         <div
+          v-if="settings.enableSidebarCoverBlur"
           pos="absolute top-0 left-0" w-full h-inherit
           z--1
         >
           <div
             absolute w-full h-inherit
-            bg="$bew-fill-4"
+            bg="$bew-sidebar-cover-mask"
           />
           <img
             v-if="currentWatchLaterList[0]"
@@ -545,6 +549,7 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
 
         <!-- Content -->
         <main
+          class="watch-later-sidebar-content"
           pos="absolute top-0 left-0"
           w-full h-inherit
           overflow-overlay
@@ -562,12 +567,14 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
             >
           </picture>
 
-          <h3 class="bew-page-heading" text="white" style="text-shadow: 0 0 12px rgba(0,0,0,.3)">
+          <h3 class="bew-page-heading">
             {{ t('watch_later.title') }} ({{ watchLaterCount }})
           </h3>
           <div v-if="watchLaterCount > 0" flex="~ col" gap-2 w-full>
             <Button
-              color="rgba(255,255,255,.35)" block text-color="white" strong
+              type="secondary" block strong
+              :color="settings.enableSidebarCoverBlur ? 'rgba(255,255,255,.35)' : undefined"
+              :text-color="settings.enableSidebarCoverBlur ? 'white' : undefined"
               @click="handlePlayAll"
             >
               <template #left>
@@ -576,7 +583,9 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
               {{ t('common.play_all') }}
             </Button>
             <Button
-              color="rgba(255,255,255,.35)" block text-color="white" strong
+              type="secondary" block strong
+              :color="settings.enableSidebarCoverBlur ? 'rgba(255,255,255,.35)' : undefined"
+              :text-color="settings.enableSidebarCoverBlur ? 'white' : undefined"
               @click="handleClearAllWatchLater"
             >
               <template #left>
@@ -585,7 +594,9 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
               {{ t('watch_later.clear_all') }}
             </Button>
             <Button
-              color="rgba(255,255,255,.35)" block text-color="white" strong
+              type="secondary" block strong
+              :color="settings.enableSidebarCoverBlur ? 'rgba(255,255,255,.35)' : undefined"
+              :text-color="settings.enableSidebarCoverBlur ? 'white' : undefined"
               @click="handleRemoveWatchedVideos"
             >
               <template #left>
@@ -606,6 +617,29 @@ function handleOpenVideoPageAndRemove(index: number, bvid: string, aid: number) 
 </template>
 
 <style lang="scss" scoped>
+.watch-later-sidebar-panel--cover {
+  isolation: isolate;
+}
+
+.watch-later-sidebar-panel--cover .bew-page-heading {
+  color: white;
+  text-shadow: 0 0 12px rgba(0, 0, 0, 0.3);
+}
+
+.watch-later-sidebar-content {
+  box-sizing: border-box;
+  overscroll-behavior: contain;
+}
+
+.watch-later-sidebar-content > * {
+  flex-shrink: 0;
+}
+
+.watch-later-sidebar-content :deep(.b-button) {
+  flex-shrink: 0;
+  min-height: var(--bew-control-height);
+}
+
 .watch-later-layout-item {
   &__icon {
     pointer-events: none;

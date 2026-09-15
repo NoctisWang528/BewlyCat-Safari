@@ -482,7 +482,10 @@ function jumpToLoginPage() {
     </main>
 
     <aside relative w="full md:40% lg:30% xl:25%" order="1 md:2 lg:2">
-      <div pos="sticky top-120px" flex="~ col gap-4" justify-start my-10 w-full>
+      <div
+        class="history-sidebar-panel bew-popover-surface bew-popover-surface--wallpaper"
+        pos="sticky top-120px" flex="~ col gap-4" justify-start my-10 w-full
+      >
         <input
           v-model.lazy.trim="keyword"
           type="text"
@@ -545,4 +548,19 @@ function jumpToLoginPage() {
 </template>
 
 <style lang="scss" scoped>
+.history-sidebar-panel {
+  padding: var(--bew-space-6);
+}
+
+.history-sidebar-panel > input {
+  background: var(--bew-fill-1);
+}
+
+.history-sidebar-panel > :deep(.b-button) {
+  --b-button-color: var(--bew-fill-1);
+  --b-button-color-hover: var(--bew-fill-2);
+
+  flex-shrink: 0;
+  min-height: var(--bew-control-height);
+}
 </style>

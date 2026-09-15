@@ -20,15 +20,21 @@ const props = withDefaults(defineProps<{
   video: Video
   contextMenuStyles: CSSProperties
   isFollowingPage?: boolean
+  hideBlockUser?: boolean
   triggerElement?: HTMLElement | null
 }>(), {
   isFollowingPage: false,
+  hideBlockUser: false,
 })
 const emit = defineEmits<{
   (event: 'removed', selectedOpt?: { reasonId?: number, feedbackId?: number }): void
   (event: 'close'): void
   (event: 'reopen'): void
 }>()
+
+// styles 带 bottom（无 top）即向上展开，缩放原点随之翻转到锚点下缘
+const opensUpward = computed(() => props.contextMenuStyles.bottom !== undefined && props.contextMenuStyles.top === undefined)
+
 // 添加滚动相关的变量和方法
 const menuListRef = ref<HTMLElement | null>(null)
 const canScrollUp = ref(false)
@@ -123,6 +129,15 @@ const videoOptions = computed(() => [
   { id: 1, key: 'notInterested' as const, name: t('video_card.operation.not_interested') },
   { id: 2, key: 'notInterestedUploader' as const, name: t('video_card.operation.not_interested_uploader') },
 ].filter(option => isOptionVisible(option.key)))
+const appVideoOptions = computed(() => (props.video.threePointV2 ?? []).filter(option =>
+  option.type !== ThreePointV2Type.WatchLater
+  && option.type !== ThreePointV2Type.Feedback
+  && (option.type !== ThreePointV2Type.Dislike || isOptionVisible('notInterested')),
+))
+const hasRecommendationOptions = computed(() =>
+  (getVideoType() === 'rcmd' && videoOptions.value.length > 0)
+  || (getVideoType() === 'appRcmd' && appVideoOptions.value.length > 0),
+)
 const showContextMenu = ref<boolean>(false)
 const showDislikeDialog = ref<boolean>(false)
 const showBlockUserDialog = ref<boolean>(false)
@@ -219,8 +234,8 @@ const commonOptions = computed((): OptionItem[][] => {
     }
   }
 
-  // 添加拉黑用户选项；缺少作者 mid 时隐藏，避免点击后发出无效请求。
-  if (authorMid) {
+  // 已关注的 UP 主、正在关注页、动态及缺少作者 mid 的卡片隐藏拉黑选项。
+  if (authorMid && authorFollowed !== true && !props.isFollowingPage && !props.hideBlockUser) {
     result.push([
       { command: VideoOption.BlockUser, key: 'blockUser', name: t('video_card.operation.block_user'), icon: 'i-solar:user-block-bold-duotone', color: 'text-red-500' },
     ])
@@ -251,6 +266,8 @@ let resizeObserver: ResizeObserver | null = null
 
 onMounted(() => {
   showContextMenu.value = true
+  window.addEventListener('resize', handleViewportResize)
+  window.visualViewport?.addEventListener('resize', handleViewportResize)
   nextTick(() => {
     handleScroll()
 
@@ -265,6 +282,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('resize', handleViewportResize)
+  window.visualViewport?.removeEventListener('resize', handleViewportResize)
   if (resizeObserver) {
     resizeObserver.disconnect()
     resizeObserver = null
@@ -272,6 +291,12 @@ onUnmounted(() => {
   if (shouldRestoreFocus && props.triggerElement?.isConnected)
     props.triggerElement.focus({ preventScroll: true })
 })
+
+// Fixed menu coordinates are calculated from the viewport at open time. Close
+// when its dimensions change so an upward menu cannot drift from its trigger.
+function handleViewportResize() {
+  emit('close')
+}
 
 function getAuthorMid() {
   if (!props.video.author)
@@ -525,13 +550,13 @@ async function unfollowUser() {
 <template>
   <div>
     <!-- more popup -->
-    <div v-if="showContextMenu">
+    <Transition name="context-menu" appear>
       <div
-        style="backdrop-filter: var(--bew-filter-glass-1); box-shadow: var(--bew-shadow-edge-glow-1), var(--bew-shadow-1);"
+        v-if="showContextMenu"
+        style="backdrop-filter: var(--b-context-menu-glass, var(--bew-filter-glass-1));"
         :style="contextMenuStyles"
-        p-1 bg="$bew-elevated"
-        border="1 $bew-border-color"
-        class="context-menu-container"
+        class="context-menu-container bew-popover-surface"
+        :class="opensUpward && 'context-menu-container--up'"
       >
         <button
           v-show="canScrollUp"
@@ -552,29 +577,21 @@ async function unfollowUser() {
           @scroll="handleScroll"
           @keydown="handleMenuKeydown"
         >
-          <!-- 现有内容不变 -->
           <template v-if="getVideoType() === 'appRcmd'">
-            <template v-for="option in video.threePointV2" :key="option.type">
-              <li
-                v-if="option.type !== ThreePointV2Type.WatchLater
-                  && option.type !== ThreePointV2Type.Feedback
-                  && (option.type !== ThreePointV2Type.Dislike || isOptionVisible('notInterested'))"
-                role="none"
+            <li v-for="option in appVideoOptions" :key="option.type" role="none">
+              <button
+                type="button"
+                role="menuitem"
+                tabindex="-1"
+                class="context-menu-item"
+                @focus="setActiveMenuItem"
+                @click="handleAppMoreCommand(option.type)"
               >
-                <button
-                  type="button"
-                  role="menuitem"
-                  tabindex="-1"
-                  class="context-menu-item"
-                  @focus="setActiveMenuItem"
-                  @click="handleAppMoreCommand(option.type)"
-                >
-                  <i class="item-icon" i-solar:confounded-circle-bold-duotone />
-                  <span v-if="option.type === ThreePointV2Type.Dislike">{{ $t('video_card.operation.not_interested') }}</span>
-                  <span v-else>{{ option.title }}</span>
-                </button>
-              </li>
-            </template>
+                <i class="item-icon" i-solar:confounded-circle-bold-duotone />
+                <span v-if="option.type === ThreePointV2Type.Dislike">{{ $t('video_card.operation.not_interested') }}</span>
+                <span v-else>{{ option.title }}</span>
+              </button>
+            </li>
           </template>
           <template v-else-if="getVideoType() === 'rcmd'">
             <li
@@ -591,7 +608,7 @@ async function unfollowUser() {
             </li>
           </template>
 
-          <div v-if="getVideoType() === 'rcmd' && videoOptions.length > 0 && commonOptions.length > 0" class="divider" />
+          <div v-if="hasRecommendationOptions && commonOptions.length > 0" class="divider" role="separator" />
 
           <template v-for="(optionGroup, index) in commonOptions" :key="index">
             <li
@@ -608,7 +625,7 @@ async function unfollowUser() {
               </button>
             </li>
 
-            <div v-if="index !== commonOptions.length - 1" class="divider" />
+            <div v-if="index !== commonOptions.length - 1" class="divider" role="separator" />
           </template>
         </ul>
 
@@ -622,16 +639,18 @@ async function unfollowUser() {
           <i class="i-mingcute:down-line" aria-hidden="true" />
         </button>
       </div>
-    </div>
+    </Transition>
 
     <!-- mask -->
-    <div
-      v-if="showContextMenu"
-      pos="fixed top-0 left-0" w-full h-full
-      style="z-index: 9998;"
-      @click="handleClose"
-      @click.right.prevent.stop="handleReopen"
-    />
+    <Transition name="fade">
+      <div
+        v-if="showContextMenu"
+        pos="fixed top-0 left-0" w-full h-full
+        style="z-index: 9998;"
+        @click="handleClose"
+        @click.right.prevent.stop="handleReopen"
+      />
+    </Transition>
 
     <DislikeDialog
       v-if="showDislikeDialog"
@@ -674,13 +693,31 @@ async function unfollowUser() {
 </template>
 
 <style lang="scss" scoped>
+// Chromium 在 opacity/transform 动画期间会丢弃 backdrop-filter（crbug.com/40877283），
+// 故玻璃与缩放同步插值到恒等滤镜，避免动画结束才出现毛玻璃
+.context-menu-enter-active,
+.context-menu-leave-active {
+  transition:
+    opacity var(--bew-duration-fast) var(--bew-ease-standard),
+    transform var(--bew-duration-fast) var(--bew-ease-standard),
+    backdrop-filter var(--bew-duration-fast) var(--bew-ease-standard);
+}
+
+.context-menu-enter-from,
+.context-menu-leave-to {
+  --b-context-menu-glass: blur(0px) saturate(100%);
+
+  opacity: 0;
+  transform: scale(0.9);
+}
+
 .context-menu-item {
   --uno: "hover:bg-$bew-fill-2 rounded-$bew-menu-item-radius cursor-pointer";
-  --uno: "flex items-center";
+  --uno: "flex items-center transition-colors duration-200 ease-$bew-ease-standard";
 
   width: 100%;
   min-height: 32px;
-  padding: var(--bew-space-2);
+  padding: var(--bew-space-2) var(--bew-space-3) var(--bew-space-2) var(--bew-space-2);
   border: 0;
   color: inherit;
   background: transparent;
@@ -693,11 +730,15 @@ async function unfollowUser() {
 .item-icon {
   --uno: "inline-block color-$bew-text-color-2";
 
-  margin-right: var(--bew-space-2);
+  margin-right: var(--bew-space-3);
 }
 
 .divider {
-  --uno: "w-full h-1px px-2px bg-$bew-border-color";
+  --uno: "w-full h-1px bg-$bew-border-color";
+
+  // 菜单限高并滚动时仍保留完整的 1px 分割线。
+  flex-shrink: 0;
+  margin: var(--bew-space-1) 0;
 }
 
 .context-menu-container {
@@ -705,10 +746,15 @@ async function unfollowUser() {
   display: flex;
   flex-direction: column;
   width: min(240px, calc(100vw - var(--bew-space-4)));
-  max-height: min(406px, calc(100vh - var(--bew-space-4)));
+  padding: var(--bew-popover-padding);
+  transform-origin: top right; // 菜单右缘对齐按钮右缘，右上角即按钮位置
+  max-height: min(480px, calc(100vh - var(--bew-space-4))); // 与 floatingMenu.ts 的 preferredMaxHeight 同步
   overflow: hidden;
   z-index: 9999;
-  border-radius: var(--bew-popover-radius);
+}
+
+.context-menu-container--up {
+  transform-origin: bottom right;
 }
 
 .context-menu-list {
@@ -716,7 +762,6 @@ async function unfollowUser() {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: var(--bew-space-1) 0;
   margin: 0;
   list-style: none;
 

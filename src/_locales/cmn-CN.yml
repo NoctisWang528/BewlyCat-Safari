@@ -112,6 +112,9 @@ player_screenshot:
   failed: 截图失败
   video_unavailable: 当前视频画面不可用
 settings:
+  following_sort: 新版关注列表排序
+  following_sort_updated: 按更新时间
+  following_sort_group: 按分组
   title: 设置
   menu_general: 通用
   menu_bewly_pages: Bewly 页面
@@ -270,6 +273,8 @@ settings:
   group_following: 正在关注
   group_following_desc: 配置“正在关注”页面的布局、直播内容与视频过滤规则。
   group_favorites: 收藏
+  sidebar_cover_blur: 侧栏封面高斯渐变
+  sidebar_cover_blur_desc: 在收藏、稍后再看等页面侧栏使用封面模糊背景；关闭后使用透出页面壁纸的 Pop 背景，不随封面染色。
   group_search_page_mode: 搜索页模式
   group_home_tabs: 首页标签栏
   group_home_layout: 首页布局
@@ -308,7 +313,7 @@ settings:
   moments_enable_live_preview: 直播动态悬停预览
   moments_enable_live_preview_desc: 鼠标悬停直播动态封面时播放直播预览。
   moments_enable_video_preview: 视频动态悬停预览
-  moments_enable_video_preview_desc: 鼠标悬停视频动态封面时播放视频预览。
+  moments_enable_video_preview_desc: 鼠标悬停视频动态或转发视频时播放预览，可设置触发范围、延迟和播放交互。
   moments_grid_columns: 动态列数
   moments_tabs_position: 动态标签栏位置
   moments_grid_columns_desc: 设置 Bewly 动态页的期望列数。卡片尺寸会随列数自适应；窗口空间不足时会自动减少列数，左侧栏与动态流整体保持居中。
@@ -343,8 +348,8 @@ settings:
     inherit: 跟随动态卡片
   group_moments_wanted_users: 想看分组
   group_moments_wanted_users_desc: 管理想看的 UP 主；支持输入 UID 或昵称，名单仅保存在本地。
-  moments_enable_wanted_filter: 启用想看筛选
-  moments_enable_wanted_filter_desc: 在动态页横向栏显示“想看”入口，用于只查看名单内 UP 主的动态；关闭后隐藏入口并退出想看筛选。
+  moments_enable_wanted_filter: 显示“想看”按钮
+  moments_enable_wanted_filter_desc: 在动态页横向栏显示“想看”按钮，用于只查看名单内 UP 主的动态；关闭后直接移除按钮并退出想看筛选。
   moments_wanted_users: 想看的 UP 主
   group_moments_pinned_users: 固定 UP 主
   group_moments_pinned_users_desc: 管理固定在动态栏右侧的 UP 主；支持输入 UID 或昵称，名单仅保存在本地。
@@ -404,12 +409,13 @@ settings:
   link_opening_behavior_opt:
     current_tab: 当前标签页
     current_tab_if_not_homepage: 首页外当前页
+    current_tab_if_homepage: 首页内当前页
     background: 后台打开
     new_tab: 新标签页
     drawer: 抽屉打开
   top_bar_link_opening_behavior: 顶栏链接打开行为
   video_card_link_opening_behavior: 视频卡片和番剧卡片链接打开行为
-  link_opening_behavior_desc: 控制点击链接后的打开位置。“首页外当前页”表示：当前页为首页时使用新标签页打开，其他页面使用当前标签页打开；“后台打开”会在浏览器允许时打开到后台标签页。
+  link_opening_behavior_desc: 控制点击链接后的打开位置。“首页外当前页”表示：首页使用新标签页打开，其他页面使用当前标签页打开；“首页内当前页”表示：Bilibili 首页（page=Home 或未指定 page）使用当前标签页打开，其他页面使用新标签页打开；“后台打开”会在浏览器允许时打开到后台标签页。
   video_card_link_opening_behavior_desc: 控制点击视频卡片和番剧卡片后的打开位置，可选择当前标签页、抽屉、后台标签页或新标签页。
   search_bar_link_opening_behavior: 搜索栏链接打开行为
   close_drawer_without_pressing_esc_again: 关闭抽屉时不用再次按 <kbd>Esc</kbd> 关闭
@@ -448,14 +454,20 @@ settings:
     bewly_widescreen_sidebar_position_desc: 选择 Bewly 宽屏模式下侧边栏的显示位置
     bewly_widescreen_sidebar_position_left: 左侧
     bewly_widescreen_sidebar_position_right: 右侧
-    bewly_widescreen_sidebar_priority: Bewly宽屏布局优先级
-    bewly_widescreen_sidebar_priority_desc: 视频优先：侧栏默认收起为窄条，悬停临时展开，也可用按钮切换为完整侧栏（会压缩视频区域）；侧栏优先：侧栏默认完整显示并压缩视频区域。
-    bewly_widescreen_sidebar_priority_video: 视频优先
-    bewly_widescreen_sidebar_priority_sidebar: 侧栏优先
-    bewly_widescreen_center_vertical_video: Bewly宽屏画面居中
-    bewly_widescreen_center_vertical_video_desc: 开启后，宽屏模式下若画面两侧留有足够容纳侧栏的黑边空间，视频将在整个画面水平居中，侧栏完整占据一侧黑边；空间不足时保持现有布局。
+    bewly_widescreen_auto_collapse_sidebar: 自动收起 Bewly 宽屏侧栏
+    bewly_widescreen_auto_collapse_sidebar_desc: 开启后优先保持视频完整高度，并根据可用空间调整侧栏。普通窗口空间不足时侧栏自动收起；超宽窗口默认显示为窄条，悬停可临时展开。关闭后侧栏保持完整显示，并压缩视频区域。开启后会关闭手动调整侧栏宽度。
+    bewly_widescreen_video_alignment: 视频居中基准
+    bewly_widescreen_video_alignment_desc: 选择视频在侧栏以外的可用区域中居中，或在空间允许时相对整个浏览器窗口居中。此设置不会改变侧栏宽度或展开状态。
+    bewly_widescreen_video_alignment_sidebar: 侧栏外区域（默认）
+    bewly_widescreen_video_alignment_viewport: 整个浏览器窗口（空间允许时）
+    enable_bewly_widescreen_sidebar_resize: 允许手动调整 Bewly 宽屏侧栏宽度
+    enable_bewly_widescreen_sidebar_resize_desc: 开启后会关闭自动收起，侧栏保持完整展开。可拖动视频与侧栏之间的分隔线调整宽度，并记住上次宽度；双击分隔线恢复默认宽度。
   video_player_scroll: 调整显示模式后滚动
-  video_player_scroll_desc: 启用后，在默认模式为宽屏和默认时，会自动滚动到合适位置。
+  video_player_scroll_desc: 启用后，调整显示模式时会自动滚动到所选位置。
+  video_player_scroll_mode:
+    title: 滚动位置
+    sending_bar: 保持弹幕栏可见
+    player_center: 播放器居中
   enlarge_favorite_dialog: 放大收藏弹窗
   enlarge_favorite_dialog_desc: 启用后，视频页收藏弹窗将以更大的尺寸显示，方便查看和管理收藏夹。
   external_watch_later_button: 稍后再看按钮外置
@@ -531,9 +543,9 @@ settings:
   only_cover_video_preview: 仅封面视频预览
   show_video_card_author_avatar: 显示用户头像
   show_video_card_author_name: 显示用户昵称
-  show_video_card_video_tag: 显示视频标签（搜索结果页）
-  show_video_card_video_tag_desc: 显示搜索页等场景提供的视频分类标签。
-  show_video_card_recommend_tag: 显示插件计算的推荐标签
+  show_video_card_video_tag: 显示接口与搜索标签
+  show_video_card_video_tag_desc: 显示接口提供的推荐理由、状态或分区标签，以及搜索页的视频内容标签。
+  show_video_card_recommend_tag: 显示插件计算标签
   show_video_card_recommend_tag_desc: 显示插件计算的标签，如"高赞"、"高互动"、"百万播放"等
   show_video_card_publish_time: 显示发布时间
   show_video_card_view_count: 显示播放量
@@ -624,9 +636,6 @@ settings:
   video_card_shadow_reset: 重置阴影设置
   video_card_layout: 视频卡片布局
   video_card_layout_desc: 在新版与旧版视频卡片显示样式之间切换。
-  release_offscreen_images: 回收离屏封面内存
-  release_offscreen_images_desc: 视频封面离开保留范围后卸载图片资源，降低长列表内存占用。
-  release_offscreen_images_warning: 警告：离屏回收内存功能可能会带来图片重新渲染上的性能卡顿，默认不回收。
   video_card_layout_option:
     modern: 新版
     old: 经典版
@@ -740,6 +749,8 @@ settings:
   recommendation_mode: 推荐模式
   recommendation_mode_desc: |
     Web：普通网页端推荐模式。无 Cookie：请求首页推荐时不携带 Cookie。App：移动端推荐模式，需先授权 access key。
+  show_recommendation_mode_switcher: 显示推荐模式快速切换按钮组
+  show_recommendation_mode_switcher_desc: 选中首页“个性推荐”时，在顶部标签栏右侧显示胶囊按钮组，可直接选择 Web、无 Cookie 或 App 模式。
   recommendation_mode_web_no_cookie: 无 Cookie
   remember_no_cookie_recommendation_state: 减少无 Cookie 推荐重复
   remember_no_cookie_recommendation_state_desc: 刷新页面后延续推荐刷新进度，并向推荐接口带上最近曝光记录，以减少重复推荐。仅无 Cookie 模式生效。
@@ -752,7 +763,7 @@ settings:
   authorize_app_more_info_access_key: 关于 access key
   scan_qrcode_desc: 使用 Bilibili 移动应用程序扫描此二维码，以授权获取 access key。
   show_recommendation_filter_risk_warning: 显示过滤风控警告
-  show_recommendation_filter_risk_warning_desc: 累计检查 100 条有效推荐后，如果设置中的过滤条件保留少于 50 条，则提示频繁请求的风控风险。
+  show_recommendation_filter_risk_warning_desc: 推荐列表已有足够有效视频填满视口后，加载更多时连续两批全部被过滤，或累计检查 100 条有效推荐后保留少于 50 条时，提示频繁请求的风控风险。
   disable_filters_for_followed_users: 关注的用户不受过滤条件限制
   disable_filters_for_followed_users_desc: |
     如果启用此选项，您关注的用户不受过滤条件限制。
@@ -1147,9 +1158,25 @@ video_card:
   watched: 已观看
   visited_recently: 近一个月内浏览过
 home:
+  following_default_group: 默认分组
+  following_special_group: 特别关注
+  following_group_name: '分组 {id}'
+  following_groups_load_failed: 分组加载失败，暂按更新时间展示
+  following_groups_retry: 重试
+  following_move_group: 移动分组
+  following_remove_special: 取消特别关注
+  following_add_special: 设为特别关注
+  following_create_group: 新建分组
+  following_rename_group: 重命名分组
+  following_delete_group: 删除分组
+  following_group_name_label: 分组名称（1–16 个字符）
+  following_group_name_invalid: 请输入 1–16 个字符的分组名称
+  following_delete_group_confirm: '确定删除分组「{name}」吗？不会取消关注其中的 UP 主；没有其他普通分组的 UP 主将归入默认分组。'
+  following_action_success: '已更新对 {name} 的关注设置'
+  following_action_failed: '操作失败：{message}'
   app_authorization_required: App 模式的 access token 已缺失或过期，请重新授权后继续使用个性推荐
   reauthorize_app: 重新授权
-  recommendation_filter_risk_warning: 当前过滤条件在 100 条有效推荐中仅保留了 {count} 条，容易频繁请求并触发接口风控，建议适当放宽过滤条件。
+  recommendation_filter_risk_warning: 当前过滤条件在 {total} 条有效推荐中仅保留了 {count} 条，容易频繁请求并触发接口风控，建议适当放宽过滤条件。
   tell_us_why: 为什么这么做...
   not_interested_desc: >
     你可以使用 <kbd>↑</kbd> 和 <kbd>↓</kbd> 来选择原因，或者直接使用数字键选择原因，按 <kbd>Enter</kbd>
@@ -1256,11 +1283,15 @@ favorites:
   sidebar_manage_exit: 退出管理
   select_all: 全选
   unselect_all: 取消全选
-  rename_folder: 重命名
-  rename_folder_dialog_title: 重命名收藏夹
-  rename_folder_placeholder: 请输入收藏夹名称
-  rename_folder_empty: 收藏夹名称不能为空
-  default_folder_locked: 默认收藏夹不可重命名或删除
+  edit_folder: 编辑收藏夹
+  edit_folder_dialog_title: 编辑收藏夹
+  edit_folder_placeholder: 请输入收藏夹名称
+  edit_folder_empty: 收藏夹名称不能为空
+  folder_visibility: 收藏夹可见性
+  folder_visibility_desc: 公开收藏夹可被其他用户查看
+  folder_public: 公开
+  folder_private: 私密
+  default_folder_locked: 默认收藏夹不可编辑或删除
   delete_folders_confirm: |-
     要删除已选的 {count} 个收藏夹吗？
     夹内视频的收藏关系将一并移除，该操作无法撤销。
@@ -1387,11 +1418,26 @@ moments:
   go_charge: 去充电
   vote_ongoing: 进行中
   vote_ended: 已结束
+  vote_loading: 正在加载投票
+  vote_load_failed: 投票加载失败
+  vote_retry: 重试
+  vote_participants: '{count} 人参与'
+  vote_select_up_to: '最多选择 {count} 项'
+  vote_submit: 投票
+  vote_submitted: 已投票
+  vote_selected: 你选择了此项
+  vote_time_day: '{count}天'
+  vote_time_hour: '{count}小时'
+  vote_time_minute: '{count}分钟'
+  vote_ends_in: '{time}后截止'
+  login_to_vote: 登录后才能参与投票
+  vote_submit_failed: 投票失败，请稍后重试
+  vote_submit_succeeded: 投票成功
   forwarded_post: 转发了动态
   bilibili_user: B站用户
   original_author: 原作者
   live_post: 直播动态
-  video_post: 视频动态
+  video_post: 投稿了视频
   image_post: 图文动态
   text_post: 纯文字动态
   original_post: 原动态
@@ -1412,7 +1458,7 @@ moments:
   followers: 粉丝
   posts: 动态
   publish: 发布动态
-  live_now: 正在直播
+  live_now: 直播中
   group_label: 动态分组
   all_posts: 全部动态
   wanted_only: 只看想看的 UP 主
@@ -1450,7 +1496,42 @@ moments:
   fit_window: 适应窗口
   rotate_clockwise: 顺时针旋转
 moment_card:
-  video_post: 视频动态
+  repost_pending: 这条动态正在转发，请稍候
+  repost_placeholder: 说点什么吧（可选）
+  repost_login: 请先登录，或刷新页面后重试
+  repost_failed: 转发失败，请稍后重试
+  repost_success: 转发成功
+  repost_mention: "搜索要 {'@'} 的用户"
+  repost_topic: 选择话题
+  repost_commercial: 商业声明
+  repost_mentions_limit: "最多可以 {'@'} {count} 位用户"
+  repost_emoji_limit: 最多可以添加 20 个动态表情
+  repost_too_long: 已超出规定字数
+  repost_retry: 重试
+  repost_no_results: 暂无结果
+  lottery_details: 抽奖详情
+  repost: 转发
+  comment_sex_male: 男
+  comment_sex_female: 女
+  expand_comment_replies: 共 {count} 条回复，点击展开
+  collapse_comment_replies: 收起回复
+  collapse_comments: 收起评论
+  comments_sort: 评论排序
+  comments_sort_hot: 最热
+  comments_sort_latest: 最新
+  comments_preview: 评论预览
+  comments_unavailable: 暂时无法获取此动态的评论区
+  comments_load_failed: 评论加载失败
+  comment_like_failed: 评论点赞失败，请稍后重试
+  comment_host: 楼主
+  comment_missing_parent: 评论不在本页或已删除
+  expand_comment_thread: 展开此评论及回复
+  collapse_comment_thread: 收起此评论及回复
+  comment_image: 查看评论图片 {index}
+  comments_retry: 重试
+  load_comment_replies: 加载更多回复
+  comments_empty: 暂无评论
+  video_post: 投稿了视频
   cancel_reservation: 取消预约
   reserve: 预约
   open_space: 打开 {name} 的空间
@@ -1458,13 +1539,13 @@ moment_card:
   charging_exclusive: 充电专属
   added_watch_later: 已添加稍后再看
   add_watch_later: 添加至稍后再看
-  added: 已添加
-  watch_later: 稍后再看
   live_post: 直播动态
   open_original_video: '打开原视频：{title}'
   author_images: '{name} 的动态图片'
   view_author_images: 查看 {name} 的动态图片
   open_origin_moment: 查看 {name} 的原动态
+  view_details: 查看详情
+  view_original_post: 查看原动态
   additional: 附加内容
   view_hot_comment: 查看热门评论
   hot_comment: 热门评论
@@ -1476,6 +1557,8 @@ moment_card:
   live_popularity: '直播人气 {value}'
   no_data: 暂无数据
   live_now: 直播中
+  expand_text: 展开正文
+  collapse_text: 收起正文
   like_unsupported: 该动态暂不支持点赞
   unlike: 取消点赞
   like: 点赞
@@ -1487,6 +1570,8 @@ user_card:
   submissions: '{count}个投稿'
   followers: '{count}粉丝'
 widescreen:
+  resize_sidebar: 调整宽屏侧栏宽度
+  resize_sidebar_title: 拖动调整宽度，双击恢复默认宽度
   show_narrow_right: 显示窄右栏
   show_narrow_left: 显示窄左栏
   collapse_right: 收起右栏
@@ -1524,3 +1609,4 @@ inject:
   of: 共
   loading: 加载中…
   load_more: 加载更多
+  expand_all_replies: 展开全部回复

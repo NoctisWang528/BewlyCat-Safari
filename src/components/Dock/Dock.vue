@@ -561,6 +561,9 @@ onUnmounted(() => {
     <div
       v-if="settings.autoHideDock && hideDock && !isLayoutEditing"
       class="dock-edge"
+      data-layout-settings-menu="BewlyComponents"
+      data-layout-settings-page="dock"
+      data-layout-settings-title-key="settings.group_dock"
       :class="`dock-edge-${settings.dockPosition}`"
       @mouseenter="toggleHideDock(false)"
       @mouseleave="toggleHideDock(true)"
@@ -745,6 +748,9 @@ onUnmounted(() => {
       <div
         v-if="!isLayoutEditing && showDockActionButtons"
         class="dock-action-buttons"
+        data-layout-settings-menu="BewlyComponents"
+        data-layout-settings-page="dock"
+        data-layout-settings-title-key="settings.back_to_top_and_refresh_buttons_are_separated"
         :style="dockActionButtonsStyle"
         pos="absolute"
         flex="~ gap-2"

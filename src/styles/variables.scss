@@ -304,6 +304,8 @@
   // #endregion
 
   --bew-content-opacity: 0.68;
+  // Wallpaper-facing panels keep more of the page's color than floating Pop surfaces.
+  --bew-popover-wallpaper-background: color-mix(in oklab, var(--bew-elevated-solid) 40%, transparent);
 
   // #region Content colors, used to buttons, cards, popover and so on
   // Variable names that don't contain `solid` are used to frosted glass effect elements
@@ -348,6 +350,7 @@
 
   // You can use this as the frosted glass mask, such as on the right side of the "Watch Later" page panel and the "Favorites" page panel
   --bew-fill-4: rgb(131 131 145 / 60%);
+  --bew-sidebar-cover-mask: var(--bew-fill-4);
 
   --bew-fill-alt: rgb(255 255 255 / 45%);
 
@@ -440,6 +443,7 @@
   --bew-fill-2: rgb(131 131 145 / 20%);
   --bew-fill-3: rgb(131 131 145 / 30%);
   --bew-fill-4: rgb(131 131 145 / 40%);
+  --bew-sidebar-cover-mask: rgb(0 0 0 / 58%);
   --bew-fill-alt: var(--bew-fill-1);
 
   --bew-border-color: rgb(131 131 145 / 16%);

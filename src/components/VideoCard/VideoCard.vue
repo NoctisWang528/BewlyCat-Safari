@@ -11,7 +11,7 @@ import { recordVideoVisit } from '~/utils/videoVisitHistory'
 import VideoCardCover from './components/VideoCardCover.vue'
 import VideoCardInfo from './components/VideoCardInfo.vue'
 import { useVideoCardLogic } from './composables/useVideoCardLogic'
-import type { Video } from './types'
+import type { Video, VideoCardState } from './types'
 import VideoCardContextMenu from './VideoCardContextMenu/VideoCardContextMenu.vue'
 
 const props = withDefaults(defineProps<Props>(), {
@@ -36,6 +36,7 @@ interface Props {
   primaryClickObserver?: (event: MouseEvent) => void
   coverTopLeftAlwaysVisible?: boolean
   coverTopRightAlwaysVisible?: boolean
+  persistentState?: VideoCardState
 }
 
 const layout = computed((): VideoCardLayoutSetting => {
@@ -50,7 +51,9 @@ const showMoreButton = computed(() =>
 )
 
 // 数据现在在转换阶段已经完成 HTML 解码，直接使用 props
-const logic = useVideoCardLogic(props)
+const logic = useVideoCardLogic(props, props.persistentState)
+// Keep menus, keyboard focus (handled by the grid), and fullscreen previews alive.
+defineExpose({ canRecycle: computed(() => !logic.showVideoOptions.value && !logic.isPreviewFullscreen.value && !logic.isHover.value) })
 const { mainAppRef } = useBewlyApp()
 
 // 使用共享样式（避免每个卡片重复计算）
@@ -186,19 +189,20 @@ const coverEvents = computed(() =>
     : {},
 )
 
-const primaryTags = computed(() => {
+const videoTags = computed(() => {
   const video = props.video
   if (!video)
     return []
   const { tag } = video
-  if (!tag)
-    return []
-  if (Array.isArray(tag))
-    return tag.filter(Boolean)
-  return [tag]
+  const displayTags = !tag
+    ? []
+    : Array.isArray(tag)
+      ? tag.filter(Boolean)
+      : [tag]
+  return [video.category, ...displayTags, ...(video.searchableTags ?? [])].filter(Boolean) as string[]
 })
 
-// Highlight tags calculation - 使用查找表优化性能
+// 插件计算标签 - 使用查找表优化性能
 const LIKE_RATIO_THRESHOLDS = [
   { view: 1_000_000, ratio: 0.01 },
   { view: 200_000, ratio: 0.025 },
@@ -213,11 +217,11 @@ const DANMAKU_RATIO_THRESHOLDS = [
   { view: 0, ratio: 0.005 },
 ] as const
 
-const highlightTags = computed(() => {
+const pluginComputedTags = computed(() => {
   if (!props.video)
     return [] as string[]
 
-  // 如果设置为不显示推荐标签，则不显示插件计算的标签
+  // 如果关闭插件计算标签，则不再生成这些标签。
   if (!settings.value.showVideoCardRecommendTag)
     return [] as string[]
 
@@ -255,23 +259,13 @@ const highlightTags = computed(() => {
 
   // 百万播放标签 - 只有在外部tag没有播放字眼时显示，且优先级最后
   if (viewCount >= 1_000_000) {
-    const hasPlayKeyword = primaryTags.value.some(tag => /播放|观看|views?|play/i.test(tag))
+    const hasPlayKeyword = videoTags.value.some(tag => /播放|观看|views?|play/i.test(tag))
     if (!hasPlayKeyword)
       tags.push('百万播放')
   }
 
-  // 如果传入了2个或更多Tag，则不显示推荐tag
-  if (primaryTags.value.length >= 2) {
-    return []
-  }
-  else if (primaryTags.value.length > 0) {
-    // tags只返回一个
-    return tags.slice(0, 1)
-  }
-  else {
-    // 最多返回2个，避免越界
-    return tags.slice(0, 2)
-  }
+  // 接口标签的显示优先级由信息组件统一处理，这里只提供候选项。
+  return tags.slice(0, 2)
 })
 
 function getDurationHighlight(video: Video) {
@@ -422,14 +416,20 @@ provide('getVideoType', () => props.type!)
           :title-style="titleStyle"
           :author-font-size-class="authorFontSizeClass"
           :meta-font-size-class="metaFontSizeClass"
-          :highlight-tags="highlightTags"
+          :plugin-computed-tags="pluginComputedTags"
           :hide-author="hideAuthor"
           @more-btn-click="logic.handleMoreBtnClick"
+        />
+        <!-- Keep the configured cover/info ratio after horizontal cards are removed. -->
+        <div
+          v-else-if="horizontal"
+          class="horizontal-card-info"
+          aria-hidden="true"
         />
       </component>
     </div>
 
-    <!-- context menu -->
+    <!-- More menu -->
     <Teleport
       v-if="logic.showVideoOptions.value && props.video && showMoreButton"
       :to="mainAppRef"

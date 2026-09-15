@@ -1,7 +1,37 @@
 import type { APIMAP } from '../../utils'
 import { AHS } from '../../utils'
 
+function serializeMomentVoteBody(body: Record<string, any>) {
+  // 动态 id 已超过 JS 安全整数范围，必须以未丢失精度的 JSON 整数发送。
+  const dynamicId = String(body.dynamic_id ?? '')
+  const serializedDynamicId = /^\d+$/.test(dynamicId) ? dynamicId : '0'
+  const { dynamic_id: _dynamicId, ...rest } = body
+  const serializedRest = JSON.stringify(rest)
+  return `${serializedRest.slice(0, -1)},"dynamic_id":${serializedDynamicId}}`
+}
+
 const API_MOMENT = {
+  getMomentComments: {
+    url: 'https://api.bilibili.com/x/v2/reply',
+    _fetch: { method: 'get' },
+    params: { type: 17, oid: '', sort: 0, nohot: 1, pn: 1, ps: 20 },
+    afterHandle: AHS.J_D,
+  },
+  getMomentCommentReplies: {
+    url: 'https://api.bilibili.com/x/v2/reply/reply',
+    _fetch: { method: 'get' },
+    params: { type: 17, oid: '', root: '', pn: 1, ps: 20 },
+    afterHandle: AHS.J_D,
+  },
+  setMomentCommentLike: {
+    url: 'https://api.bilibili.com/x/v2/reply/action',
+    _fetch: {
+      method: 'post',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+      body: { type: 17, oid: '', rpid: '', action: 1, csrf: '' },
+    },
+    afterHandle: AHS.J_D,
+  },
   getTopBarNewMomentsCount: {
     url: 'https://api.bilibili.com/x/web-interface/dynamic/entrance',
     _fetch: {
@@ -82,6 +112,90 @@ const API_MOMENT = {
         spmid: '333.1369.0.0',
         from_spmid: '333.999.0.0',
       },
+    },
+    params: {
+      csrf: '',
+    },
+    afterHandle: AHS.J_D,
+  },
+  getRepostConfig: {
+    url: 'https://api.bilibili.com/x/dynamic/feed/create/init_check',
+    _fetch: { method: 'get' },
+    params: { scene: 2 },
+    afterHandle: AHS.J_D,
+  },
+  getRepostEmotes: {
+    url: 'https://api.bilibili.com/x/emote/user/panel/web',
+    _fetch: { method: 'get' },
+    params: { business: 'reply' },
+    afterHandle: AHS.J_D,
+  },
+  searchRepostMentions: {
+    url: 'https://api.bilibili.com/x/polymer/web-dynamic/v1/mention/search',
+    _fetch: { method: 'get' },
+    params: { keyword: '' },
+    afterHandle: AHS.J_D,
+  },
+  searchRepostTopics: {
+    url: 'https://api.bilibili.com/x/topic/pub/search',
+    _fetch: { method: 'get' },
+    params: { keywords: '', page_size: 20, page_num: 1 },
+    afterHandle: AHS.J_D,
+  },
+  getRepostCommercialOrders: {
+    url: 'https://cm.bilibili.com/commercialorder/api/web_api/v1/upper/order_dynamic/list',
+    _fetch: { method: 'get' },
+    params: { cooperationType: 3 },
+    afterHandle: AHS.J_D,
+  },
+  checkRepost: {
+    url: 'https://api.bilibili.com/x/dynamic/feed/create/submit_check',
+    _fetch: {
+      method: 'post',
+      headers: { 'Content-Type': 'application/json' },
+      body: { content: {} as Record<string, unknown>, scene: 4, attach_card: undefined as Record<string, unknown> | undefined },
+    },
+    params: { csrf: '' },
+    afterHandle: AHS.J_D,
+  },
+  submitRepost: {
+    url: 'https://api.bilibili.com/x/dynamic/feed/create/dyn',
+    _fetch: {
+      method: 'post',
+      headers: { 'Content-Type': 'application/json' },
+      body: { dyn_req: {} as Record<string, unknown>, web_repost_src: { dyn_id_str: '' } },
+    },
+    params: { csrf: '', platform: 'web' },
+    afterHandle: AHS.J_D,
+  },
+  getMomentVote: {
+    url: 'https://api.bilibili.com/x/vote/vote_info',
+    _fetch: {
+      method: 'get',
+    },
+    params: {
+      vote_id: '',
+    },
+    afterHandle: AHS.J_D,
+  },
+  submitMomentVote: {
+    url: 'https://api.bilibili.com/x/vote/do_vote',
+    _fetch: {
+      method: 'post',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: {
+        vote_id: 0,
+        votes: [] as number[],
+        voter_uid: 0,
+        status: 0,
+        op_bit: 0,
+        dynamic_id: '',
+        csrf: '',
+        csrf_token: '',
+      },
+      bodySerializer: serializeMomentVoteBody,
     },
     params: {
       csrf: '',

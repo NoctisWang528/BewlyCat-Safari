@@ -92,6 +92,68 @@ const API_USER = {
     },
     afterHandle: AHS.J_D,
   },
+  // https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/docs/user/relation.md#查询关注分组列表
+  getFollowingGroups: {
+    url: 'https://api.bilibili.com/x/relation/tags',
+    _fetch: {
+      method: 'get',
+    },
+    afterHandle: AHS.J_D,
+  },
+  // 分组管理：同文档的创建分组、重命名分组、删除分组、复制关注到分组。
+  createFollowingGroup: {
+    url: 'https://api.bilibili.com/x/relation/tag/create',
+    _fetch: {
+      method: 'post',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+      body: { tag: '', csrf: '' },
+    },
+    afterHandle: AHS.J_D,
+  },
+  renameFollowingGroup: {
+    url: 'https://api.bilibili.com/x/relation/tag/update',
+    _fetch: {
+      method: 'post',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+      body: { tagid: '', name: '', csrf: '' },
+    },
+    afterHandle: AHS.J_D,
+  },
+  deleteFollowingGroup: {
+    url: 'https://api.bilibili.com/x/relation/tag/del',
+    _fetch: {
+      method: 'post',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+      body: { tagid: '', csrf: '' },
+    },
+    afterHandle: AHS.J_D,
+  },
+  copyFollowingUsers: {
+    url: 'https://api.bilibili.com/x/relation/tags/copyUsers',
+    _fetch: {
+      method: 'post',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+      body: { fids: '', tagids: '', csrf: '' },
+    },
+    afterHandle: AHS.J_D,
+  },
+  // bilibili-API-collect/docs/user/relation.md#移动关注到分组
+  moveFollowingUsers: {
+    url: 'https://api.bilibili.com/x/relation/tags/moveUsers',
+    _fetch: {
+      method: 'post',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+      },
+      body: {
+        beforeTagids: '',
+        afterTagids: '',
+        fids: '',
+        csrf: '',
+      },
+    },
+    afterHandle: AHS.J_D,
+  },
   // https://github.com/SocialSisterYi/bilibili-API-collect/blob/master/docs/user/relation.md#查询用户关注明细
   getUserFollowings: {
     url: 'https://api.bilibili.com/x/relation/followings',

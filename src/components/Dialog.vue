@@ -31,7 +31,9 @@ const props = withDefaults(defineProps<{
   centerFooter?: boolean
   loading?: boolean
   preventCloseWhenLoading?: boolean
+  closeOnConfirm?: boolean
 }>(), {
+  closeOnConfirm: true,
   preventCloseWhenLoading: true,
   frostedGlass: true,
   showHeader: true,
@@ -161,13 +163,15 @@ function handleClose() {
 }
 
 function handleConfirm() {
-  if (isClosing || closeEmitted)
+  if (isClosing || closeEmitted || props.loading)
     return
 
   emit('confirm')
-  if (!props.loading)
+  if (props.closeOnConfirm && !props.loading)
     handleClose()
 }
+
+defineExpose({ close: handleClose })
 </script>
 
 <template>

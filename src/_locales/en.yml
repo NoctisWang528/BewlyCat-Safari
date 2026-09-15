@@ -112,6 +112,9 @@ player_screenshot:
   failed: Failed to capture screenshot
   video_unavailable: The current video frame is unavailable
 settings:
+  following_sort: Uploader order in the new Following layout
+  following_sort_updated: By update time
+  following_sort_group: By group
   title: Settings
   menu_general: General
   menu_bewly_pages: Bewly Pages
@@ -273,6 +276,8 @@ settings:
   group_following: Following
   group_following_desc: Configure the Following page layout, live content, and video filters.
   group_favorites: Favorites
+  sidebar_cover_blur: Sidebar cover blur gradient
+  sidebar_cover_blur_desc: Use blurred covers in page sidebars such as Favorites and Watch Later. Turn it off to use a Pop surface that lets the page wallpaper show through without cover tinting.
   group_search_page_mode: Search Page Mode
   group_home_tabs: Home Tabs
   group_home_layout: Home Layout
@@ -311,7 +316,7 @@ settings:
   moments_enable_live_preview: Preview live dynamics on hover
   moments_enable_live_preview_desc: Play a live preview when hovering over a live dynamic cover.
   moments_enable_video_preview: Preview video dynamics on hover
-  moments_enable_video_preview_desc: Play a video preview when hovering over a video dynamic cover.
+  moments_enable_video_preview_desc: Preview video dynamics and forwarded videos on hover, with configurable trigger area, delay, and playback interactions.
   moments_grid_columns: Dynamic columns
   moments_tabs_position: Dynamic tabs position
   moments_grid_columns_desc: Set the preferred column count for the Bewly dynamic feed. Card dimensions adapt to the selected layout; columns automatically reduce when space is limited, while the sidebar and feed remain centered as a group.
@@ -346,8 +351,8 @@ settings:
     inherit: Follow dynamic cards
   group_moments_wanted_users: Watchlist
   group_moments_wanted_users_desc: Manage uploaders you want to watch by UID or name. The list is stored only on this device.
-  moments_enable_wanted_filter: Enable watchlist filter
-  moments_enable_wanted_filter_desc: Show a Watchlist entry in the Moments horizontal bar to display only posts from watchlisted uploaders. Turning it off hides the entry and exits the filter.
+  moments_enable_wanted_filter: Show Watchlist button
+  moments_enable_wanted_filter_desc: Show the Watchlist button in the Moments horizontal bar to display only posts from watchlisted uploaders. Turning it off removes the button and exits the filter.
   moments_wanted_users: Watchlisted uploaders
   group_moments_pinned_users: Pinned uploaders
   group_moments_pinned_users_desc: Manage uploaders pinned to the right side of the Moments bar by UID or name. The list is stored only on this device.
@@ -419,12 +424,13 @@ settings:
   link_opening_behavior_opt:
     current_tab: Current tab
     current_tab_if_not_homepage: Current outside home
+    current_tab_if_homepage: Current on home
     background: Background tab
     new_tab: New tab
     drawer: Open in drawer
   top_bar_link_opening_behavior: Top bar link opening behavior
   video_card_link_opening_behavior: Video card and bangumi card link opening behavior
-  link_opening_behavior_desc: 'Controls where links open. "Current outside home" means: use a new tab on the home page, and use the current tab on other pages; "Background tab" opens in the background when the browser allows it.'
+  link_opening_behavior_desc: 'Controls where links open. "Current outside home" uses a new tab on the home page and the current tab on other pages; "Current on home" uses the current tab on the Bilibili home page (page=Home or no page parameter) and a new tab on other pages; "Background tab" opens in the background when the browser allows it.'
   video_card_link_opening_behavior_desc: Controls where video and bangumi cards open. You can choose the current tab, drawer, background tab, or new tab.
   search_bar_link_opening_behavior: Search bar link opening behavior
   close_drawer_without_pressing_esc_again: Close the drawer without pressing <kbd>Esc</kbd> again
@@ -465,20 +471,22 @@ settings:
     bewly_widescreen_sidebar_position_desc: Choose the sidebar position in Bewly Widescreen mode
     bewly_widescreen_sidebar_position_left: Left
     bewly_widescreen_sidebar_position_right: Right
-    bewly_widescreen_sidebar_priority: Bewly Widescreen Layout Priority
-    bewly_widescreen_sidebar_priority_desc: >-
-      Video-first: the sidebar starts as a narrow strip, temporarily expands on
-      hover, and can be fully expanded via the button (which takes space from
-      the video). Sidebar-first: the sidebar is fully expanded by default and
-      takes space from the video.
-    bewly_widescreen_sidebar_priority_video: Video-first
-    bewly_widescreen_sidebar_priority_sidebar: Sidebar-first
-    bewly_widescreen_center_vertical_video: Center Video in Bewly Widescreen
-    bewly_widescreen_center_vertical_video_desc: >-
-      When enabled, videos are centered horizontally across the whole viewport
-      in widescreen mode whenever the letterbox bars leave enough room for the
-      sidebar, which then fully occupies one side. Otherwise the current layout
-      is kept.
+    bewly_widescreen_auto_collapse_sidebar: Auto-collapse Bewly Widescreen sidebar
+    bewly_widescreen_auto_collapse_sidebar_desc: >-
+      Enabling this turns off manual sidebar resizing.
+      Keep the video at full height and adapt the sidebar to the available space.
+      The sidebar collapses when a regular window is short on space, and starts
+      as a narrow strip in ultrawide windows with temporary expansion on hover.
+      Turn this off to keep the full sidebar visible and reduce the video area.
+    bewly_widescreen_video_alignment: Video centering reference
+    bewly_widescreen_video_alignment_desc: >-
+      Center the video within the area outside the sidebar, or relative to the
+      whole browser viewport when space permits. This does not change the
+      sidebar width or expansion state.
+    bewly_widescreen_video_alignment_sidebar: Area outside sidebar (default)
+    bewly_widescreen_video_alignment_viewport: Whole browser viewport (when space permits)
+    enable_bewly_widescreen_sidebar_resize: Allow manual Bewly Widescreen sidebar resizing
+    enable_bewly_widescreen_sidebar_resize_desc: Enabling this turns off auto-collapse and keeps the sidebar fully expanded. Drag the divider between the video and sidebar to resize it and remember the last width; double-click the divider to restore the default width.
   enable_video_preview: Enable video preview feature (if possible)
   enable_video_ctrl_bar_on_video_card: Display the video control bar on the video card
   video_preview_swipe_seek: Swipe to seek nearby
@@ -487,9 +495,9 @@ settings:
   only_cover_video_preview: Preview videos only when hovering the cover
   show_video_card_author_avatar: Show uploader avatar
   show_video_card_author_name: Show uploader name
-  show_video_card_video_tag: Show video tags (search results page)
-  show_video_card_video_tag_desc: Show video category tags provided on search and other pages.
-  show_video_card_recommend_tag: Show plugin-calculated recommendation tags
+  show_video_card_video_tag: Show API and search tags
+  show_video_card_video_tag_desc: Show recommendation, status, or category labels from APIs and content tags from search pages.
+  show_video_card_recommend_tag: Show plugin-calculated tags
   show_video_card_recommend_tag_desc: Display tags calculated by the plugin, such as "High Engagement", "Popular", etc.
   show_video_card_publish_time: Show publish time
   show_video_card_view_count: Show view count
@@ -571,9 +579,6 @@ settings:
   video_card_shadow_reset: Reset shadow settings
   video_card_layout: Video card layout
   video_card_layout_desc: Switch between the redesigned card and the legacy layout.
-  release_offscreen_images: Reclaim offscreen cover memory
-  release_offscreen_images_desc: Unload cover image resources outside the retained range to reduce long-list memory usage.
-  release_offscreen_images_warning: 'Warning: reclaiming offscreen memory may cause stutter when images are rendered again. Images are not reclaimed by default.'
   video_card_layout_option:
     modern: Modern layout
     old: Classic layout
@@ -696,6 +701,8 @@ settings:
     Web: normal web recommendation mode. No Cookie: request homepage
     recommendations without cookies. App: mobile recommendation mode, requires
     an access key first.
+  show_recommendation_mode_switcher: Show quick recommendation mode switcher
+  show_recommendation_mode_switcher_desc: When "For You" is selected, show a segmented control to the right of the home tabs to choose Web, No Cookie, or App mode directly.
   recommendation_mode_web_no_cookie: No Cookie
   remember_no_cookie_recommendation_state: Reduce No Cookie recommendation repeats
   remember_no_cookie_recommendation_state_desc: After reloading the page, continue the recommendation refresh progress and send recent exposure records with recommendation requests to reduce repeats. Only applies in No Cookie mode.
@@ -713,7 +720,7 @@ settings:
     Use the Bilibili mobile app to scan this QR code in order to authorize the
     access key.
   show_recommendation_filter_risk_warning: Show filter risk warnings
-  show_recommendation_filter_risk_warning_desc: After checking 100 valid recommendations, warn when the configured filters retain fewer than 50 because repeated requests may trigger risk control.
+  show_recommendation_filter_risk_warning_desc: After enough valid videos have filled the recommendation viewport, warn when two consecutive load-more batches are fully filtered out or fewer than 50 of 100 valid recommendations are retained, because repeated requests may trigger risk control.
   disable_filters_for_followed_users: Disable filters for followed users
   disable_filters_for_followed_users_desc: >
     If you enable this option, all filters you set will be disabled for the
@@ -1075,9 +1082,11 @@ settings:
   hide_comment_image_scrollbar: Hide page scrollbar in comment image preview
   hide_comment_image_scrollbar_desc: Hide the page scrollbar when opening a comment image preview so it does not appear beside the overlay
   video_player_scroll: Scroll after adjusting the display mode
-  video_player_scroll_desc: >-
-    When enabled, it will automatically scroll to the appropriate position when
-    the default mode is widescreen and default.
+  video_player_scroll_desc: Automatically scroll to the selected position after adjusting the display mode.
+  video_player_scroll_mode:
+    title: Scroll position
+    sending_bar: Keep danmaku bar visible
+    player_center: Center player
   enlarge_favorite_dialog: Enlarge favorite dialog
   enlarge_favorite_dialog_desc: When enabled, the favorite dialog on video pages will be displayed in a larger size for easier viewing and management.
   external_watch_later_button: External watch later button
@@ -1244,9 +1253,25 @@ video_card:
   watched: Watched
   visited_recently: Visited within the past month
 home:
+  following_default_group: Default group
+  following_special_group: Special follows
+  following_group_name: 'Group {id}'
+  following_groups_load_failed: Could not load groups. Showing uploaders by update time.
+  following_groups_retry: Retry
+  following_move_group: Move to group
+  following_remove_special: Remove from special follows
+  following_add_special: Add to special follows
+  following_create_group: Create group
+  following_rename_group: Rename group
+  following_delete_group: Delete group
+  following_group_name_label: Group name (1–16 characters)
+  following_group_name_invalid: Enter a group name with 1–16 characters
+  following_delete_group_confirm: 'Delete “{name}”? You will still follow its uploaders. Uploaders with no other regular group will appear in the default group.'
+  following_action_success: 'Updated following settings for {name}'
+  following_action_failed: 'Operation failed: {message}'
   app_authorization_required: The App mode access token is missing or expired. Re-authorize to continue using personalized recommendations.
   reauthorize_app: Re-authorize
-  recommendation_filter_risk_warning: The current filters retained only {count} of 100 valid recommendations. This may cause frequent requests and trigger API risk control. Consider relaxing the filters.
+  recommendation_filter_risk_warning: The current filters retained only {count} of {total} valid recommendations. This may cause frequent requests and trigger API risk control. Consider relaxing the filters.
   tell_us_why: Choose a reason why
   not_interested_desc: >-
     You can use <kbd>↑</kbd> and <kbd>↓</kbd> to choose the reason, or using
@@ -1353,11 +1378,15 @@ favorites:
   sidebar_manage_exit: Exit manage
   select_all: Select all
   unselect_all: Deselect all
-  rename_folder: Rename
-  rename_folder_dialog_title: Rename folder
-  rename_folder_placeholder: Enter folder name
-  rename_folder_empty: Folder name cannot be empty
-  default_folder_locked: The default folder cannot be renamed or deleted
+  edit_folder: Edit folder
+  edit_folder_dialog_title: Edit folder
+  edit_folder_placeholder: Enter folder name
+  edit_folder_empty: Folder name cannot be empty
+  folder_visibility: Folder visibility
+  folder_visibility_desc: Public folders can be viewed by other users
+  folder_public: Public
+  folder_private: Private
+  default_folder_locked: The default folder cannot be edited or deleted
   delete_folders_confirm: |-
     Delete the {count} selected folders?
     Videos in them will be unfavorited as well. This cannot be undone.
@@ -1491,11 +1520,26 @@ moments:
   go_charge: Charge now
   vote_ongoing: Ongoing
   vote_ended: Ended
+  vote_loading: Loading poll
+  vote_load_failed: Failed to load poll
+  vote_retry: Retry
+  vote_participants: '{count} participants'
+  vote_select_up_to: 'Select up to {count} options'
+  vote_submit: Vote
+  vote_submitted: Voted
+  vote_selected: You selected this option
+  vote_time_day: '{count}d '
+  vote_time_hour: '{count}h '
+  vote_time_minute: '{count}m'
+  vote_ends_in: 'Ends in {time}'
+  login_to_vote: Log in to vote
+  vote_submit_failed: Failed to vote. Please try again later.
+  vote_submit_succeeded: Vote submitted
   forwarded_post: Forwarded a post
   bilibili_user: Bilibili user
   original_author: Original author
   live_post: Live post
-  video_post: Video post
+  video_post: Uploaded a video
   image_post: Image post
   text_post: Text post
   original_post: Original post
@@ -1516,7 +1560,7 @@ moments:
   followers: Followers
   posts: Posts
   publish: Publish post
-  live_now: Live now
+  live_now: Live
   group_label: Post groups
   all_posts: All posts
   wanted_only: Wanted uploaders only
@@ -1554,7 +1598,42 @@ moments:
   fit_window: Fit to window
   rotate_clockwise: Rotate clockwise
 moment_card:
-  video_post: Video post
+  repost_pending: This repost is still being submitted. Please wait.
+  repost_placeholder: Add a message (optional)
+  repost_login: 'Log in, or refresh the page and try again'
+  repost_failed: Repost failed. Please try again.
+  repost_success: Reposted successfully
+  repost_mention: Search users to mention
+  repost_topic: Choose a topic
+  repost_commercial: Commercial disclosure
+  repost_mentions_limit: 'You can mention up to {count} users'
+  repost_emoji_limit: You can add up to 20 animated emotes
+  repost_too_long: Message exceeds the character limit
+  repost_retry: Retry
+  repost_no_results: No results
+  lottery_details: Giveaway details
+  repost: Repost
+  comment_sex_male: Male
+  comment_sex_female: Female
+  expand_comment_replies: View all {count} replies
+  collapse_comment_replies: Collapse replies
+  collapse_comments: Collapse comments
+  comments_sort: Comment sort order
+  comments_sort_hot: Top
+  comments_sort_latest: Newest
+  comments_preview: Comment preview
+  comments_unavailable: Comments are currently unavailable for this post
+  comments_load_failed: Failed to load comments
+  comment_like_failed: Failed to like comment. Please try again.
+  comment_host: Thread author
+  comment_missing_parent: Comment not on this page or deleted
+  expand_comment_thread: Expand this comment and replies
+  collapse_comment_thread: Collapse this comment and replies
+  comment_image: View comment image {index}
+  comments_retry: Retry
+  load_comment_replies: Load more replies
+  comments_empty: No comments yet
+  video_post: Uploaded a video
   cancel_reservation: Cancel reservation
   reserve: Reserve
   open_space: Open {name}'s profile
@@ -1562,13 +1641,13 @@ moment_card:
   charging_exclusive: Charging exclusive
   added_watch_later: Added to Watch later
   add_watch_later: Add to Watch later
-  added: Added
-  watch_later: Watch later
   live_post: Live post
   open_original_video: 'Open original video: {title}'
   author_images: '{name} post images'
   view_author_images: View {name}'s post images
   open_origin_moment: View {name}'s original post
+  view_details: View details
+  view_original_post: View original post
   additional: Additional content
   view_hot_comment: View popular comment
   hot_comment: Popular comment
@@ -1580,6 +1659,8 @@ moment_card:
   live_popularity: 'Live popularity: {value}'
   no_data: No data
   live_now: Live now
+  expand_text: Show full text
+  collapse_text: Collapse text
   like_unsupported: Likes are unavailable for this post
   unlike: Unlike
   like: Like
@@ -1591,6 +1672,8 @@ user_card:
   submissions: '{count} submissions'
   followers: '{count} followers'
 widescreen:
+  resize_sidebar: Resize widescreen sidebar
+  resize_sidebar_title: Drag to resize; double-click to restore the default width
   show_narrow_right: Show narrow right sidebar
   show_narrow_left: Show narrow left sidebar
   collapse_right: Collapse right sidebar
@@ -1628,3 +1711,4 @@ inject:
   of: of
   loading: Loading…
   load_more: Load more
+  expand_all_replies: Expand all replies
