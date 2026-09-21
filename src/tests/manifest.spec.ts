@@ -10,7 +10,7 @@ vi.mock('fs-extra', () => ({
       homepage: 'https://github.com/NoctisWang528/BewlyCat-Safari',
       name: 'bewly-cat',
       safariRevision: 1,
-      version: '1.7.9',
+      version: '1.7.10',
     }),
   },
 }))
@@ -28,7 +28,7 @@ describe('safari manifest', () => {
     const manifest = await getManifest()
     const serialized = JSON.stringify(manifest)
 
-    expect(manifest.version).toBe('1.7.9.1')
+    expect(manifest.version).toBe('1.7.10.1')
     expect(manifest.background).toEqual({
       scripts: ['./dist/background/index.js'],
     })

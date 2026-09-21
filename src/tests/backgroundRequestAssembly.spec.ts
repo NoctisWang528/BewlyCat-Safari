@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import SEARCH_API from '~/background/messageListeners/api/search'
+import USER_API from '~/background/messageListeners/api/user'
 import { AHS, apiListenerFactory } from '~/background/utils'
 
 describe('background request assembly', () => {
@@ -26,6 +27,16 @@ describe('background request assembly', () => {
   it('keeps the cached default search recommendation anonymous', () => {
     expect(SEARCH_API.getDefaultSearchRecommendation.cacheMaxAge).toBeGreaterThan(0)
     expect(SEARCH_API.getDefaultSearchRecommendation._fetch.credentials).toBe('omit')
+  })
+
+  it('uses the custom query serializer without appending an empty query', async () => {
+    const handleMessage = apiListenerFactory({ getRelations: USER_API.getRelations })
+
+    await handleMessage({ contentScriptQuery: 'getRelations', fids: '1,2' })
+    await handleMessage({ contentScriptQuery: 'getRelations' })
+
+    expect(fetchSpy.mock.calls[0][0]).toBe('https://api.bilibili.com/x/relation/relations?fids=1,2')
+    expect(fetchSpy.mock.calls[1][0]).toBe('https://api.bilibili.com/x/relation/relations')
   })
 
   it('puts optional watch-later identifiers in the form body and omits empty defaults', async () => {

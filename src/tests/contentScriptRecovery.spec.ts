@@ -9,7 +9,7 @@ vi.mock('webextension-polyfill', () => ({
     scripting: {},
     tabs: {},
     runtime: {
-      getManifest: () => ({ name: 'BewlyCat', version: '1.7.9.1' }),
+      getManifest: () => ({ name: 'BewlyCat', version: '1.7.10.1' }),
       getURL: () => 'safari-web-extension://bewlycat/',
     },
   },
@@ -61,7 +61,7 @@ describe('content script recovery', () => {
       type: CONTENT_SCRIPT_PONG,
       name: 'BewlyCat',
       runtimeUrl: 'safari-web-extension://bewlycat/',
-      version: '1.7.9.1',
+      version: '1.7.10.1',
       commit: CONTENT_SCRIPT_COMMIT,
     })
 
@@ -78,7 +78,7 @@ describe('content script recovery', () => {
       type: CONTENT_SCRIPT_PONG,
       name: 'BewlyCat',
       runtimeUrl: 'safari-web-extension://bewlycat/',
-      version: '1.7.9.1',
+      version: '1.7.10.1',
     })
 
     await expect(recoverContentScript(9, extensionApi)).resolves.toBe('outdated')
