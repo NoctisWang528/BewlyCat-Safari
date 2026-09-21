@@ -2,6 +2,7 @@ import type { Ref } from 'vue'
 import { nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, shallowRef, watch } from 'vue'
 
 import { CardRowMetrics } from '~/utils/cardRowMetrics'
+import { isProgrammaticScrollActive } from '~/utils/main'
 
 type CardKey = string | number
 
@@ -39,6 +40,7 @@ export function useCardWindow(options: {
   restoreScroll?: () => void
 }) {
   const ranges = shallowRef<CardRange[]>([])
+  const loadingRange = shallowRef({ start: 0, end: 0 })
   const measurements = new Map<CardKey, CardMeasurement>(options.snapshot?.measurements)
   const slots = new Map<CardKey, HTMLElement>()
   const elementKeys = new WeakMap<Element, CardKey>()
@@ -58,6 +60,11 @@ export function useCardWindow(options: {
   let pendingAnchor: CardWindowSnapshot['anchor']
   let pendingScrollTop = 0
   let bookmark: { root: HTMLElement, scrollTop: number, anchor: CardWindowSnapshot['anchor'] } | undefined
+
+  function setLoadingRange(start = 0, end = 0) {
+    if (loadingRange.value.start !== start || loadingRange.value.end !== end)
+      loadingRange.value = { start, end }
+  }
 
   function viewport() {
     const root = options.root.value
@@ -84,14 +91,21 @@ export function useCardWindow(options: {
   function restoreAnchor(anchor: CardWindowSnapshot['anchor']) {
     const root = options.root.value
     const element = anchor && slots.get(anchor.key)
-    if (root && anchor && element?.isConnected)
-      root.scrollTop += element.getBoundingClientRect().top - viewport().top - anchor.offset
+    if (root && !isProgrammaticScrollActive(root) && anchor && element?.isConnected) {
+      const adjustment = element.getBoundingClientRect().top - viewport().top - anchor.offset
+      // Even assigning the current scrollTop cancels native smooth scrolling.
+      // Only correct actual layout shifts, allowing back-to-top to finish.
+      if (Math.abs(adjustment) > 1)
+        root.scrollTop += adjustment
+    }
   }
 
   function keepScrollAnchor() {
     if (!active || restoring || anchorPending)
       return
     const root = options.root.value
+    if (root && isProgrammaticScrollActive(root))
+      return
     // ResizeObserver runs after CSS reflows. Use the last settled position
     // when the user has not scrolled since, rather than the already-shifted DOM.
     let anchor = root === bookmark?.root && root?.scrollTop === bookmark?.scrollTop
@@ -138,15 +152,28 @@ export function useCardWindow(options: {
     const gap = options.gap.value
     const { top, height } = viewport()
     const container = options.container.value
+    const containerRect = container?.getBoundingClientRect()
     const anchorIndex = options.snapshot?.anchor && indices.get(options.snapshot.anchor.key)
     const pendingIndex = pendingAnchor && indices.get(pendingAnchor.key)
     const offset = pendingIndex !== undefined && options.root.value?.scrollTop === pendingScrollTop
       ? metrics.offset(Math.floor(pendingIndex / columns)) - pendingAnchor!.offset
       : restoring || !container
         ? metrics.offset(Math.floor((anchorIndex ?? 0) / columns))
-        : top - container.getBoundingClientRect().top
-    const start = options.enabled.value ? metrics.rowAt(Math.max(0, offset - height * 3)) : 0
-    const end = options.enabled.value ? Math.min(rowCount, metrics.rowAt(offset + height * 4) + 1) : rowCount
+        : top - containerRect!.top
+    const loadingStart = metrics.rowAt(Math.max(0, offset - height * 3))
+    const loadingEnd = Math.min(rowCount, metrics.rowAt(offset + height * 4) + 1)
+    // Data loading follows the normal overscan, independently of recycling or
+    // interaction-pinned rows. Do not publish estimated pre-mount geometry.
+    if (active && !restoring && document.visibilityState === 'visible'
+      && container?.isConnected && containerRect && containerRect.width > 0 && containerRect.height > 0
+      && count > 0 && offset + height * 4 > 0 && offset - height * 3 < metrics.offset(rowCount)) {
+      setLoadingRange(loadingStart * columns, Math.min(count, loadingEnd * columns))
+    }
+    else {
+      setLoadingRange()
+    }
+    const start = options.enabled.value ? loadingStart : 0
+    const end = options.enabled.value ? loadingEnd : rowCount
     const rows = new Set<number>()
     for (let row = start; row < end; row++)
       rows.add(row)
@@ -297,6 +324,7 @@ export function useCardWindow(options: {
 
   function disconnect() {
     generation++
+    setLoadingRange()
     if (frame !== undefined)
       cancelAnimationFrame(frame)
     frame = undefined
@@ -307,7 +335,15 @@ export function useCardWindow(options: {
     resizeObserver = viewportObserver = undefined
     scrollTarget?.removeEventListener('scroll', scheduleUpdate)
     window.removeEventListener('resize', scheduleUpdate)
+    document.removeEventListener('visibilitychange', handleDocumentVisibilityChange)
     scrollTarget = undefined
+  }
+
+  function handleDocumentVisibilityChange() {
+    if (document.visibilityState !== 'visible')
+      setLoadingRange()
+    else
+      scheduleUpdate()
   }
 
   function observe() {
@@ -318,6 +354,7 @@ export function useCardWindow(options: {
     scrollTarget = !root || root === document.scrollingElement ? window : root
     scrollTarget.addEventListener('scroll', scheduleUpdate, { passive: true })
     window.addEventListener('resize', scheduleUpdate, { passive: true })
+    document.addEventListener('visibilitychange', handleDocumentVisibilityChange)
     if (typeof ResizeObserver !== 'undefined') {
       resizeObserver = new ResizeObserver((entries) => {
         if (entries.some(entry => elementKeys.has(entry.target)))
@@ -364,5 +401,5 @@ export function useCardWindow(options: {
     slots.clear()
     measurements.clear()
   })
-  return { ranges, setElement, captureSnapshot }
+  return { ranges, loadingRange, setElement, captureSnapshot }
 }

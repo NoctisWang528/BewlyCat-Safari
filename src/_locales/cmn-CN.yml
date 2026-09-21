@@ -477,7 +477,7 @@ settings:
   show_bewly_widescreen_button: 显示播放器 Bewly 宽屏按钮
   show_bewly_widescreen_button_desc: 启用后，在视频播放器控制栏中显示 Bewly 宽屏按钮。
   show_video_screenshot_button: 显示播放器截图按钮
-  show_video_screenshot_button_desc: 启用后，在视频播放器控制栏中显示截取当前视频画面的按钮。
+  show_video_screenshot_button_desc: 启用后，在视频播放器控制栏中显示截取当前视频画面的按钮。关闭后仍可使用截图快捷键，可在「快捷键」设置中配置。
   keep_collection_video_default_mode: 合集视频保持默认模式
   keep_collection_video_default_mode_desc: 当启用时，合集视频将始终使用默认播放器模式，不会应用宽屏或全屏设置
   keep_watch_later_video_default_mode: 稍后再看保持默认模式
@@ -493,6 +493,8 @@ settings:
   use_bilibili_default_auto_play: 使用 Bilibili 默认自动播放行为
   use_bilibili_default_auto_play_desc: 启用后由 Bilibili 决定播放结束行为，不应用下方按视频类型设置。
   auto_play_watch_later: 稍后再看
+  auto_remove_watch_later_on_end: 稍后再看播放结束自动移除
+  auto_remove_watch_later_on_end_desc: 在稍后再看播放页播完视频后，自动将其移出稍后再看；多 P 视频仅在最后一 P 播完后移除。
   auto_play_mode_default: Bilibili 默认
   auto_play_mode_auto_play: 自动连播
   auto_play_mode_auto_play_with_recommend: 连播推荐
@@ -936,6 +938,8 @@ settings:
     turn_off_light_desc: 打开/关闭关灯模式
     caption: 字幕
     caption_desc: 打开/关闭字幕
+    video_screenshot: 视频截图
+    video_screenshot_desc: 将当前视频画面保存为 PNG 图片，关闭播放器截图按钮后仍可使用。
     increase_playback_rate: 加速播放
     increase_playback_rate_desc: 提高播放速度
     decrease_playback_rate: 减速播放
@@ -1158,6 +1162,11 @@ video_card:
   watched: 已观看
   visited_recently: 近一个月内浏览过
 home:
+  following_display_flat: 不分组
+  following_display_grouped: 按分组
+  following_search_videos: '搜索 {name} 的视频投稿'
+  following_clear_video_search: 清空投稿搜索
+  following_no_search_results: 未找到匹配的视频投稿
   following_default_group: 默认分组
   following_special_group: 特别关注
   following_group_name: '分组 {id}'
@@ -1310,6 +1319,16 @@ version_reminder:
   acknowledge: 已知晓，本版本不再提示
   settings_hint: 可在“设置 → 关于”中关闭“新版本提醒”。
 watch_later:
+  add_open_tabs: 添加标签页
+  add_open_tabs_hint: 将所有窗口中打开的 B 站视频、番剧和影视播放页添加到稍后再看
+  add_open_tabs_confirm: 将所有窗口中打开的 B 站视频、番剧和影视播放标签页全部添加到稍后再看。重复或已添加的内容会自动跳过。
+  confirm_add_open_tabs: 确认添加
+  reading_open_tabs: 正在读取标签页…
+  add_open_tabs_progress: '已处理 {completed} / {total} 项'
+  add_open_tabs_account_changed: 账号状态已变化，已停止添加，请重新确认后再试。
+  adding_open_tabs: 添加中…
+  no_open_video_tabs: 没有可添加的视频、番剧或影视播放标签页
+  add_open_tabs_result: '已添加 {added} 项，跳过重复或已添加的 {skipped} 项，失败 {failed} 项'
   title: 稍后再看
   clear_all: 清空稍后再看
   clear_all_confirm: |-

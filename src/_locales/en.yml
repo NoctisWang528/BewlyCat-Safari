@@ -906,6 +906,8 @@ settings:
   use_bilibili_default_auto_play_desc: >
     Let Bilibili decide what happens when playback ends instead of applying the per-video-type settings below.
   auto_play_watch_later: Watch Later
+  auto_remove_watch_later_on_end: Remove from Watch Later after playback
+  auto_remove_watch_later_on_end_desc: Automatically remove finished videos on the Watch Later playback page. Videos with multiple parts are removed only after the final part finishes.
   auto_play_mode_default: Bilibili Default
   auto_play_mode_auto_play: Auto-play
   auto_play_mode_auto_play_with_recommend: Play recommendations
@@ -1014,6 +1016,8 @@ settings:
     turn_off_light_desc: Toggle theater mode
     caption: Captions
     caption_desc: Toggle captions
+    video_screenshot: Video Screenshot
+    video_screenshot_desc: Save the current video frame as a PNG image, even when the player screenshot button is hidden.
     increase_playback_rate: Increase Speed
     increase_playback_rate_desc: Increase playback speed
     decrease_playback_rate: Decrease Speed
@@ -1096,7 +1100,7 @@ settings:
   show_bewly_widescreen_button: Show player Bewly Widescreen button
   show_bewly_widescreen_button_desc: Show the Bewly Widescreen button in the video player controls.
   show_video_screenshot_button: Show player screenshot button
-  show_video_screenshot_button_desc: Show a button in the video player controls for capturing the current video frame.
+  show_video_screenshot_button_desc: Show a button in the video player controls for capturing the current video frame. The screenshot shortcut remains available when the button is hidden and can be configured in Shortcuts settings.
   group_fonts: Font
   group_visual_effects: Visual Effects
   visibility: show
@@ -1253,6 +1257,11 @@ video_card:
   watched: Watched
   visited_recently: Visited within the past month
 home:
+  following_display_flat: List
+  following_display_grouped: Groups
+  following_search_videos: 'Search videos by {name}'
+  following_clear_video_search: Clear video search
+  following_no_search_results: No matching video submissions
   following_default_group: Default group
   following_special_group: Special follows
   following_group_name: 'Group {id}'
@@ -1408,6 +1417,16 @@ version_reminder:
   acknowledge: Got it, don't show this version again
   settings_hint: You can turn off “New version reminders” under Settings → About.
 watch_later:
+  add_open_tabs: Add tabs
+  add_open_tabs_hint: Add Bilibili video, anime and movie playback tabs from all windows to Watch later
+  add_open_tabs_confirm: This will add all open Bilibili video, anime and movie playback tabs from every window to Watch later. Duplicates and existing items will be skipped automatically.
+  confirm_add_open_tabs: Confirm addition
+  reading_open_tabs: Reading open tabs…
+  add_open_tabs_progress: 'Processed {completed} / {total} items'
+  add_open_tabs_account_changed: Your account status changed. Adding has stopped. Please confirm again to retry.
+  adding_open_tabs: Adding…
+  no_open_video_tabs: No supported video, anime or movie playback tabs are open
+  add_open_tabs_result: 'Added {added}, skipped {skipped} duplicates or existing items, failed {failed}'
   title: Watch Later
   clear_all: Clear all watch later
   clear_all_confirm: >-

@@ -83,6 +83,14 @@ const randomPlayActivationModeOptions = computed(() => {
   <div>
     <SettingsItemGroup :title="$t('settings.group_playback_end_behavior')">
       <SettingsItem
+        :title="t('settings.auto_remove_watch_later_on_end')"
+        :desc="t('settings.auto_remove_watch_later_on_end_desc')"
+        right-width="auto"
+      >
+        <Radio v-model="settings.autoRemoveWatchLaterOnEnd" />
+      </SettingsItem>
+
+      <SettingsItem
         :title="t('settings.use_bilibili_default_auto_play')"
         :desc="t('settings.use_bilibili_default_auto_play_desc')"
         right-width="auto"
@@ -235,7 +243,7 @@ const randomPlayActivationModeOptions = computed(() => {
         <Select
           v-model="settings.collectedSeasonPlayAllMode"
           :options="collectedSeasonPlayAllModeOptions"
-          w="180px"
+          w="160px"
         />
       </SettingsItem>
     </SettingsItemGroup>

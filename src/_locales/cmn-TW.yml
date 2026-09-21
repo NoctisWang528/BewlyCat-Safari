@@ -806,6 +806,8 @@ settings:
   use_bilibili_default_auto_play: 使用 Bilibili 預設自動播放行為
   use_bilibili_default_auto_play_desc: 啟用後由 Bilibili 決定播放結束行為，不套用下方依影片類型設定。
   auto_play_watch_later: 稍後觀看
+  auto_remove_watch_later_on_end: 稍後再看播放結束自動移除
+  auto_remove_watch_later_on_end_desc: 在稍後再看播放頁播完影片後，自動將其移出稍後再看；多 P 影片僅在最後一 P 播完後移除。
   auto_play_mode_default: Bilibili 預設
   auto_play_mode_auto_play: 自動連播
   auto_play_mode_auto_play_with_recommend: 連播推薦
@@ -912,6 +914,8 @@ settings:
     turn_off_light_desc: 開啟/關閉關燈模式
     caption: 字幕
     caption_desc: 開啟/關閉字幕
+    video_screenshot: 影片截圖
+    video_screenshot_desc: 將目前影片畫面儲存為 PNG 圖片，關閉播放器截圖按鈕後仍可使用。
     increase_playback_rate: 加速播放
     increase_playback_rate_desc: 提高播放速度
     decrease_playback_rate: 減速播放
@@ -994,7 +998,7 @@ settings:
   show_bewly_widescreen_button: 顯示播放器 Bewly 寬螢幕按鈕
   show_bewly_widescreen_button_desc: 啟用後，在影片播放器控制列中顯示 Bewly 寬螢幕按鈕。
   show_video_screenshot_button: 顯示播放器截圖按鈕
-  show_video_screenshot_button_desc: 啟用後，在影片播放器控制列中顯示擷取目前影片畫面的按鈕。
+  show_video_screenshot_button_desc: 啟用後，在影片播放器控制列中顯示擷取目前影片畫面的按鈕。關閉後仍可使用截圖快捷鍵，可在「快捷鍵」設定中調整。
   group_fonts: 字體
   group_visual_effects: 視覺效果
   badge_type: 角標類型
@@ -1173,6 +1177,11 @@ video_card:
   watched: 已觀看
   visited_recently: 近一個月內瀏覽過
 home:
+  following_display_flat: 不分組
+  following_display_grouped: 按分組
+  following_search_videos: '搜尋 {name} 的影片投稿'
+  following_clear_video_search: 清空投稿搜尋
+  following_no_search_results: 找不到符合的影片投稿
   following_default_group: 預設分組
   following_special_group: 特別關注
   following_group_name: '分組 {id}'
@@ -1325,6 +1334,16 @@ version_reminder:
   acknowledge: 已知曉，此版本不再提示
   settings_hint: 可在「設定 → 關於」中關閉「新版本提醒」。
 watch_later:
+  add_open_tabs: 加入分頁
+  add_open_tabs_hint: 將所有視窗中開啟的 B 站影片、動畫和影視播放頁加入稍後觀看
+  add_open_tabs_confirm: 將所有視窗中開啟的 B 站影片、動畫和影視播放分頁全部加入稍後觀看。重複或已加入的內容會自動略過。
+  confirm_add_open_tabs: 確認加入
+  reading_open_tabs: 正在讀取分頁…
+  add_open_tabs_progress: '已處理 {completed} / {total} 項'
+  add_open_tabs_account_changed: 帳號狀態已變更，已停止加入，請重新確認後再試。
+  adding_open_tabs: 加入中…
+  no_open_video_tabs: 沒有可加入的影片、動畫或影視播放分頁
+  add_open_tabs_result: '已加入 {added} 項，略過重複或已加入的 {skipped} 項，失敗 {failed} 項'
   title: 稍後觀看
   clear_all: 清空稍後觀看
   clear_all_confirm: |-

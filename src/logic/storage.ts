@@ -1,4 +1,3 @@
-import { watch } from 'vue'
 import browser from 'webextension-polyfill'
 
 import { useSettingsStorage } from '~/composables/useSettingsStorage'
@@ -75,6 +74,7 @@ export interface ShortcutsSettings {
   pip?: BaseShortcutSetting // P
   turnOffLight?: BaseShortcutSetting // I
   caption?: BaseShortcutSetting // C
+  videoScreenshot?: BaseShortcutSetting // Shift+S
   increasePlaybackRate?: BaseShortcutSetting // +
   decreasePlaybackRate?: BaseShortcutSetting // -
   resetPlaybackRate?: BaseShortcutSetting // 0
@@ -509,6 +509,7 @@ export interface Settings {
 
   // 自动连播总开关
   useBilibiliDefaultAutoPlay: boolean // 使用B站默认自动播放行为（总开关）
+  autoRemoveWatchLaterOnEnd: boolean // 稍后再看播放结束自动移除
 
   // 分类型自动连播设置
   autoPlayMultipart: AutoPlayMode // 分P视频自动播放模式
@@ -822,6 +823,7 @@ export const originalSettings: Settings = {
 
   // 自动连播总开关
   useBilibiliDefaultAutoPlay: true, // 使用B站默认自动播放行为（总开关），默认开启
+  autoRemoveWatchLaterOnEnd: false,
 
   // 分类型自动连播设置（总开关关闭时生效）
   autoPlayMultipart: 'autoPlay', // 分P视频自动播放模式，默认自动连播
@@ -846,6 +848,7 @@ export const originalSettings: Settings = {
     pip: { key: 'P', enabled: true },
     turnOffLight: { key: 'I', enabled: true },
     caption: { key: 'C', enabled: true },
+    videoScreenshot: { key: 'Shift+S', enabled: true },
     increasePlaybackRate: { key: '+', enabled: true },
     decreasePlaybackRate: { key: '-', enabled: true },
     resetPlaybackRate: { key: '0', enabled: true },
@@ -893,11 +896,7 @@ export const settingsReady = new Promise<Settings>((resolve) => {
 
 export const settings = useSettingsStorage(originalSettings, {
   onReady: value => resolveSettingsReady(value),
-})
-
-watch(
-  () => settings.value,
-  (value) => {
+  normalize: (value) => {
     const record = value as Record<string, any>
 
     if (typeof record.enableFavoriteCoverBlur === 'boolean') {
@@ -1117,6 +1116,13 @@ watch(
       }
     }
 
+    if (!record.shortcuts?.videoScreenshot) {
+      record.shortcuts = {
+        ...record.shortcuts,
+        videoScreenshot: { ...originalSettings.shortcuts.videoScreenshot },
+      }
+    }
+
     // 紧凑布局已由卡片元素显示设置替代
     if (record.videoCardLayout === 'compact')
       record.videoCardLayout = 'modern'
@@ -1225,12 +1231,11 @@ watch(
         }
 
         // 只更新 gridColumns 字段，不覆盖整个 settings
-        settings.value = { ...settings.value, gridColumns: migratedGridColumns }
+        settings.value.gridColumns = migratedGridColumns
       })
     }
   },
-  { immediate: true },
-)
+})
 
 void browser.storage.local.remove(['gridBreakpoints']).catch(() => {})
 

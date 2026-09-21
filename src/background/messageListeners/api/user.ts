@@ -51,9 +51,14 @@ const API_USER = {
     url: 'https://api.bilibili.com/x/relation/relations',
     _fetch: {
       method: 'get',
+      // 只保留 fids 的字面逗号，其他字符和参数仍使用标准 URL 编码。
+      querySerializer: params => [...params].map(([key, value]) => {
+        const encoded = new URLSearchParams({ [key]: value }).toString()
+        return key === 'fids' ? encoded.replace(/%2C/gi, ',') : encoded
+      }).join('&'),
     },
     params: {
-      fids: '', // 用户mid列表，用逗号分隔，最多40个
+      fids: '', // 用户 mid 列表，用逗号分隔；分批数量由调用方控制
     },
     afterHandle: AHS.J_D,
   },
@@ -180,6 +185,7 @@ const API_USER = {
       pn: 1, // 页码
       order: 'pubdate', // 排序方式：pubdate最新发布，click最多播放
       tid: 0, // 不筛选分区
+      keyword: '', // 搜索该UP主的视频投稿
     },
     afterHandle: AHS.J_D,
   },

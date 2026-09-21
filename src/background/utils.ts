@@ -69,6 +69,7 @@ interface Message {
 
 interface _FETCH {
   method: string
+  querySerializer?: (params: URLSearchParams) => string
   headers?: {
     [key: string]: any
   }
@@ -205,7 +206,7 @@ async function doRequest(
     rest = rest || {}
 
     const { _fetch, url, params = {}, afterHandle } = api
-    const { method, headers = {}, body, bodySerializer, credentials: configuredCredentials = 'include' } = _fetch as _FETCH
+    const { method, headers = {}, body, bodySerializer, querySerializer, credentials: configuredCredentials = 'include' } = _fetch as _FETCH
     const credentials: RequestCredentials = bewlyNoCookie ? 'omit' : configuredCredentials
     const isGET = method.toLocaleLowerCase() === 'get'
     // merge params and body
@@ -256,7 +257,7 @@ async function doRequest(
             urlParams.append(key, value)
           }
         }
-        const query = urlParams.toString()
+        const query = querySerializer ? querySerializer(urlParams) : urlParams.toString()
         if (query)
           requestUrl += `?${query}`
       }

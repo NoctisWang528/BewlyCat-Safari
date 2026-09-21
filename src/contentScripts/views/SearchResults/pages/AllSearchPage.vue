@@ -8,11 +8,13 @@ import ArticleCard from '~/components/ArticleCard/ArticleCard.vue'
 import BangumiEpisodeList from '~/components/BangumiEpisodeList/BangumiEpisodeList.vue'
 import Loading from '~/components/Loading.vue'
 import MediaEpisodeSelect from '~/components/MediaEpisodeSelect/MediaEpisodeSelect.vue'
+import UserAvatarLink from '~/components/UserCard/UserAvatarLink.vue'
 import VideoCard from '~/components/VideoCard/VideoCard.vue'
 import VideoCardGrid from '~/components/VideoCardGrid.vue'
 import { useBewlyApp } from '~/composables/useAppProvider'
 import { SEARCH_PAGE_SIZES } from '~/constants/searchApi'
 import { settings } from '~/logic'
+import { useUserRelationStore } from '~/stores/userRelationStore'
 import api from '~/utils/api'
 import { LV0_ICON, LV1_ICON, LV2_ICON, LV3_ICON, LV4_ICON, LV5_ICON, LV6_ICON } from '~/utils/lvIcons'
 import { getCSRF } from '~/utils/main'
@@ -57,6 +59,7 @@ function sanitizeHighlightTitle(title: string) {
 }
 
 const { t } = useI18n()
+const userRelationStore = useUserRelationStore()
 
 const { haveScrollbar, handleBackToTop } = useBewlyApp()
 
@@ -69,6 +72,7 @@ const {
   userRelations,
   batchQueryUserRelations,
   updateUserRelation,
+  reset: resetUserRelations,
 } = useUserRelations()
 
 // 搜索请求管理
@@ -233,10 +237,12 @@ async function handleUserFollow(mid: number) {
   if (state.isLoading)
     return
 
+  const nextFollowing = !state.isFollowing
+  const accountMid = userRelationStore.accountMid
   try {
     state.isLoading = true
     const csrf = getCSRF()
-    const act = state.isFollowing ? 2 : 1
+    const act = nextFollowing ? 1 : 2
 
     const response = await api.user.relationModify({
       fid: String(mid),
@@ -246,7 +252,7 @@ async function handleUserFollow(mid: number) {
     })
 
     if (response.code === 0)
-      updateUserRelation(mid, !state.isFollowing)
+      updateUserRelation(mid, nextFollowing, accountMid)
   }
   catch (error) {
     console.error('关注操作出错:', error)
@@ -254,12 +260,6 @@ async function handleUserFollow(mid: number) {
   finally {
     state.isLoading = false
   }
-}
-
-function openExternalLink(url?: string) {
-  if (!url)
-    return
-  window.open(url, '_blank', 'noopener')
 }
 
 // 获取当前结果长度
@@ -398,13 +398,12 @@ async function performSearch(loadMore: boolean): Promise<boolean> {
     results.value = normalizedData
   }
 
-  if (Array.isArray(results.value?.result)) {
-    const userSection = results.value.result.find((s: any) => s?.result_type === 'bili_user')
-    if (userSection && Array.isArray(userSection.data)) {
-      const mids = userSection.data.map((u: any) => u.mid).filter(Boolean)
-      await batchQueryUserRelations(mids)
-    }
-  }
+  const userSection = Array.isArray(results.value?.result)
+    ? results.value.result.find((s: any) => s?.result_type === 'bili_user')
+    : undefined
+  await batchQueryUserRelations(Array.isArray(userSection?.data)
+    ? userSection.data.map((u: any) => u.mid).filter(Boolean)
+    : [])
 
   const fallbackLength = incomingSections.reduce((sum: number, section: any) => {
     if (Array.isArray(section?.data))
@@ -577,13 +576,12 @@ async function handlePageChange(page: number) {
 
   results.value = normalizedData
 
-  if (Array.isArray(results.value?.result)) {
-    const userSection = results.value.result.find((s: any) => s?.result_type === 'bili_user')
-    if (userSection && Array.isArray(userSection.data)) {
-      const mids = userSection.data.map((u: any) => u.mid).filter(Boolean)
-      await batchQueryUserRelations(mids)
-    }
-  }
+  const userSection = Array.isArray(results.value?.result)
+    ? results.value.result.find((s: any) => s?.result_type === 'bili_user')
+    : undefined
+  await batchQueryUserRelations(Array.isArray(userSection?.data)
+    ? userSection.data.map((u: any) => u.mid).filter(Boolean)
+    : [])
 
   const fallbackLength = incomingSections.reduce((sum: number, section: any) => {
     if (Array.isArray(section?.data))
@@ -599,6 +597,7 @@ async function handlePageChange(page: number) {
 }
 
 function resetAll() {
+  resetUserRelations()
   resetSearch()
   resetPagination()
   resetLoadMore()
@@ -822,12 +821,13 @@ defineExpose({
               class="user-highlight-card"
             >
               <div class="user-highlight-header" flex items-center gap-3>
-                <img
-                  :src="user.face"
-                  :alt="user.name"
-                  class="user-highlight-avatar"
-                  @click="openExternalLink(user.url)"
-                >
+                <UserAvatarLink :mid="user.mid" :name="user.name" :live-status="user.liveStatus" :roomid="user.roomid">
+                  <img
+                    :src="user.face"
+                    :alt="user.name"
+                    class="user-highlight-avatar"
+                  >
+                </UserAvatarLink>
                 <div class="user-highlight-info" flex="~ col" gap-1 flex-1>
                   <div
                     class="user-highlight-name bew-body-text" text="$bew-text-1" font-medium flex items-center
