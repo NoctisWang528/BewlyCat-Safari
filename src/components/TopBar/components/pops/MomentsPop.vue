@@ -7,10 +7,12 @@ import Loading from '~/components/Loading.vue'
 import Tooltip from '~/components/Tooltip.vue'
 import { useOptimizedScroll } from '~/composables/useOptimizedScroll'
 import { settings } from '~/logic'
+import { ensureWatchLaterState, getWatchLaterAid, isInWatchLater, markWatchLater } from '~/logic/watchLaterState'
 import { useTopBarStore } from '~/stores/topBarStore'
 import api from '~/utils/api'
 import { getCSRF, scrollToTop } from '~/utils/main'
 import type { TopBarMomentItem } from '~/utils/momentVideoIdentifier'
+import type { WatchLaterTarget } from '~/utils/watchLaterSnapshot'
 
 type MomentType = 'video' | 'live' | 'article'
 interface MomentTab { type: MomentType, name: any }
@@ -75,6 +77,7 @@ function onClickTab(tab: MomentTab) {
 
 function initData() {
   topBarStore.initMomentsData(selectedMomentTab.value.type)
+  void ensureWatchLaterState()
 }
 
 function getData() {
@@ -85,7 +88,7 @@ function isVideoMoment(moment: TopBarMomentItem) {
   return moment.isVideo
 }
 
-function getWatchLaterTarget(moment: TopBarMomentItem) {
+function getWatchLaterTarget(moment: TopBarMomentItem): WatchLaterTarget {
   const aid = Number.isSafeInteger(moment.aid) && Number(moment.aid) > 0 ? Number(moment.aid) : undefined
   const bvid = typeof moment.bvid === 'string' && moment.bvid.trim() ? moment.bvid.trim() : undefined
   return { aid, bvid }
@@ -96,46 +99,31 @@ function getWatchLaterKey(moment: TopBarMomentItem) {
   return bvid ? `bvid:${bvid}` : aid ? `aid:${aid}` : ''
 }
 
-function isInWatchLater(moment: TopBarMomentItem) {
-  const { aid, bvid } = getWatchLaterTarget(moment)
-  return Boolean((aid && topBarStore.addedWatchLaterList.includes(aid)) || (bvid && topBarStore.addedWatchLaterBvids.has(bvid)))
-}
-
 async function toggleWatchLater(moment: TopBarMomentItem) {
   if (!isVideoMoment(moment))
     return
-  const { aid, bvid } = getWatchLaterTarget(moment)
+  const target = getWatchLaterTarget(moment)
+  const { aid, bvid } = target
   const key = getWatchLaterKey(moment)
   const csrf = getCSRF()
   if ((!aid && !bvid) || !key || !csrf || pendingWatchLaterKeys.has(key))
     return
   pendingWatchLaterKeys.add(key)
   try {
-    if (!isInWatchLater(moment)) {
+    const added = isInWatchLater(target)
+    if (!added) {
       const res = await api.watchlater.saveToWatchLater({ csrf, ...(aid ? { aid } : {}), ...(bvid ? { bvid } : {}) })
       if (res?.code === 0) {
-        if (aid && !topBarStore.addedWatchLaterList.includes(aid))
-          topBarStore.addedWatchLaterList.push(aid)
-        if (bvid)
-          topBarStore.addedWatchLaterBvids.add(bvid)
+        markWatchLater(target, true)
       }
     }
     else {
-      let resolvedAid = aid
-      if (!resolvedAid && bvid) {
-        resolvedAid = Number((await api.video.getVideoInfo({ bvid }))?.data?.aid) || undefined
-        if (resolvedAid)
-          moment.aid = resolvedAid
-      }
+      const resolvedAid = getWatchLaterAid(target) ?? aid
       if (!resolvedAid)
         return
       const res = await api.watchlater.removeFromWatchLater({ aid: resolvedAid, csrf })
       if (res?.code === 0) {
-        const index = topBarStore.addedWatchLaterList.indexOf(resolvedAid)
-        if (index >= 0)
-          topBarStore.addedWatchLaterList.splice(index, 1)
-        if (bvid)
-          topBarStore.addedWatchLaterBvids.delete(bvid)
+        markWatchLater(target, false)
       }
     }
     void topBarStore.syncWatchLaterState()
@@ -353,7 +341,7 @@ defineExpose({
                 duration-300
               >
                 <Tooltip
-                  :content="isInWatchLater(moment)
+                  :content="isInWatchLater(getWatchLaterTarget(moment))
                     ? $t('common.added')
                     : $t('common.save_to_watch_later')"
                   placement="left"
@@ -373,7 +361,7 @@ defineExpose({
                       icon="line-md:loading-twotone-loop"
                     />
                     <Icon
-                      v-else-if="isInWatchLater(moment)"
+                      v-else-if="isInWatchLater(getWatchLaterTarget(moment))"
                       icon="line-md:confirm"
                     />
                     <div v-else i-mingcute:carplay-line />

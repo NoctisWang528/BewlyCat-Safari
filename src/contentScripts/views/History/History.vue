@@ -1,14 +1,20 @@
 <script setup lang="ts">
-import { useDateFormat } from '@vueuse/core'
+import { formatDate, useDateFormat } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 
+import Icon from '~/components/Icon.vue'
+import LiquidSegmentIndicator from '~/components/LiquidSegmentIndicator.vue'
+import type { Video } from '~/components/VideoCard/types'
+import VideoCardGrid from '~/components/VideoCardGrid.vue'
 import { useBewlyApp } from '~/composables/useAppProvider'
 import { useConfirmDialog } from '~/composables/useConfirmDialog'
+import { historyLayout, settings } from '~/logic'
 import type { HistoryResult, List as HistoryItem } from '~/models/history/history'
 import { Business } from '~/models/history/history'
-import type { HistorySearchResult, List as HistorySearchItem } from '~/models/video/historySearch'
+import type { HistorySearchResult } from '~/models/video/historySearch'
 import api from '~/utils/api'
 import { calcCurrentTime } from '~/utils/dataFormatter'
+import { getHistoryUrl } from '~/utils/history'
 import { getCSRF, removeHttpFromUrl } from '~/utils/main'
 
 const { t } = useI18n()
@@ -19,149 +25,172 @@ const noMoreContent = ref<boolean>(false)
 const historyList = reactive<Array<HistoryItem>>([])
 const currentPageNum = ref<number>(1)
 const keyword = ref<string>()
+let activeKeyword = ''
+let requestVersion = 0
+let disposed = false
 const historyStatus = ref<boolean>()
 const { handlePageRefresh, handleReachBottom, haveScrollbar } = useBewlyApp()
+
+const layoutIcons = [
+  { value: 'list', icon: 'mingcute:list-check-3-line', activeIcon: 'mingcute:list-check-3-fill' },
+  { value: 'grid', icon: 'mingcute:table-3-line', activeIcon: 'mingcute:table-3-fill' },
+] as const
+
+function getHistoryItemKey(item: HistoryItem) {
+  return `${item.history.business}_${item.history.oid}_${item.view_at}`
+}
+
+function transformHistoryItem(item: HistoryItem): Video {
+  const isVideo = item.history.business === Business.ARCHIVE || item.history.business === Business.PGC
+  let playbackProgress: number | undefined
+  if (isVideo) {
+    const percentage = item.progress === -1
+      ? 100
+      : item.duration > 0 ? (item.progress / item.duration) * 100 : 0
+    playbackProgress = Number.isFinite(percentage) ? Math.min(100, Math.max(0, percentage)) : 0
+  }
+
+  return {
+    id: item.history.oid,
+    title: item.show_title || item.title,
+    cover: getHistoryItemCover(item),
+    url: getHistoryUrl(item),
+    bvid: item.history.bvid || undefined,
+    aid: item.history.business === Business.ARCHIVE ? item.history.oid : undefined,
+    cid: item.history.cid || undefined,
+    epid: item.history.epid || undefined,
+    roomid: item.history.business === Business.LIVE ? item.history.oid : undefined,
+    liveStatus: item.live_status,
+    badge: item.history.business === Business.PGC || item.history.business === Business.LIVE
+      ? {
+          text: item.history.business === Business.PGC ? t('history.pgc') : t('history.livestreaming'),
+          bgColor: 'var(--bew-theme-color)',
+          color: 'white',
+        }
+      : undefined,
+    durationStr: isVideo
+      ? `${calcCurrentTime(item.progress === -1 ? item.duration : Math.max(0, item.progress))} / ${calcCurrentTime(item.duration)}`
+      : undefined,
+    playbackProgress,
+    capsuleText: formatDate(new Date(item.view_at * 1000), 'HH:mm:ss'),
+    author: {
+      name: item.author_name || item.title,
+      authorFace: item.author_face || item.cover,
+      mid: item.author_mid || undefined,
+      authorUrl: item.author_mid ? `https://space.bilibili.com/${item.author_mid}` : item.uri,
+    },
+    threePointV2: [],
+  }
+}
+
+const historyGroups = computed(() => {
+  if (historyLayout.value !== 'grid')
+    return [{ date: 'list', items: historyList }]
+
+  const groups = new Map<string, HistoryItem[]>()
+  for (const item of historyList) {
+    const date = formatDate(new Date(item.view_at * 1000), 'YYYY-MM-DD')
+    const items = groups.get(date)
+    if (items)
+      items.push(item)
+    else
+      groups.set(date, [item])
+  }
+  return Array.from(groups, ([date, items]) => ({ date, items }))
+})
+
+watch(historyLayout, async () => {
+  await nextTick()
+  if (getCSRF() && !isLoading.value && !noMoreContent.value && historyList.length && !await haveScrollbar()) {
+    void loadHistory()
+  }
+}, { flush: 'post' })
 
 const HistoryBusiness = computed(() => {
   return Business
 })
 
 onMounted(() => {
-  getHistoryList()
+  void loadHistory()
   getHistoryPauseStatus()
 
   initPageAction()
 })
 
+onBeforeUnmount(() => {
+  disposed = true
+  requestVersion++
+})
+
 function initPageAction() {
-  handleReachBottom.value = () => {
-    if (isLoading.value)
-      return
-    if (noMoreContent.value)
-      return
-
-    // 优化：添加延迟执行提高触发成功率
-    setTimeout(() => {
-      if (!isLoading.value && !noMoreContent.value) {
-        if (keyword.value)
-          searchHistoryList()
-        else
-          getHistoryList()
-      }
-    }, 50)
-  }
-
-  handlePageRefresh.value = () => {
-    historyList.length = 0
-    currentPageNum.value = 1
-    noMoreContent.value = false
-    getHistoryList()
-  }
+  handleReachBottom.value = () => void loadHistory()
+  handlePageRefresh.value = resetHistory
 }
 
-/**
- * Get history list
- */
-function getHistoryList() {
+async function loadHistory(): Promise<void> {
+  if (disposed || isLoading.value || noMoreContent.value)
+    return
+
+  const version = requestVersion
+  const searchKeyword = activeKeyword
   isLoading.value = true
-  api.history.getHistoryList({
-    type: 'all',
-    view_at:
-        historyList.length > 0
-          ? historyList[historyList.length - 1].view_at
-          : 0,
-  })
-    .then(async (res: HistoryResult) => {
-      if (res.code === 0) {
-        if (Array.isArray(res.data.list) && res.data.list.length > 0)
-          historyList.push(...res.data.list)
 
-        if (historyList.length !== 0 && res.data.list.length < 20) {
-          isLoading.value = false
-          noMoreContent.value = true
-          return
-        }
+  try {
+    while (true) {
+      if (version !== requestVersion)
+        return
+      const res: HistoryResult | HistorySearchResult = searchKeyword
+        ? await api.history.searchHistoryList({ pn: currentPageNum.value, keyword: searchKeyword })
+        : await api.history.getHistoryList({ type: 'all', view_at: historyList.at(-1)?.view_at ?? 0 })
+      if (version !== requestVersion || res.code !== 0)
+        return
 
-        noMoreContent.value = false
-
-        // ✅ 修复：添加 await，因为 haveScrollbar() 是异步函数
-        if (!(await haveScrollbar()) && !noMoreContent.value) {
-          getHistoryList()
-        }
-      }
-    })
-    .finally(() => {
+      historyList.push(...res.data.list as HistoryItem[])
+      // 成功后再推进页码，失败重试仍请求同一页。
+      if (searchKeyword)
+        currentPageNum.value++
+      noMoreContent.value = res.data.list.length < 20
+      if (noMoreContent.value || await haveScrollbar())
+        return
+    }
+  }
+  catch (error) {
+    if (version === requestVersion)
+      console.error('加载历史记录失败:', error)
+  }
+  finally {
+    if (version === requestVersion)
       isLoading.value = false
-    })
+  }
 }
 
-function searchHistoryList() {
-  isLoading.value = true
-  api.history.searchHistoryList({
-    pn: currentPageNum.value++,
-    keyword: keyword.value,
-  })
-    .then((res: HistorySearchResult) => {
-      if (res.code === 0) {
-        res.data.list.forEach((item: HistorySearchItem) => {
-          historyList.push(item as unknown as HistoryItem)
-        })
-
-        noMoreContent.value = res.data.list.length < 20
-      }
-    })
-    .finally(() => {
-      isLoading.value = false
-    })
-}
-
-function handleSearch() {
+function resetHistory() {
+  requestVersion++
+  isLoading.value = false
   historyList.length = 0
   currentPageNum.value = 1
   noMoreContent.value = false
-  if (keyword.value)
-    searchHistoryList()
-  else getHistoryList()
+  void loadHistory()
 }
 
-function deleteHistoryItem(index: number, historyItem: HistoryItem) {
+function handleSearch() {
+  // 输入框草稿不改变正在展示的查询，直到用户提交搜索。
+  activeKeyword = keyword.value?.trim() ?? ''
+  resetHistory()
+}
+
+function deleteHistoryItem(historyItem: HistoryItem) {
   api.history.deleteHistoryItem({
     kid: `${historyItem.history.business}_${historyItem.history.oid}`,
     csrf: getCSRF(),
   })
     .then((res) => {
-      if (res.code === 0)
-        historyList.splice(index, 1)
+      if (res.code === 0) {
+        const index = historyList.indexOf(historyItem)
+        if (index !== -1)
+          historyList.splice(index, 1)
+      }
     })
-}
-
-/**
- * Return the URL of the history item
- * @param item history item
- * @return {string} url
- */
-function getHistoryUrl(item: HistoryItem): string {
-  if (item.uri)
-    return item.uri
-
-  // Video
-  if (item.history.business === Business.ARCHIVE) {
-    if (item?.videos && item.videos > 0)
-      return `https://www.bilibili.com/video/${item.history.bvid}?p=${item.history.page}`
-    return `https://www.bilibili.com/video/${item.history.bvid}`
-  }
-  // Live
-  else if (item.history.business === Business.LIVE) {
-    return `https://live.bilibili.com/${item.history.oid}`
-  }
-  // Article
-  else if (item.history.business === Business.ARTICLE || item.history.business === Business.ARTICLE_LIST) {
-    if (item.history.cid === 0)
-      return `https://www.bilibili.com/read/cv${item.history.oid}`
-    else
-      return `https://www.bilibili.com/read/cv${item.history.cid}`
-  }
-  return ''
 }
 
 function getHistoryItemCover(item: HistoryItem) {
@@ -197,8 +226,13 @@ function clearAllHistory() {
     csrf: getCSRF(),
   })
     .then((res) => {
-      if (res.code === 0)
+      if (res.code === 0) {
+        requestVersion++
+        isLoading.value = false
+        noMoreContent.value = true
+        currentPageNum.value = 1
         historyList.length = 0
+      }
     })
 }
 
@@ -233,241 +267,307 @@ function jumpToLoginPage() {
 
 <template>
   <div v-if="getCSRF()" flex="~ col md:row lg:row" gap-4>
-    <main w="full md:60% lg:70% xl:75%" order="2 md:1 lg:1" mb-6>
-      <h3 class="bew-page-heading" text="$bew-text-1" mb-6>
-        {{ $t('history.title') }}
-      </h3>
-      <!-- historyList -->
-      <TransitionGroup name="list">
-        <ALink
-          v-for="(historyItem, index) in historyList"
-          :key="historyItem.kid"
-          type="videoCard"
-          :href="getHistoryUrl(historyItem)"
-          block
-          class="group"
-          flex
-          cursor-pointer
+    <main min-w-0 w="full md:60% lg:70% xl:75%" order="2 md:1 lg:1" mb-6>
+      <div class="history-heading-row" mb-6>
+        <h3 class="bew-page-heading" text="$bew-text-1">
+          {{ $t('history.title') }}
+        </h3>
+        <div
+          class="bew-segment-control bew-segment-control--surface"
+          :class="{
+            'bew-segment-control--static': !settings.enableLiquidSegmentIndicator,
+            'bew-segment-control--solid': !settings.enableFrostedGlass,
+          }"
+          shrink-0
         >
-          <!-- time slot -->
-          <div
-            mr-8 px-4
-            b-l="~ 2px dashed $bew-fill-2"
-            group-hover:b-l="$bew-theme-color-40"
-            shrink-0
-            relative
-            duration-300
-            flex="important-xl:~ items-center justify-center"
-            hidden
+          <LiquidSegmentIndicator v-if="settings.enableLiquidSegmentIndicator" :active-key="historyLayout" />
+          <button
+            v-for="layout in layoutIcons"
+            :key="layout.value"
+            type="button"
+            class="bew-segment-control__item bew-segment-control__item--icon"
+            data-segment-item
+            :data-active="historyLayout === layout.value ? 'true' : undefined"
+            :aria-pressed="historyLayout === layout.value"
+            :title="t(`history.layout_${layout.value}`)"
+            :aria-label="t(`history.layout_${layout.value}`)"
+            @click="historyLayout = layout.value"
           >
-            <!-- hidden lg:flex -->
-            <!-- Dot -->
-            <i
-              pos="absolute left--1px"
-              w-2
-              h-2
-              rounded-6
-              bg="$bew-fill-3"
-              group-hover:bg="$bew-theme-color"
-              transform="~ translate-x--1/2"
-              duration-300
+            <Icon
+              class="bew-segment-control__icon"
+              :icon="historyLayout === layout.value ? layout.activeIcon : layout.icon"
+              aria-hidden="true"
             />
-            <div
-              text="sm $bew-text-3"
-              group-hover:text="$bew-theme-color"
-              bg="$bew-fill-1"
-              group-hover:bg="$bew-theme-color-20"
-              p="x-3 y-1"
-              rounded="$bew-radius-half"
-              duration-300
-            >
-              {{
-                useDateFormat(historyItem.view_at * 1000, 'YYYY-MM-DD HH:mm:ss')
-                  .value
-              }}
-            </div>
+          </button>
+        </div>
+      </div>
+      <!-- Each date row grows with its card grid, keeping the timeline aligned. -->
+      <div :class="{ 'history-grid': historyLayout === 'grid' }">
+        <div v-for="group in historyGroups" :key="group.date" class="history-date-group">
+          <div v-if="historyLayout === 'grid'" class="history-date">
+            <time :datetime="group.date">{{ group.date }}</time>
           </div>
-
-          <section
-            rounded="$bew-radius"
-            flex="~ gap-6 col md:col lg:row items-start"
-            relative
-            group-hover:bg="$bew-fill-2"
-            duration-300 w-full
-            p-2 m-1
-            content-visibility-auto
+          <VideoCardGrid
+            v-if="historyLayout === 'grid'"
+            class="history-cards"
+            :state-key="`history:${group.date}`"
+            :items="group.items"
+            :transform-item="transformHistoryItem"
+            :get-item-key="getHistoryItemKey"
+            grid-layout="adaptive"
+            no-more-content
+            :show-no-more-content="false"
+            :show-watch-later="false"
+            :more-btn="false"
+            hide-watched-badge
+            disable-content-visibility
+            cover-top-left-always-visible
           >
-            <!-- Cover -->
-            <div
-              pos="relative"
-              bg="$bew-skeleton"
-              w="full md:full lg:250px"
-              flex="shrink-0"
-              rounded="$bew-radius"
-              overflow-hidden
-              aspect-video
-            >
-              <img
-                w="full"
-                aspect-video
-                :src="`${getHistoryItemCover(historyItem)}@480w_270h_1c`"
-                :alt="historyItem.title"
-                object-cover
-              >
-
-              <span
-                v-if="historyItem.history.business !== HistoryBusiness.ARCHIVE"
-                pos="absolute right-0 top-0"
-                bg="$bew-theme-color"
-                text="xs white"
-                p="x-2 y-1"
-                m-1
-                rounded="$bew-radius-half"
-              >
-                <template
-                  v-if="historyItem.history.business === HistoryBusiness.LIVE"
-                >
-                  {{ t('history.livestreaming') }}
-                </template>
-                <template
-                  v-else-if="historyItem.history.business === HistoryBusiness.PGC"
-                >
-                  {{ t('history.pgc') }}
-                </template>
-              </span>
-
-              <div
-                v-if="
-                  historyItem.history.business === HistoryBusiness.ARCHIVE
-                    || historyItem.history.business === HistoryBusiness.PGC
-                "
-                pos="absolute bottom-0 right-0"
-                bg="black opacity-60"
-                m="2"
-                p="x-2 y-1"
-                text="white xs"
-                rounded="$bew-radius-half"
-              >
-                <!--  When progress = -1 means that the user watched the full video -->
-                {{
-                  `${
-                    historyItem.progress === -1
-                      ? calcCurrentTime(historyItem.duration)
-                      : calcCurrentTime(historyItem.progress)
-                  } /
-                      ${calcCurrentTime(historyItem.duration)}`
-                }}
-              </div>
-              <div w-full pos="absolute bottom-0" bg="white opacity-60">
-                <Progress
-                  v-if="
-                    historyItem.history.business === HistoryBusiness.ARCHIVE
-                      || historyItem.history.business === HistoryBusiness.PGC
-                  "
-                  :percentage="
-                    (historyItem.progress / historyItem.duration) * 100
-                  "
-                />
-              </div>
-            </div>
-
-            <!-- Description -->
-            <div flex justify-between w-full h-full>
-              <div flex="~ col">
-                <a
-                  :href="`${getHistoryUrl(historyItem)}`" target="_blank"
-                  :title="historyItem.show_title ? historyItem.show_title : historyItem.title"
-                >
-                  <h3
-                    class="keep-two-lines"
-                    overflow="hidden"
-                    text="lg overflow-ellipsis"
-                  >
-                    {{ historyItem.show_title ? historyItem.show_title : historyItem.title }}
-                  </h3>
-                </a>
-                <a
-                  un-text="$bew-text-2 sm"
-                  m="t-4 b-2"
-                  flex="~ items-center"
-                  cursor-pointer
-                  w-fit
-                  rounded="$bew-radius"
-                  hover:color="$bew-theme-color"
-                  hover:bg="$bew-theme-color-10"
-                  duration-300
-                  pr-2
-                  :href="historyItem.author_mid ? `https://space.bilibili.com/${historyItem.author_mid}` : historyItem.uri" target="_blank"
-                >
-                  <img
-                    :src="
-                      removeHttpFromUrl(`${historyItem.author_face
-                        ? historyItem.author_face
-                        : historyItem.cover}@40w_40h_1c`)
-                    "
-                    w-30px
-                    aspect-square
-                    object-cover
-                    alt=""
-                    rounded="1/2"
-                    mr-2
-                  >
-                  {{
-                    historyItem.author_name
-                      ? historyItem.author_name
-                      : historyItem.title
-                  }}
-                  <span
-                    v-if="historyItem.live_status === 1"
-                    text="$bew-theme-color"
-                    flex
-                    items-center
-                    gap-1
-                    m="l-2"
-                  ><div i-tabler:live-photo />
-                    {{ t('history.live') }}
-                  </span>
-                </a>
-                <div
-                  display="xl:none"
-                  flex items-center
-                  text="$bew-text-3 sm"
-                  mt-auto
-                >
-                  <span text-xl mr-2 lh-0>
-                    <i
-                      v-if="historyItem.history.dt === 1 || historyItem.history.dt === 3 || historyItem.history.dt === 5 || historyItem.history.dt === 7"
-                      i-mingcute:cellphone-line
-                    />
-                    <i v-if="historyItem.history.dt === 2" i-mingcute:tv-1-line />
-                    <i
-                      v-if="historyItem.history.dt === 4 || historyItem.history.dt === 6" i-mingcute:pad-line
-                    />
-                    <i v-if="historyItem.history.dt === 33" i-mingcute:tv-2-line />
-                  </span>
-                  <span>
-                    {{
-                      useDateFormat(historyItem.view_at * 1000, 'YYYY-MM-DD HH:mm:ss')
-                        .value
-                    }}
-                  </span>
-                </div>
-              </div>
-
+            <template #coverTopLeft="{ item }">
               <button
-                text="size-$bew-icon-size-lg $bew-text-3"
-                hover:color="$bew-theme-color"
-                opacity-0 group-hover:opacity-100
-                p-2
-                duration-300
-                @click.prevent.stop="deleteHistoryItem(index, historyItem)"
+                type="button"
+                class="history-remove-action"
+                :title="t('common.operation.delete')"
+                :aria-label="t('common.operation.delete')"
+                @click.prevent.stop="deleteHistoryItem(item)"
               >
                 <div i-tabler:trash />
               </button>
-            </div>
-          </section>
-        </ALink>
-      </TransitionGroup>
+            </template>
+          </VideoCardGrid>
+          <TransitionGroup v-else name="list" tag="div">
+            <ALink
+              v-for="historyItem in group.items"
+              :key="getHistoryItemKey(historyItem)"
+              type="videoCard"
+              :href="getHistoryUrl(historyItem)"
+              block
+              class="group history-card"
+              flex
+              cursor-pointer
+            >
+              <!-- time slot -->
+              <div
+                mr-8 px-4
+                b-l="~ 2px dashed $bew-fill-2"
+                group-hover:b-l="$bew-theme-color-40"
+                shrink-0
+                relative
+                duration-300
+                flex="important-xl:~ items-center justify-center"
+                hidden
+              >
+                <!-- hidden lg:flex -->
+                <!-- Dot -->
+                <i
+                  pos="absolute left--1px"
+                  w-2
+                  h-2
+                  rounded-6
+                  bg="$bew-fill-3"
+                  group-hover:bg="$bew-theme-color"
+                  transform="~ translate-x--1/2"
+                  duration-300
+                />
+                <div
+                  text="sm $bew-text-3"
+                  group-hover:text="$bew-theme-color"
+                  bg="$bew-fill-1"
+                  group-hover:bg="$bew-theme-color-20"
+                  p="x-3 y-1"
+                  rounded="$bew-radius-half"
+                  duration-300
+                >
+                  {{
+                    useDateFormat(historyItem.view_at * 1000, 'YYYY-MM-DD HH:mm:ss')
+                      .value
+                  }}
+                </div>
+              </div>
+
+              <section
+                rounded="$bew-radius"
+                flex="~ gap-6 col md:col lg:row items-start"
+                relative
+                group-hover:bg="$bew-fill-2"
+                duration-300 w-full
+                p-2 m-1
+                content-visibility-auto
+              >
+                <!-- Cover -->
+                <div
+                  pos="relative"
+                  bg="$bew-skeleton"
+                  w="full md:full lg:250px"
+                  flex="shrink-0"
+                  rounded="$bew-radius"
+                  overflow-hidden
+                  aspect-video
+                >
+                  <img
+                    w="full"
+                    aspect-video
+                    :src="`${getHistoryItemCover(historyItem)}@480w_270h_1c`"
+                    :alt="historyItem.title"
+                    object-cover
+                  >
+
+                  <span
+                    v-if="historyItem.history.business !== HistoryBusiness.ARCHIVE"
+                    pos="absolute right-0 top-0"
+                    bg="$bew-theme-color"
+                    text="xs white"
+                    p="x-2 y-1"
+                    m-1
+                    rounded="$bew-radius-half"
+                  >
+                    <template
+                      v-if="historyItem.history.business === HistoryBusiness.LIVE"
+                    >
+                      {{ t('history.livestreaming') }}
+                    </template>
+                    <template
+                      v-else-if="historyItem.history.business === HistoryBusiness.PGC"
+                    >
+                      {{ t('history.pgc') }}
+                    </template>
+                  </span>
+
+                  <div
+                    v-if="
+                      historyItem.history.business === HistoryBusiness.ARCHIVE
+                        || historyItem.history.business === HistoryBusiness.PGC
+                    "
+                    pos="absolute bottom-0 right-0"
+                    bg="black opacity-60"
+                    m="2"
+                    p="x-2 y-1"
+                    text="white xs"
+                    rounded="$bew-radius-half"
+                  >
+                    <!--  When progress = -1 means that the user watched the full video -->
+                    {{
+                      `${
+                        historyItem.progress === -1
+                          ? calcCurrentTime(historyItem.duration)
+                          : calcCurrentTime(historyItem.progress)
+                      } /
+                          ${calcCurrentTime(historyItem.duration)}`
+                    }}
+                  </div>
+                  <div w-full pos="absolute bottom-0" bg="white opacity-60">
+                    <Progress
+                      v-if="
+                        historyItem.history.business === HistoryBusiness.ARCHIVE
+                          || historyItem.history.business === HistoryBusiness.PGC
+                      "
+                      :percentage="
+                        (historyItem.progress / historyItem.duration) * 100
+                      "
+                    />
+                  </div>
+                </div>
+
+                <!-- Description -->
+                <div flex justify-between w-full h-full>
+                  <div flex="~ col">
+                    <a
+                      :href="`${getHistoryUrl(historyItem)}`" target="_blank"
+                      :title="historyItem.show_title ? historyItem.show_title : historyItem.title"
+                    >
+                      <h3
+                        class="keep-two-lines"
+                        overflow="hidden"
+                        text="lg overflow-ellipsis"
+                      >
+                        {{ historyItem.show_title ? historyItem.show_title : historyItem.title }}
+                      </h3>
+                    </a>
+                    <a
+                      un-text="$bew-text-2 sm"
+                      m="t-4 b-2"
+                      flex="~ items-center"
+                      cursor-pointer
+                      w-fit
+                      rounded="$bew-radius"
+                      hover:color="$bew-theme-color"
+                      hover:bg="$bew-theme-color-10"
+                      duration-300
+                      pr-2
+                      :href="historyItem.author_mid ? `https://space.bilibili.com/${historyItem.author_mid}` : historyItem.uri" target="_blank"
+                    >
+                      <img
+                        :src="
+                          removeHttpFromUrl(`${historyItem.author_face
+                            ? historyItem.author_face
+                            : historyItem.cover}@40w_40h_1c`)
+                        "
+                        w-30px
+                        aspect-square
+                        object-cover
+                        alt=""
+                        rounded="1/2"
+                        mr-2
+                      >
+                      {{
+                        historyItem.author_name
+                          ? historyItem.author_name
+                          : historyItem.title
+                      }}
+                      <span
+                        v-if="historyItem.live_status === 1"
+                        text="$bew-theme-color"
+                        flex
+                        items-center
+                        gap-1
+                        m="l-2"
+                      ><div i-tabler:live-photo />
+                        {{ t('history.live') }}
+                      </span>
+                    </a>
+                    <div
+                      display="xl:none"
+                      flex items-center
+                      text="$bew-text-3 sm"
+                      mt-auto
+                    >
+                      <span text-xl mr-2 lh-0>
+                        <i
+                          v-if="historyItem.history.dt === 1 || historyItem.history.dt === 3 || historyItem.history.dt === 5 || historyItem.history.dt === 7"
+                          i-mingcute:cellphone-line
+                        />
+                        <i v-if="historyItem.history.dt === 2" i-mingcute:tv-1-line />
+                        <i
+                          v-if="historyItem.history.dt === 4 || historyItem.history.dt === 6" i-mingcute:pad-line
+                        />
+                        <i v-if="historyItem.history.dt === 33" i-mingcute:tv-2-line />
+                      </span>
+                      <span>
+                        {{
+                          useDateFormat(historyItem.view_at * 1000, 'YYYY-MM-DD HH:mm:ss')
+                            .value
+                        }}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    text="size-$bew-icon-size-lg $bew-text-3"
+                    hover:color="$bew-theme-color"
+                    opacity-0 group-hover:opacity-100
+                    p-2
+                    duration-300
+                    :aria-label="t('common.operation.delete')"
+                    @click.prevent.stop="deleteHistoryItem(historyItem)"
+                  >
+                    <div i-tabler:trash />
+                  </button>
+                </div>
+              </section>
+            </ALink>
+          </TransitionGroup>
+        </div>
+      </div>
 
       <!-- no more content -->
       <Empty v-if="noMoreContent" class="py-4" :description="$t('common.no_more_content')" />
@@ -548,6 +648,103 @@ function jumpToLoginPage() {
 </template>
 
 <style lang="scss" scoped>
+.history-grid {
+  .history-date-group {
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr);
+    column-gap: var(--bew-space-6);
+  }
+
+  .history-date {
+    position: relative;
+    padding: var(--bew-space-2) 0 var(--bew-space-8) var(--bew-space-4);
+    margin-left: var(--bew-space-1);
+    border-left: 2px dashed var(--bew-fill-2);
+    color: var(--bew-text-2);
+    font-size: var(--bew-font-size-control);
+    font-weight: var(--bew-font-weight-medium);
+    line-height: var(--bew-line-height-control);
+
+    &::before {
+      content: "";
+      position: absolute;
+      top: var(--bew-space-3);
+      left: -1px;
+      width: var(--bew-space-2);
+      height: var(--bew-space-2);
+      border-radius: 50%;
+      background: var(--bew-theme-color);
+      transform: translateX(-50%);
+    }
+  }
+
+  .history-cards {
+    min-width: 0;
+    padding-bottom: var(--bew-space-8);
+  }
+}
+
+.history-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--bew-space-4);
+}
+
+.history-remove-action {
+  display: grid;
+  place-items: center;
+  width: var(--bew-control-item-height);
+  height: var(--bew-control-item-height);
+  margin: var(--bew-space-1);
+  color: white;
+  background: rgb(0 0 0 / 62%);
+  border: 0;
+  border-radius: var(--bew-interactive-radius);
+  font-size: var(--bew-icon-size-sm);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--bew-duration-fast) var(--bew-ease-standard);
+
+  &:hover {
+    background: var(--bew-error-color);
+  }
+}
+
+.history-cards :deep(.video-card-container:hover) .history-remove-action,
+.history-cards :deep(.video-card-container:focus-within) .history-remove-action {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.history-card:focus-within button {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .history-remove-action {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .history-card button {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 640px) {
+  .history-grid .history-date-group {
+    grid-template-columns: 88px minmax(0, 1fr);
+    column-gap: var(--bew-space-2);
+  }
+
+  .history-grid .history-date {
+    padding-left: var(--bew-space-2);
+    font-size: var(--bew-font-size-caption);
+  }
+}
+
 .history-sidebar-panel {
   padding: var(--bew-space-6);
 }

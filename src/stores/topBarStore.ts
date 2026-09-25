@@ -30,6 +30,7 @@ import {
 import { settings } from '~/logic'
 import { checkLoginStatus, LoginStatus, parseDedeUserID } from '~/logic/loginStatus'
 import { parseTopBarPublicationTime, recordUploaderLatestVideoTimes } from '~/logic/uploaderLatestVideoTimes'
+import { markWatchLater, noteWatchLaterCount } from '~/logic/watchLaterState'
 import type { List as VideoItem } from '~/models/video/watchLater'
 import api from '~/utils/api'
 import { shouldShowBewlyTopBar } from '~/utils/bilibiliTopBar'
@@ -38,6 +39,7 @@ import { getCSRF, isHomePage } from '~/utils/main'
 import { isBackgroundUnavailableError, onMessage, sendMessage } from '~/utils/messaging'
 import type { TopBarMomentItem } from '~/utils/momentVideoIdentifier'
 import { extractMomentVideoIdentifier } from '~/utils/momentVideoIdentifier'
+import { getNotificationBadgeCounts } from '~/utils/notificationBadge'
 import type { AddOpenTabsResult } from '~/utils/openTabsWatchLater'
 import { addOpenTabsToWatchLater } from '~/utils/openTabsWatchLater'
 import { getOpenBilibiliTabUrls } from '~/utils/tabs'
@@ -72,38 +74,9 @@ export const useTopBarStore = defineStore('topBar', () => {
   const unReadMessage = reactive<UnReadMessage>({} as UnReadMessage)
   const unReadDm = reactive<UnReadDm>({} as UnReadDm)
 
-  const MESSAGE_KEYS_TO_COUNT: Array<keyof UnReadMessage> = ['reply', 'at', 'chat', 'sys_msg']
-
-  function getLikeUnreadCount(): number {
-    const likeCount = typeof unReadMessage.like === 'number' ? unReadMessage.like : 0
-    const recvLike = unReadMessage.recv_like
-    const recvLikeCount = typeof recvLike === 'number' ? recvLike : 0
-
-    return Math.max(likeCount, recvLikeCount)
-  }
-
-  const unReadMessageCount = computed((): number => {
-    let result = 0
-
-    // 统计顶栏默认展示的消息类型
-    MESSAGE_KEYS_TO_COUNT.forEach((key) => {
-      const value = unReadMessage[key]
-      if (typeof value === 'number')
-        result += value
-    })
-
-    // 可选地将点赞提醒计入顶栏通知角标
-    if (settings.value.showLikeNotificationReminder)
-      result += getLikeUnreadCount()
-
-    // 计算 unReadDm 中的未读消息
-    if (typeof unReadDm.follow_unread === 'number')
-      result += unReadDm.follow_unread
-    if (typeof unReadDm.unfollow_unread === 'number')
-      result += unReadDm.unfollow_unread
-
-    return result
-  })
+  const unReadMessageCount = computed((): number => Object.values(
+    getNotificationBadgeCounts(settings.value, unReadMessage, unReadDm),
+  ).reduce((total, count) => total + count, 0))
 
   // Moments State
   const newMomentsCount = ref<number>(0)
@@ -661,6 +634,8 @@ export const useTopBarStore = defineStore('topBar', () => {
       if (res.code === 0 && isCurrentAccount(accountId)) {
         const countChanged = watchLaterCount.value !== res.data.count
         watchLaterCount.value = res.data.count
+        if (countChanged)
+          noteWatchLaterCount(res.data.count)
 
         // 数量变化意味着服务器列表已换代，旧列表与游标不能继续混用。
         if (shouldRefreshWatchLaterList(countChanged, res.data.count)) {
@@ -838,6 +813,7 @@ export const useTopBarStore = defineStore('topBar', () => {
         csrf: getCSRF(),
       })
       if (res.code === 0 && isCurrentAccount(accountId)) {
+        markWatchLater({ aid }, false)
         const currentIndex = watchLaterList.findIndex(item => item.aid === aid)
         if (currentIndex !== -1) {
           watchLaterList.splice(currentIndex, 1)
@@ -1153,38 +1129,6 @@ export const useTopBarStore = defineStore('topBar', () => {
     return index < newMomentsCount.value
   }
 
-  function toggleWatchLater(aid: number) {
-    const accountId = userInfo.mid
-    if (!isCurrentAccount(accountId))
-      return
-
-    const isInWatchLater = addedWatchLaterList.includes(aid)
-
-    if (!isInWatchLater) {
-      api.watchlater.saveToWatchLater({
-        aid,
-        csrf: getCSRF(),
-      })
-        .then((res: any) => {
-          if (res.code === 0 && isCurrentAccount(accountId))
-            addedWatchLaterList.push(aid)
-        })
-    }
-    else {
-      api.watchlater.removeFromWatchLater({
-        aid,
-        csrf: getCSRF(),
-      })
-        .then((res: any) => {
-          if (res.code === 0 && isCurrentAccount(accountId)) {
-            const index = addedWatchLaterList.indexOf(aid)
-            if (index !== -1)
-              addedWatchLaterList.splice(index, 1)
-          }
-        })
-    }
-  }
-
   function handleNotificationsItemClick(item: { name: string, url: string, unreadCount: number, icon: string }) {
     if (settings.value.openNotificationsPageAsDrawer) {
       drawerVisible.notifications = true
@@ -1228,6 +1172,8 @@ export const useTopBarStore = defineStore('topBar', () => {
     Object.assign(unReadDm, snapshot.unReadDm)
     newMomentsCount.value = snapshot.newMomentsCount
     watchLaterCount.value = snapshot.watchLaterCount
+    if (watchLaterCountChanged)
+      noteWatchLaterCount(snapshot.watchLaterCount)
     if (shouldRefreshWatchLaterList(watchLaterCountChanged, snapshot.watchLaterCount)) {
       invalidateWatchLaterList()
       void getAllWatchLaterList()
@@ -1253,7 +1199,7 @@ export const useTopBarStore = defineStore('topBar', () => {
       if (accountId !== userInfo.mid)
         return
 
-      syncSharedData({ force: true, refresh: getUnreadMessageCount }).catch((error) => {
+      syncSharedData({ refresh: getUnreadMessageCount }).catch((error) => {
         console.error('刷新已失效的未读消息状态失败:', error)
       })
     },
@@ -1377,10 +1323,7 @@ export const useTopBarStore = defineStore('topBar', () => {
   }
 
   function syncUnreadMessageState() {
-    return syncSharedData({
-      force: true,
-      refresh: getUnreadMessageCount,
-    })
+    return invalidateUnreadMessageState()
   }
 
   function syncMomentsState(selectedType: string = 'video') {
@@ -1440,7 +1383,7 @@ export const useTopBarStore = defineStore('topBar', () => {
   }
 
   function startUpdateTimer() {
-    if (updateTimer)
+    if (updateTimer || document.hidden)
       return
 
     const timerGeneration = updateTimerGeneration
@@ -1456,7 +1399,7 @@ export const useTopBarStore = defineStore('topBar', () => {
     let recheckInterval = LOGIN_RECHECK_INTERVAL
     const needsRecheck = () => isLogin.value && !userInfo.mid
     const scheduleNext = (delay: number) => {
-      if (timerGeneration !== updateTimerGeneration || sharedStateMessagingUnavailable)
+      if (timerGeneration !== updateTimerGeneration || sharedStateMessagingUnavailable || document.hidden)
         return
 
       updateTimer = setTimeout(() => {
@@ -1464,7 +1407,7 @@ export const useTopBarStore = defineStore('topBar', () => {
           return
 
         // 扩展重载后旧 content script 的 runtime 已失效：停止轮询，等待刷新
-        if (sharedStateMessagingUnavailable) {
+        if (sharedStateMessagingUnavailable || document.hidden) {
           updateTimer = null
           return
         }
@@ -1613,7 +1556,6 @@ export const useTopBarStore = defineStore('topBar', () => {
     initMomentsData,
     getMomentsData,
     isNewMoment,
-    toggleWatchLater,
 
     getWatchLaterCount,
     getAllWatchLaterList,

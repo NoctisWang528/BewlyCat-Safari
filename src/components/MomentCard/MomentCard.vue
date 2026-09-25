@@ -91,6 +91,10 @@ const { mainAppRef } = useBewlyApp()
 const commentPreview = createCommentPreview()
 useUserRelationScope(() => [Number(moment.author.mid)])
 
+// 包成 computed：稍后再看状态整体更新时，只有结果变化的卡片才重新渲染
+const watchLaterAdded = computed(() => isWatchLaterAdded(moment))
+const forwardWatchLaterAdded = computed(() => Boolean(moment.forward?.video && isWatchLaterAdded(moment.forward.video)))
+
 const cardLayoutStyles = computed<CSSProperties>(() => {
   const scale = Math.max(1, cardWidth / 520)
   return {
@@ -770,7 +774,7 @@ function handleAdditionalClick(event: MouseEvent) {
               :watched-aid="moment.aid"
               :watched-bvid="moment.bvid"
               :watch-later-enabled="settings.showVideoCardWatchLater"
-              :watch-later-added="isWatchLaterAdded(moment)"
+              :watch-later-added="watchLaterAdded"
               :watch-later-loading="isWatchLaterLoading(moment)"
               :preview-active="previewActive"
               :preview-url="previewUrl"
@@ -989,7 +993,7 @@ function handleAdditionalClick(event: MouseEvent) {
                   :watched-aid="moment.forward.video.aid"
                   :watched-bvid="moment.forward.video.bvid"
                   :watch-later-enabled="settings.showVideoCardWatchLater && Boolean(getWatchLaterStateKey(moment.forward.video))"
-                  :watch-later-added="isWatchLaterAdded(moment.forward.video)"
+                  :watch-later-added="forwardWatchLaterAdded"
                   :watch-later-loading="isWatchLaterLoading(moment.forward.video)"
                   :preview-active="previewActive"
                   :preview-url="previewUrl"
@@ -1286,10 +1290,6 @@ function handleAdditionalClick(event: MouseEvent) {
       </button>
 
       <footer class="moment-card__footer">
-        <a :href="moment.url" draggable="false" @click="handleDetailLinkClick($event, moment, true)">
-          <span i-tabler-file-description aria-hidden="true" />
-          {{ t('moment_card.view_details') }}
-        </a>
         <button
           v-if="!moment.isLive"
           type="button"
@@ -2037,7 +2037,7 @@ function handleAdditionalClick(event: MouseEvent) {
   gap: var(--bew-space-1);
 }
 
-/* 稍后再看：仅横条视频卡使用，显隐只跟封面 hover 与键盘聚焦 */
+/* 稍后再看：仅横条视频卡使用；未加入时显隐跟封面 hover 与键盘聚焦，已加入时常驻 */
 .moment-card__video-card :deep(.moment-card__watch-later) {
   position: absolute;
   top: var(--bew-space-2);
@@ -2063,13 +2063,22 @@ function handleAdditionalClick(event: MouseEvent) {
 }
 
 .moment-card__video-card :deep(.moment-card__video-card-cover:hover .moment-card__watch-later),
-.moment-card__video-card :deep(.moment-card__watch-later:focus-visible) {
+.moment-card__video-card :deep(.moment-card__watch-later:focus-visible),
+.moment-card__video-card :deep(.moment-card__watch-later.is-added) {
   opacity: 1;
   transform: scale(1);
 }
 
 .moment-card__video-card :deep(.moment-card__watch-later:hover) {
   background: rgb(0 0 0 / 78%);
+}
+
+.moment-card__video-card :deep(.moment-card__watch-later.is-added) {
+  background: var(--bew-theme-color);
+}
+
+.moment-card__video-card :deep(.moment-card__watch-later.is-added:hover) {
+  background: color-mix(in oklab, var(--bew-theme-color), #000 16%);
 }
 
 .moment-card__video-card :deep(.moment-card__watch-later:focus-visible) {
@@ -2526,7 +2535,7 @@ function handleAdditionalClick(event: MouseEvent) {
 
 .moment-card__footer {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   align-items: center;
   gap: 0;
   min-height: 42px;

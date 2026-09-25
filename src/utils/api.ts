@@ -1,8 +1,12 @@
 import type { API_COLLECTION } from '~/background/messageListeners/api'
 import { isSearchResultApiMethod } from '~/constants/searchApi'
 import { settings } from '~/logic'
-import { sendMessage } from '~/utils/messaging'
+import { sendAbortableApiMessage, sendMessage } from '~/utils/messaging'
 import { isPageWatchLaterMethod, requestPageWatchLater } from '~/utils/pageWatchLater'
+
+export interface ApiRequestOptions {
+  signal?: AbortSignal
+}
 
 const SEARCH_QUERY_ID_CHARACTERS = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
 const searchQueryIds = new Map<string, string>()
@@ -36,7 +40,7 @@ type CamelCase<S extends string> = S extends `${infer P1}_${infer P2}${infer P3}
 type APIFunction<T = typeof API_COLLECTION> = {
   [K in keyof T as CamelCase<string & K>]: {
     // @ts-expect-error allow params
-    [P in keyof T[K]]: T[K][P] extends (...args: any[]) => any ? T[K][P] : Lowercase<T[K][P]['_fetch']['method']> extends 'get' ? (options?: Partial<T[K][P]['params']>) => Promise<any> : (options?: Partial<T[K][P]['params'] & T[K][P]['_fetch']['body']>) => Promise<any>
+    [P in keyof T[K]]: T[K][P] extends (...args: any[]) => any ? T[K][P] : Lowercase<T[K][P]['_fetch']['method']> extends 'get' ? (options?: Partial<T[K][P]['params']>, request?: ApiRequestOptions) => Promise<any> : (options?: Partial<T[K][P]['params'] & T[K][P]['_fetch']['body']>) => Promise<any>
   }
 }
 
@@ -85,7 +89,7 @@ export class APIClient {
         else {
           const api = new Proxy({}, {
             get(_, p) {
-              return (options?: object) => {
+              return (options?: object, request?: ApiRequestOptions) => {
                 if (shouldUsePageWatchLater(namespace, p, useSafariPageWatchLater)) {
                   return requestPageWatchLater(p, options as Record<string, unknown> | undefined)
                     .then(response => assertApiResponse(response, namespace, p))
@@ -107,7 +111,10 @@ export class APIClient {
                 if (isSearchResultRequest && settings.value.depersonalizeSearchResults)
                   message.bewlyNoCookie = true
 
-                return sendMessage(p as string, message)
+                const responsePromise = request?.signal
+                  ? sendAbortableApiMessage(p as string, message, request.signal)
+                  : sendMessage(p as string, message)
+                return responsePromise
                   .then(response => assertApiResponse(response, namespace, p))
               }
             },

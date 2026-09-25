@@ -5,18 +5,19 @@ export interface VideoCardState {
   removed: boolean
   selectedDislikeOpt?: { reasonId?: number, feedbackId?: number }
   videoCurrentTime: number | null
-  isInWatchLater: boolean
   resolvedWatchLaterAid?: number
 }
 
 export function createVideoCardState(): VideoCardState {
-  return { removed: false, videoCurrentTime: null, isInWatchLater: false }
+  return { removed: false, videoCurrentTime: null }
 }
 
 export interface Video {
   id: number
   duration?: number
   durationStr?: string
+  /** 播放进度百分比（0–100）；不传时隐藏封面底部进度条。 */
+  playbackProgress?: number
   title: string
   desc?: string
   cover: string

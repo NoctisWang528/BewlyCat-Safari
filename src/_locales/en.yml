@@ -112,6 +112,26 @@ player_screenshot:
   failed: Failed to capture screenshot
   video_unavailable: The current video frame is unavailable
 settings:
+  local_loudness:
+    gain_history: Levelling gain · Last 60 seconds
+    show_button: Show player volume balance button
+    show_button_desc: Show a player control to adjust parameters and view the current video’s status on hover. Hiding the button does not disable processing.
+    summary: Balance volume across videos to reduce loudness differences when switching videos.
+    title: Volume balance
+    enable: Enable local volume balance
+    description: Balance volume across videos to reduce loudness differences when switching videos. Enabling this turns off Bilibili normalization through its player settings. Disabling this feature does not turn native normalization back on. Silence and audio below the gate are not boosted; maximum boost is 6 dB.
+    target: Target loudness
+    target_desc: Start at -18 LUFS. Lower values are quieter. The player volume remains independently adjustable.
+    strength: Levelling strength
+    strength_desc: Higher strength reduces loudness differences but also changes the dynamics of music and films more.
+    status: Status
+    states:
+      off: Off
+      waiting: Waiting for video playback. Only the video player audio is processed.
+      active: Local volume balance is active
+      error: Audio processing failed; original audio restored. Reload the page to retry.
+      native-unavailable: Native normalization could not be confirmed off. Check More playback settings in the player. Audio is unchanged.
+      unsupported: This audio source cannot be safely processed. Audio is unchanged.
   following_sort: Uploader order in the new Following layout
   following_sort_updated: By update time
   following_sort_group: By group
@@ -230,7 +250,7 @@ settings:
   group_player_display_mode: Display Mode
   group_player_display_mode_desc: Set a base display mode and override it for specific playback contexts when needed.
   group_playback_memory: Playback Memory
-  group_playback_memory_desc: Choose whether to remember playback rate and video aspect ratio.
+  group_playback_memory_desc: Choose whether to remember playback rate, video quality, and video aspect ratio.
   group_video_page_actions: Video Page Features
   group_video_page_actions_desc: Tags only toggle the visibility of related controls on the video page and player toolbar.
   group_playback_behavior: Playback Behavior
@@ -443,6 +463,8 @@ settings:
   video_default_player_mode: Default video display mode
   video_danmaku_default_state: Default danmaku state
   video_danmaku_default_state_desc: Automatically toggle danmaku when a video loads, or leave it unchanged.
+  skip_concise_danmaku: Skip concise danmaku when toggling
+  skip_concise_danmaku_desc: Clicking the danmaku switch or pressing D toggles directly between on and off, skipping Bilibili's new "concise danmaku" state. Takes effect after reloading the page.
   video_caption_default_state: Default caption state
   video_caption_default_state_desc: Automatically toggle captions when a video loads, or leave them unchanged.
   video_default_state_opt:
@@ -467,6 +489,8 @@ settings:
     context_bangumi: Series / Movies
     context_watch_later: Watch Later
     context_playlist: Favorites / Playlists
+    context_moments_dialog: Moments Video Dialog
+    context_moments_dialog_desc: Applies only to videos played in the Moments dialog and takes priority over other contexts; “Inherit Default” falls back to the video's own context.
     bewly_widescreen_sidebar_position: Bewly Widescreen Sidebar Position
     bewly_widescreen_sidebar_position_desc: Choose the sidebar position in Bewly Widescreen mode
     bewly_widescreen_sidebar_position_left: Left
@@ -532,7 +556,6 @@ settings:
   top_bar_icon_badges: Icon badges
   top_bar_icon_badges_opt:
     number: Number
-    number_with_likes: Number (including likes)
     dot: Dot
     none: Do not show
   show_watch_later_badge: Show watch later badge
@@ -541,9 +564,11 @@ settings:
   auto_receive_bcoin_coupon_desc: When enabled, B-coin coupons will be automatically received when detected
   auto_receive_vip_exp: Auto receive VIP experience
   auto_receive_vip_exp_desc: When enabled, will automatically receive daily VIP experience
+  notification_badge_types: Messages included in notification badges
+  notification_badge_types_desc: Choose which message types count toward the top bar badge. The menu also shows unread badges only for selected types.
+  notification_followed_private_messages: Private messages from followed users
+  notification_unfollowed_private_messages: Private messages from unfollowed users
   open_notifications_page_as_drawer: Open notifications page as drawer
-  show_like_notification_reminder: Show like notifications
-  show_like_notification_reminder_desc: When enabled, likes are included in the top bar notifications badge count.
 
   # Video Card Grid Settings
   group_video_card_grid: Video Card Grid
@@ -892,6 +917,8 @@ settings:
   remember_playback_rate_desc: >
     When enabled, the player will remember your last set playback rate and
     automatically apply it when opening videos
+  remember_video_quality: Remember video quality
+  remember_video_quality_desc: Restore the last selected video quality. If unavailable, keep the current quality without overwriting the preference.
   remember_video_aspect_ratio: Remember video aspect ratio
   remember_video_aspect_ratio_desc: >
     When enabled, the player will remember your last selected video aspect ratio
@@ -950,10 +977,10 @@ settings:
   random_play_disabled: Custom playback disabled
   random_play_not_enabled: Custom playback is not enabled
   random_play_min_videos_required: At least {count} videos required to enable random play
-  enable_undo_refresh_button: Enable Undo Refresh Button(only effective in Web recommendation mode)
-  enable_undo_refresh_button_desc: >-
-    After refreshing the page, display an undo button that restores the content
-    before the refresh when clicked.
+  enable_undo_refresh_button: Enable homepage back/forward buttons
+  enable_undo_refresh_button_desc: Undo recommendation refreshes on the extension homepage, or navigate up to 5 recommendation batches on the original Bilibili homepage.
+  native_home_feed_back: Previous recommendations
+  native_home_feed_forward: Next recommendations
   shortcuts:
     title: Keyboard Shortcuts
     enable_all_shortcuts_toggle: Enable Keyboard Shortcuts
@@ -1081,6 +1108,10 @@ settings:
     desc: Choose how replies appear in the comment tree. “Load more” appends replies downward while keeping your current reading position; “Pagination” keeps Bilibili’s native pagination and shows only the current page
     load_more: Load more
     pagination: Pagination
+  enable_comment_reply_tree_container: Fixed-height reply container
+  enable_comment_reply_tree_container_desc: Scroll expanded replies inside a fixed-height container instead of stretching the whole thread. Requires the comment tree view
+  comment_reply_tree_container_height: Reply container height
+  comment_reply_tree_container_height_desc: Maximum height of the scrolling reply container; shorter reply lists still shrink to fit and never scroll
   adjust_comment_image_height: Adjust comment image height
   adjust_comment_image_height_desc: Automatically adjust comment image height to match actual aspect ratio and prevent distortion
   hide_comment_image_scrollbar: Hide page scrollbar in comment image preview
@@ -1255,6 +1286,7 @@ video_card:
   group_contribution: '{firstAuthor} and {num} others contributed'
   video_removed: Video removed
   watched: Watched
+  browsed: Opened
   visited_recently: Visited within the past month
 home:
   following_display_flat: List
@@ -1328,6 +1360,8 @@ anime:
       sat: SAT
       sun: SUN
 history:
+  layout_list: List view
+  layout_grid: Grid view
   livestreaming: Livestreaming
   pgc: Shows
   live: Live
@@ -1725,9 +1759,16 @@ vertical_video:
   adjust_area: Adjust vertical-video zoom area
 favorite_dialog:
   clear_selected: Clear selected
+  folder_full: This favorite folder is full and cannot be added
 inject:
   page_prefix: 'Page {current}, of'
+  page_number: 'Page {current}'
+  page_separator: ', of '
+  page_total: ', of {total} pages'
+  all_pages: All pages
+  select_reply_page: Select reply page
   of: of
   loading: Loading…
   load_more: Load more
-  expand_all_replies: Expand all replies
+  expand_all_replies: Load all
+  load_reply_pages: 'Load {count} pages'

@@ -27,6 +27,8 @@ interface UseSettingsStorageOptions<T> {
 }
 
 const MAX_MESSAGE_ATTEMPTS = 5
+// 后台繁忙时首屏不能一直等待协调器；超时后先渲染本地存储快照。
+const INITIAL_READ_FALLBACK_DELAY = 1500
 
 class StaleStorageGenerationError extends Error {}
 
@@ -137,7 +139,18 @@ export function useSettingsStorage<T extends object>(
     }
   }
 
+  function captureLocalChanges() {
+    const nextValue = asRecord(cloneValue(state))
+    const patch = createTopLevelSettingsStoragePatch(observedValue, nextValue)
+    observedValue = nextValue
+    if (!isSettingsStoragePatchEmpty(patch))
+      queuedPatch = mergeSettingsStoragePatches(queuedPatch, patch)
+  }
+
   const renderCanonicalValue = () => {
+    // 后台结果可能早于本轮 watch 执行，先保留尚未进入补丁队列的本地修改。
+    if (!disposed)
+      captureLocalChanges()
     let nextValue = canonicalValue
     if (inFlightPatch)
       nextValue = applySettingsStoragePatch(nextValue, inFlightPatch)
@@ -178,6 +191,8 @@ export function useSettingsStorage<T extends object>(
     canonicalValue = asRecord(cloneValue(defaults))
     queuedPatch = createEmptySettingsStoragePatch()
     inFlightPatch = null
+    // 存储被清空或替换时，旧 epoch 中尚未批处理的修改也必须一起丢弃。
+    observedValue = asRecord(cloneValue(state))
     persistenceReady = epoch.length > 0
     if (renderDefaults)
       renderCanonicalValue()
@@ -211,7 +226,8 @@ export function useSettingsStorage<T extends object>(
   }
 
   const flushQueuedPatch = async () => {
-    if (disposed || !ready || !persistenceReady || inFlightPatch || isSettingsStoragePatchEmpty(queuedPatch))
+    // scope 结束后仍排空此前捕获的补丁，但不再接收新的本地修改。
+    if (!ready || !persistenceReady || inFlightPatch || isSettingsStoragePatchEmpty(queuedPatch))
       return
 
     const patch = queuedPatch
@@ -256,24 +272,19 @@ export function useSettingsStorage<T extends object>(
   }
 
   function writeLocalValue(value: T) {
-    if (applyingCanonicalValue)
+    if (disposed || applyingCanonicalValue)
       return
 
     updateReactiveValue(value)
-    const nextValue = asRecord(cloneValue(state))
-    const patch = createTopLevelSettingsStoragePatch(observedValue, nextValue)
-    observedValue = nextValue
-    if (isSettingsStoragePatchEmpty(patch))
-      return
-
-    queuedPatch = mergeSettingsStoragePatches(queuedPatch, patch)
+    captureLocalChanges()
     void flushQueuedPatch()
   }
 
   watch(
     data,
     () => writeLocalValue(state),
-    { deep: true, flush: 'sync' },
+    // Vue 合并同一轮数组操作和多字段修改；界面状态仍同步更新。
+    { deep: true, flush: 'pre' },
   )
 
   const markReady = () => {
@@ -285,12 +296,45 @@ export function useSettingsStorage<T extends object>(
     void flushQueuedPatch()
   }
 
+  // 直接读取 storage.local 不经过后台 service worker，多标签页同时恢复导致
+  // 后台排队时仍能按时挂载；协调器结果稍后到达时按 revision 正常覆盖。
+  const applyLocalSnapshot = async (generation: number) => {
+    if (ready)
+      return
+
+    try {
+      const stored = await browser.storage.local.get([
+        SETTINGS_STORAGE_KEY,
+        SETTINGS_STORAGE_META_KEY,
+      ])
+      if (ready || disposed || generation !== storageGeneration)
+        return
+
+      const meta = normalizeSettingsStorageWriteMeta(stored[SETTINGS_STORAGE_META_KEY])
+      if (meta.epoch && !currentEpoch)
+        currentEpoch = meta.epoch
+      const sameEpoch = !meta.epoch || meta.epoch === currentEpoch
+      // 缺少 epoch 时只渲染，写入仍等协调器补全元数据后再提交。
+      if (meta.epoch && sameEpoch)
+        persistenceReady = true
+      if (sameEpoch && stored[SETTINGS_STORAGE_KEY] != null)
+        applyCanonicalValue(stored[SETTINGS_STORAGE_KEY], meta.revision)
+      markReady()
+    }
+    catch (error) {
+      onError(error)
+    }
+  }
+
   const refreshCanonicalValue = async (markReadyWhenFinished = false) => {
     const generation = storageGeneration
     if (readInFlightGeneration === generation)
       return
 
     readInFlightGeneration = generation
+    const fallbackTimer = markReadyWhenFinished
+      ? setTimeout(() => void applyLocalSnapshot(generation), INITIAL_READ_FALLBACK_DELAY)
+      : undefined
     try {
       const response = await sendWithRetry<SettingsStoragePatchResponse>(SETTINGS_STORAGE_READ_MESSAGE, undefined, generation)
       if (!isPatchResponse(response))
@@ -309,10 +353,15 @@ export function useSettingsStorage<T extends object>(
       void flushQueuedPatch()
     }
     catch (error) {
-      if (!(error instanceof StaleStorageGenerationError))
+      if (!(error instanceof StaleStorageGenerationError)) {
         onError(error)
+        // 后台不可达时也用本地快照挂载，避免以默认设置渲染。
+        if (markReadyWhenFinished)
+          await applyLocalSnapshot(generation)
+      }
     }
     finally {
+      clearTimeout(fallbackTimer)
       if (readInFlightGeneration === generation)
         readInFlightGeneration = null
       if (markReadyWhenFinished)
@@ -357,6 +406,7 @@ export function useSettingsStorage<T extends object>(
   browser.storage.onChanged.addListener(onStorageChanged)
   if (getCurrentScope()) {
     onScopeDispose(() => {
+      writeLocalValue(state)
       disposed = true
       browser.storage.onChanged.removeListener(onStorageChanged)
     })

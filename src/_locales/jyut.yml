@@ -112,6 +112,26 @@ player_screenshot:
   failed: 截圖失敗
   video_unavailable: 而家嘅影片畫面用唔到
 settings:
+  local_loudness:
+    gain_history: 均衡增益變化 · 近 60 秒
+    show_button: 顯示播放器音量均衡按鈕
+    show_button_desc: 喺影片控制列顯示按鈕，滑鼠移上去可以調整均衡參數同睇目前影片嘅運行狀態。隱藏按鈕唔會關閉均衡。
+    summary: 平衡唔同影片之間嘅音量，減少切換影片時嘅大小聲差異。
+    title: 音量均衡
+    enable: 啟用局部音量均衡
+    description: 平衡唔同影片之間嘅音量，減少切換影片時嘅大小聲差異。啟用後會透過播放器設定關閉 B 站原生均衡；關閉呢個功能唔會自動重新開啟原生均衡。靜音同低於門檻嘅聲音唔會放大，最多提升 6 dB。
+    target: 目標響度
+    target_desc: 建議由 -18 LUFS 開始。數值越低越靜；播放器音量仍然可以獨立調整。
+    strength: 均衡強度
+    strength_desc: 強度越高，大小聲差異越細，亦會更多改變音樂同電影嘅動態。
+    status: 運行狀態
+    states:
+      off: 已關閉
+      waiting: 等緊影片播放；只處理影片播放器嘅聲音。
+      active: 正進行局部音量均衡
+      error: 音訊處理失敗，已回復原聲。重新整理頁面後可以再試。
+      native-unavailable: 未能確認原生均衡已關閉，暫時唔處理。請檢查播放器嘅更多播放設定。
+      unsupported: 目前音源無法安全接入，保持原聲。
   following_sort: 新版關注列表排序
   following_sort_updated: 按更新時間
   following_sort_group: 按分組
@@ -230,7 +250,7 @@ settings:
   group_player_display_mode: 播放模式
   group_player_display_mode_desc: 設定基礎顯示模式，再按需要覆寫特定播放情況。
   group_playback_memory: 播放狀態記憶
-  group_playback_memory_desc: 揀選係咪記住倍速同影片比例。
+  group_playback_memory_desc: 揀選係咪記住倍速、畫質同影片比例。
   group_video_page_actions: 影片頁功能
   group_video_page_actions_desc: 標籤只用嚟切換影片頁同播放器控制欄入面相關按鈕嘅顯示。
   group_playback_behavior: 播放行為
@@ -531,7 +551,6 @@ settings:
   top_bar_icon_badges: 圖標邊位標記
   top_bar_icon_badges_opt:
     number: 數字
-    number_with_likes: 數字（包含點讚）
     dot: 圓點
     none: 唔顯示
   show_watch_later_badge: 顯示稍後再睇角標
@@ -556,9 +575,11 @@ settings:
   top_bar_logo_style_opt:
     icon: 圓形圖示
     brand: 品牌標誌
+  notification_badge_types: 通知角標計入嘅訊息
+  notification_badge_types_desc: 揀要計入頂欄通知角標嘅訊息類型，下拉選單亦只會顯示所選類型嘅未讀角標。
+  notification_followed_private_messages: 已關注用戶嘅私訊
+  notification_unfollowed_private_messages: 未關注用戶嘅私訊
   open_notifications_page_as_drawer: 用櫃桶打開通知頁面
-  show_like_notification_reminder: 顯示點讚提醒
-  show_like_notification_reminder_desc: 開咗之後，頂欄通知角標會將點讚提醒計埋入總數。
   show_layout_edit_button: 顯示版面編輯掣
   show_layout_edit_button_desc: 喺 Dock 或側邊欄顯示版面編輯入口；閂咗之後可以喺呢度重新開返。
   always_use_dock: 點都要用 Dock
@@ -815,6 +836,8 @@ settings:
   keep_watch_later_video_default_mode_desc: 啟用後，稍後再睇入面嘅影片會一直用預設播放器模式，唔會套用寬螢幕或者全螢幕設定
   remember_playback_rate: 記住倍速
   remember_playback_rate_desc: 開啟後，播放器會記住你上次設定嘅倍速，並喺下次開片嗰陣自動套用
+  remember_video_quality: 記住畫質
+  remember_video_quality_desc: 啟用後自動恢復上次揀嘅畫質；用唔到時沿用播放器目前畫質，唔會覆蓋記憶。
   remember_video_aspect_ratio: 記住影片比例
   remember_video_aspect_ratio_desc: 啟用後，播放器會記住你上次揀嘅影片比例，並喺下次打開影片嗰陣自動套用
   auto_exit_fullscreen_on_end: 全螢幕/網頁全螢幕播完後自動退出
@@ -848,8 +871,10 @@ settings:
   sync_cloud_status_failed: 讀取唔到雲端同步狀態
   sync_cloud_enable_failed: 開啟雲端同步失敗
   sync_cloud_incompatible: 雲端資料係由較新版本嘅擴充功能寫入，請先升級擴充功能再開啟同步
-  enable_undo_refresh_button: 啓用復原更新掣（淨係得 Web 推介模式下有效）
-  enable_undo_refresh_button_desc: 更新頁面後顯示復原更新掣，撳低可以回復更新前內容。
+  enable_undo_refresh_button: 啟用首頁前進後退掣
+  enable_undo_refresh_button_desc: 支援插件首頁推介嘅復原更新，同埋 B 站原版首頁「換一換」嘅前進後退（最多保留 5 組推介）。
+  native_home_feed_back: 返上一組推介
+  native_home_feed_forward: 去下一組推介
   shortcuts:
     caption: 字幕
     caption_desc: 顯示/隱藏字幕。
@@ -945,6 +970,8 @@ settings:
   video_default_player_mode: 預設影片顯示模式
   video_danmaku_default_state: 彈幕預設狀態
   video_danmaku_default_state_desc: 開片時自動幫你調整彈幕開關，亦可以保持唔變。
+  skip_concise_danmaku: 彈幕開關跳過精簡彈幕
+  skip_concise_danmaku_desc: 撳彈幕開關或者按 D 嗰陣直接喺開同關之間切換，唔會經過 B 站新加嘅「精簡彈幕」。重新整理頁面之後生效。
   video_caption_default_state: 字幕預設狀態
   video_caption_default_state_desc: 開片時自動幫你調整字幕開關，亦可以保持唔變。
   video_default_state_opt:
@@ -969,6 +996,8 @@ settings:
     context_bangumi: 番劇 / 影視
     context_watch_later: 稍後再睇
     context_playlist: 收藏 / 播放列表
+    context_moments_dialog: 動態影片彈窗
+    context_moments_dialog_desc: 只對動態頁彈窗入面播放嘅影片生效，並優先過其他情況；揀「繼承預設」嗰陣仍然按影片所屬情況決定。
     bewly_widescreen_sidebar_position: Bewly闊螢幕側邊欄位置
     bewly_widescreen_sidebar_position_desc: 選擇 Bewly 闊螢幕模式下側邊欄嘅顯示位置
     bewly_widescreen_sidebar_position_left: 左側
@@ -1000,6 +1029,10 @@ settings:
     desc: 揀樹狀留言嘅回覆顯示方式。「撈多啲」會保持而家閱讀位置，同時向下累積回覆；「翻頁」保留 Bilibili 原生分頁，只顯示目前頁面
     load_more: 撈多啲
     pagination: 翻頁
+  enable_comment_reply_tree_container: 固定高度回覆容器
+  enable_comment_reply_tree_container_desc: 展開樓中樓之後喺固定高度嘅容器內滾動睇回覆，避免成層留言將版面撐到太長；只喺開啟留言區樹狀顯示時先會生效
+  comment_reply_tree_container_height: 回覆容器高度
+  comment_reply_tree_container_height_desc: 容器嘅高度上限；回覆唔夠撐滿時容器會自動收縮，唔會出現滾動條
   adjust_comment_image_height: 調整留言區圖片高度
   adjust_comment_image_height_desc: 自動調整留言區圖片高度嚟配合實際長寬比例，避免圖片變形
   hide_comment_image_scrollbar: 留言圖片預覽時隱藏頁面滾動條
@@ -1175,6 +1208,7 @@ video_card:
   group_contribution: '{firstAuthor} 等 {num} 人一齊創作'
   video_removed: 經已鏟咗條片
   watched: 睇過
+  browsed: 開過
   visited_recently: 近一個月內睇過
 home:
   following_display_flat: 不分組
@@ -1247,6 +1281,8 @@ anime:
       sat: 週六
       sun: 週日
 history:
+  layout_list: 清單顯示
+  layout_grid: 格網顯示
   livestreaming: 直播
   pgc: 番劇影視
   live: 直播緊
@@ -1638,9 +1674,16 @@ vertical_video:
   adjust_area: 調整直屏影片放大區域
 favorite_dialog:
   clear_selected: 清走已揀
+  folder_full: 呢個收藏夾已經滿咗，加唔到
 inject:
   page_prefix: 第{current}頁，共
+  page_number: 第{current}頁
+  page_separator: ，共
+  page_total: '，共 {total} 頁'
+  all_pages: 全部
+  select_reply_page: 揀回覆頁碼
   of: 共
   loading: 載入緊…
   load_more: 載入更多
-  expand_all_replies: 展開全部回覆
+  expand_all_replies: 載入全部
+  load_reply_pages: '載入 {count} 頁'

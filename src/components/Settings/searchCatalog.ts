@@ -189,6 +189,10 @@ const topBarGlobalTitleKeys = [
   'settings.show_top_bar_theme_color_gradient',
   'settings.open_top_bar_items_in_bewly',
   'settings.open_notifications_page_as_drawer',
+  'settings.notification_badge_types',
+  'settings.notification_badge_types_desc',
+  'settings.notification_followed_private_messages',
+  'settings.notification_unfollowed_private_messages',
   'settings.filter_articles_in_moments',
 ]
 
@@ -467,6 +471,13 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
   ]),
 
   ...createEntries(playerRoute, [
+    'settings.local_loudness.title',
+    'settings.local_loudness.enable',
+    'settings.local_loudness.target',
+    'settings.local_loudness.strength',
+    'settings.local_loudness.show_button',
+  ]),
+  ...createEntries(playerRoute, [
     'settings.bilibili_features.video_playback',
     'settings.group_player_display_mode',
     'settings.video_player_mode.bewly_widescreen_sidebar_position',
@@ -478,6 +489,7 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.video_player_scroll',
     'settings.auto_exit_fullscreen_on_end',
     'settings.group_player_components',
+    'settings.skip_concise_danmaku',
     'settings.group_playback_memory',
     'settings.remember_playback_rate',
     'settings.remember_video_aspect_ratio',
@@ -505,6 +517,7 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.video_player_mode.context_bangumi',
     'settings.video_player_mode.context_watch_later',
     'settings.video_player_mode.context_playlist',
+    'settings.video_player_mode.context_moments_dialog',
   ], { keywordKeys: [...playerModeOptionKeys, 'settings.video_player_mode.inherit'] }),
   ...createEntries(playerRoute, [
     'settings.video_danmaku_default_state',
@@ -602,6 +615,8 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.show_sex',
     'settings.show_comment_host_tag',
     'settings.enable_comment_reply_tree_display',
+    'settings.enable_comment_reply_tree_container',
+    'settings.comment_reply_tree_container_height',
     'settings.comment_reply_tree_mode.title',
     'settings.comment_reply_tree_mode.line_collapse_main',
     'settings.comment_reply_tree_mode.line_keep_main',

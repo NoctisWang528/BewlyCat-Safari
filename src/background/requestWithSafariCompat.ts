@@ -29,6 +29,7 @@ export interface SafariCompatRequestOptions {
   headers?: Record<string, string>
   body?: BodyInit | null
   credentials?: RequestCredentials
+  signal?: AbortSignal
 }
 
 /**
@@ -48,6 +49,7 @@ export async function requestWithSafariCompat(input: SafariCompatRequestOptions)
     headers: callerHeaders = {},
     body = null,
     credentials = 'include',
+    signal,
   } = input
 
   // Normalize header keys using Headers API for case-insensitive handling
@@ -73,5 +75,6 @@ export async function requestWithSafariCompat(input: SafariCompatRequestOptions)
     headers,
     body,
     credentials,
+    signal,
   })
 }

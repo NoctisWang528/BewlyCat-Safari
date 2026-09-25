@@ -10,6 +10,7 @@ import SettingsItem from '../../components/SettingsItem.vue'
 import SettingsItemGroup from '../../components/SettingsItemGroup.vue'
 import SettingsItemSubgroup from '../../components/SettingsItemSubgroup.vue'
 import SettingsToggleTag from '../../components/SettingsToggleTag.vue'
+import VolumeBalance from '../VolumeBalance/VolumeBalance.vue'
 
 const { t } = useI18n()
 
@@ -98,12 +99,13 @@ const videoPlayerModeOverrideOptions = computed(() => [
   ...videoPlayerModeOptions.value,
 ])
 
-const videoPlayerModeContextOptions = computed<{ label: string, value: VideoPlayerModeContext }[]>(() => [
+const videoPlayerModeContextOptions = computed<{ label: string, value: VideoPlayerModeContext, desc?: string }[]>(() => [
   { label: t('settings.video_player_mode.context_multipart'), value: 'multipart' },
   { label: t('settings.video_player_mode.context_collection'), value: 'collection' },
   { label: t('settings.video_player_mode.context_bangumi'), value: 'bangumi' },
   { label: t('settings.video_player_mode.context_watch_later'), value: 'watchLater' },
   { label: t('settings.video_player_mode.context_playlist'), value: 'playlist' },
+  { label: t('settings.video_player_mode.context_moments_dialog'), value: 'momentsDialog', desc: t('settings.video_player_mode.context_moments_dialog_desc') },
 ])
 
 const videoPlayerScrollModeOptions = computed<{ label: string, value: VideoPlayerScrollMode }[]>(() => [
@@ -118,6 +120,7 @@ const usesBewlyWidescreen = computed(() => settings.value.defaultVideoPlayerMode
 type ToggleSetting
   = | 'rememberPlaybackRate'
     | 'rememberVideoAspectRatio'
+    | 'rememberVideoQuality'
 
 interface ToggleTagOption {
   setting: ToggleSetting
@@ -127,6 +130,7 @@ interface ToggleTagOption {
 
 const playbackMemoryOptions = computed<ToggleTagOption[]>(() => [
   { setting: 'rememberPlaybackRate', label: t('settings.remember_playback_rate'), icon: 'i-tabler-gauge' },
+  { setting: 'rememberVideoQuality', label: t('settings.remember_video_quality'), icon: 'i-tabler-badge-hd' },
   { setting: 'rememberVideoAspectRatio', label: t('settings.remember_video_aspect_ratio'), icon: 'i-tabler-aspect-ratio' },
 ])
 
@@ -224,6 +228,7 @@ const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefault
           v-for="context in videoPlayerModeContextOptions"
           :key="context.value"
           :title="context.label"
+          :desc="context.desc"
           right-width="auto"
         >
           <Select
@@ -245,6 +250,14 @@ const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefault
           :options="playerDefaultStateOptions"
           w="180px"
         />
+      </SettingsItem>
+
+      <SettingsItem
+        :title="t('settings.skip_concise_danmaku')"
+        :desc="t('settings.skip_concise_danmaku_desc')"
+        right-width="auto"
+      >
+        <Radio v-model="settings.skipConciseDanmaku" />
       </SettingsItem>
 
       <SettingsItem
@@ -319,6 +332,7 @@ const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefault
         </SettingsItem>
       </SettingsItemSubgroup>
     </SettingsItemGroup>
+    <VolumeBalance />
   </div>
 </template>
 

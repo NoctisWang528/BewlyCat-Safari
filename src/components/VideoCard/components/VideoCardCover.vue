@@ -6,10 +6,12 @@ import Hls from 'hls.js'
 import Button from '~/components/Button.vue'
 import Icon from '~/components/Icon.vue'
 import LazyPicture from '~/components/LazyPicture.vue'
+import Progress from '~/components/Progress.vue'
 import Tooltip from '~/components/Tooltip.vue'
 import { useVideoPreviewSwipeSeek } from '~/composables/useVideoPreviewSwipeSeek'
 import { settings } from '~/logic'
 import { calcCurrentTime } from '~/utils/dataFormatter'
+import { getVideoWatchState } from '~/utils/videoVisitHistory'
 
 import type { Video } from '../types'
 
@@ -43,6 +45,8 @@ interface Props {
   }
   hasCoverStats?: boolean
   shouldHideCoverStats?: boolean
+  /** 数据未自带进度时，是否使用本地记录的观看进度。 */
+  showLocalWatchProgress?: boolean
 }
 
 const props = defineProps<Props>()
@@ -52,6 +56,19 @@ const emit = defineEmits<{
   imageLoaded: []
   previewFullscreenChange: [isFullscreen: boolean]
 }>()
+
+const playbackProgress = computed(() => {
+  const video = props.video
+  if (!video)
+    return undefined
+  if (video.playbackProgress !== undefined)
+    return video.playbackProgress
+  if (!props.showLocalWatchProgress)
+    return undefined
+
+  const watchState = getVideoWatchState({ aid: video.aid ?? video.id, bvid: video.bvid })
+  return watchState?.status === 'watched' ? watchState.percentage : undefined
+})
 
 const videoRef = ref<HTMLVideoElement | null>(null)
 const isActive = ref(true)
@@ -651,6 +668,17 @@ onBeforeUnmount(() => {
             <span class="video-card-cover-stats__value">{{ coverStatValues?.duration }}</span>
           </span>
         </div>
+
+        <div
+          v-if="playbackProgress !== undefined"
+          class="video-card-playback-progress"
+          aria-hidden="true"
+        >
+          <Progress
+            :percentage="playbackProgress"
+            height="var(--bew-space-0-5)"
+          />
+        </div>
       </template>
     </template>
   </div>
@@ -670,6 +698,16 @@ onBeforeUnmount(() => {
   transition:
     opacity var(--bew-duration-moderate, 300ms) var(--bew-ease-standard, ease),
     transform var(--bew-duration-moderate, 300ms) var(--bew-ease-standard, ease);
+}
+
+.video-card-playback-progress {
+  position: absolute;
+  // 以圆角之间的底部直线段为完整进度范围，避免小进度被封面裁切。
+  right: var(--bew-media-radius);
+  bottom: 0;
+  left: var(--bew-media-radius);
+  z-index: 3;
+  pointer-events: none;
 }
 
 .video-card-preview--scrubbable {

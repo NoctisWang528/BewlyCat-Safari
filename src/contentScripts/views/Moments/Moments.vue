@@ -2,6 +2,7 @@
 import { useI18n } from 'vue-i18n'
 import { useToast } from 'vue-toastification'
 
+import Button from '~/components/Button.vue'
 import Dialog from '~/components/Dialog.vue'
 import LiquidSegmentIndicator from '~/components/LiquidSegmentIndicator.vue'
 import { isMomentLotteryUrl } from '~/components/MomentCard/lottery'
@@ -26,10 +27,11 @@ import { useBewlyApp } from '~/composables/useAppProvider'
 import { useLayoutEditMode } from '~/composables/useLayoutEditMode'
 import type { StorageEventFilter } from '~/composables/useStorageLocal'
 import { useStorageLocal } from '~/composables/useStorageLocal'
-import { DRAWER_VIDEO_ENTER_PAGE_FULL, DRAWER_VIDEO_EXIT_PAGE_FULL } from '~/constants/globalEvents'
+import { DRAWER_VIDEO_ENTER_PAGE_FULL, DRAWER_VIDEO_EXIT_PAGE_FULL, MOMENTS_VIDEO_DIALOG_IFRAME_NAME } from '~/constants/globalEvents'
 import { settings } from '~/logic'
 import { momentsPinnedUsers, momentsWantedUsers } from '~/logic/storage'
 import { recordUploaderLatestVideoTimes } from '~/logic/uploaderLatestVideoTimes'
+import { ensureWatchLaterState, getWatchLaterAid, isInWatchLater, markWatchLater } from '~/logic/watchLaterState'
 import type { DataItem, MomentResult } from '~/models/moment/moment'
 import { useTopBarStore } from '~/stores/topBarStore'
 import api from '~/utils/api'
@@ -37,6 +39,7 @@ import { numFormatter } from '~/utils/dataFormatter'
 import { getCSRF } from '~/utils/main'
 import { MasonryColumnMetrics } from '~/utils/masonryColumnMetrics'
 import { resolvePgcEpisodeVideoIds } from '~/utils/pgcEpisode'
+import { resolveMomentsDialogPlayerModeOverride } from '~/utils/player'
 import { openLinkInBackground } from '~/utils/tabs'
 import { recordVideoVisit } from '~/utils/videoVisitHistory'
 
@@ -241,7 +244,6 @@ onBeforeUnmount(cancelPendingPreview)
 const previewUrls = reactive<Record<string, string>>({})
 const likingMomentIds = reactive(new Set<string>())
 const reservationLoadingMomentIds = reactive(new Set<string>())
-const watchLaterMomentIds = reactive(new Set<string>())
 const watchLaterLoadingMomentIds = reactive(new Set<string>())
 const videoCidCache = new Map<string, number>()
 const videoCidRequests = new Map<string, Promise<number | undefined>>()
@@ -280,7 +282,7 @@ const offset = ref('')
 const updateBaseline = ref('')
 /** 按 UP 主筛选时 feed/all 的 page，从 1 递增 */
 const momentsFeedPage = ref(1)
-const { handlePageRefresh, handleReachBottom, mainAppRef, scrollViewportRef } = useBewlyApp()
+const { handlePageRefresh, handleReachBottom, mainAppRef, openSettings, scrollViewportRef } = useBewlyApp()
 
 function resetMomentsScroll() {
   if (scrollViewportRef.value)
@@ -1190,11 +1192,16 @@ const detailDialogHeight = computed(() => {
   return OPUS_DETAIL_MAX_HEIGHT
 })
 
+// 父页面打开前无法得知视频所属场景，弹窗未单独覆盖时按基础模式估算宽度。
+const isDetailVideoBewlyWidescreen = computed(() => {
+  return (resolveMomentsDialogPlayerModeOverride() ?? settings.value.defaultVideoPlayerMode) === 'bewlyWidescreen'
+})
+
 const detailDialogWidth = computed(() => {
   if (selectedMoment.value?.isLive)
     return DETAIL_PLAYER_MAX_WIDTH
   if (selectedMoment.value?.isVideo) {
-    if (isSelectedSquareOrVerticalVideo.value && settings.value.defaultVideoPlayerMode === 'bewlyWidescreen') {
+    if (isSelectedSquareOrVerticalVideo.value && isDetailVideoBewlyWidescreen.value) {
       const ratio = Math.max(0.4, selectedVideoAspectRatio.value || 9 / 16)
       return `min(max(960px, calc(${detailDialogHeight.value} * ${ratio} + ${VIDEO_DETAIL_COMMENT_WIDTH})), ${DETAIL_PLAYER_MAX_WIDTH})`
     }
@@ -1423,23 +1430,8 @@ function openDetailFrameInNewTab() {
   if (!url)
     return
 
-  const popup = window.open('about:blank', '_blank')
-  if (!popup)
-    return
-
-  try {
-    popup.opener = null
-    popup.location.replace(url)
-    closeMomentDetail()
-  }
-  catch {
-    try {
-      popup.close()
-    }
-    catch {
-      // Ignore failures while closing a blocked or already navigated popup.
-    }
-  }
+  window.open(url, '_blank', 'noopener,noreferrer')
+  closeMomentDetail()
 }
 
 function openMomentMedia(moment: DisplayMoment) {
@@ -1966,6 +1958,15 @@ function handleMomentGroupChange(group: MomentGroup) {
     selectedHostMid.value = ''
   activeMomentGroup.value = group
   void loadMoments(true)
+}
+
+/** 打开设置并定位到「想看分组」，供想看列表为空时的引导按钮使用 */
+function openWantedUsersSettings() {
+  openSettings({
+    menu: 'BewlyPages',
+    secondaryPage: 'moments',
+    targetTitleKey: 'settings.group_moments_wanted_users',
+  })
 }
 
 function clearUpUpdateDot(mid: string) {
@@ -3264,14 +3265,15 @@ async function toggleMomentReservation(moment: DisplayMoment) {
   }
 }
 
-function isWatchLaterAdded(target: WatchLaterTarget) {
-  const stateKey = getWatchLaterStateKey(target)
-  return Boolean(stateKey && watchLaterMomentIds.has(stateKey))
-}
-
 function isWatchLaterLoading(target: WatchLaterTarget) {
   const stateKey = getWatchLaterStateKey(target)
   return Boolean(stateKey && watchLaterLoadingMomentIds.has(stateKey))
+}
+
+function handleDocumentVisibilityChange() {
+  // 动态接口不返回稍后再看状态；回到本页时按共享缓存的有效期重新比对
+  if (document.visibilityState === 'visible')
+    void ensureWatchLaterState()
 }
 
 async function toggleMomentWatchLater(target: WatchLaterTarget) {
@@ -3287,7 +3289,7 @@ async function toggleMomentWatchLater(target: WatchLaterTarget) {
 
   watchLaterLoadingMomentIds.add(stateKey)
   try {
-    let aid = Number(target.aid || 0)
+    let aid = Number(target.aid || 0) || getWatchLaterAid(target) || 0
     let bvid = target.bvid
     if (!aid && !bvid && target.epid) {
       const ids = await resolvePgcEpisodeVideoIds(target.epid)
@@ -3300,7 +3302,7 @@ async function toggleMomentWatchLater(target: WatchLaterTarget) {
       return
     }
 
-    const isAdded = watchLaterMomentIds.has(stateKey)
+    const isAdded = isInWatchLater(target)
     if (isAdded && !aid && bvid)
       aid = Number((await api.video.getVideoInfo({ bvid }))?.data?.aid) || 0
     if (isAdded && !aid) {
@@ -3316,10 +3318,7 @@ async function toggleMomentWatchLater(target: WatchLaterTarget) {
       return
     }
 
-    if (isAdded)
-      watchLaterMomentIds.delete(stateKey)
-    else
-      watchLaterMomentIds.add(stateKey)
+    markWatchLater({ ...target, aid: aid || target.aid, bvid }, !isAdded)
     void topBarStore.syncWatchLaterState()
   }
   catch (error) {
@@ -3797,6 +3796,7 @@ function refresh() {
   isInitialLoading.value = moments.value.length === 0
   void loadMoments(true)
   void loadMomentsPortal()
+  void ensureWatchLaterState()
 }
 
 function handleDetailFrameMessage(event: MessageEvent) {
@@ -3858,6 +3858,7 @@ onMounted(() => {
   })
   window.addEventListener('message', handleDetailFrameMessage)
   window.addEventListener('resize', syncDetailFrameViewport)
+  document.addEventListener('visibilitychange', handleDocumentVisibilityChange)
   refresh()
   handlePageRefresh.value = refresh
   handleReachBottom.value = () => {
@@ -3900,6 +3901,7 @@ onBeforeUnmount(() => {
   }
   window.removeEventListener('message', handleDetailFrameMessage)
   window.removeEventListener('resize', syncDetailFrameViewport)
+  document.removeEventListener('visibilitychange', handleDocumentVisibilityChange)
   handlePageRefresh.value = undefined
   handleReachBottom.value = undefined
 })
@@ -4456,7 +4458,7 @@ watch(
                 :preview-url="previewUrls[moment.id]"
                 :is-like-loading="likingMomentIds.has(moment.id)"
                 :is-reservation-loading="reservationLoadingMomentIds.has(moment.id)"
-                :is-watch-later-added="isWatchLaterAdded"
+                :is-watch-later-added="isInWatchLater"
                 :is-watch-later-loading="isWatchLaterLoading"
                 @card-element="element => bindCardEl(element, moment)"
                 @open-detail="openMomentDetail"
@@ -4477,13 +4479,21 @@ watch(
             </div>
           </div>
           <div v-else-if="!isInitialLoading" class="moments-page__empty">
-            <span i-tabler-windmill text="size-$bew-icon-size-xl" /><p>{{ activeMomentGroup === 'wanted' ? (momentsWantedUsers.length ? t('moments.no_recent_updates') : t('moments.add_wanted_first')) : t('moments.empty') }}</p><button
+            <span i-tabler-windmill text="size-$bew-icon-size-xl" /><p>{{ activeMomentGroup === 'wanted' ? (momentsWantedUsers.length ? t('moments.no_recent_updates') : t('moments.add_wanted_first')) : t('moments.empty') }}</p><Button
               v-if="activeMomentGroup !== 'wanted' || momentsWantedUsers.length"
+              type="secondary"
               :disabled="isLoading"
               @click="requiresManualMomentPaging() && !noMoreContent ? (activeMomentGroup === 'wanted' ? loadMoreWantedMoments() : loadMoreFilteredMoments()) : refresh()"
             >
               {{ isLoading ? t('common.loading') : requiresManualMomentPaging() ? (!noMoreContent ? t('common.load_more') : (activeMomentGroup === 'wanted' ? t('moments.recheck') : t('moments.reload'))) : t('moments.reload') }}
-            </button>
+            </Button>
+            <Button
+              v-else
+              type="primary"
+              @click="openWantedUsersSettings"
+            >
+              {{ t('settings.btn.open_settings') }}
+            </Button>
           </div>
           <button
             v-if="requiresManualMomentPaging() && moments.length && !isLoading && !noMoreContent"
@@ -4605,6 +4615,7 @@ watch(
           ref="detailIframeRef"
           :key="detailFrameUrl"
           class="moment-detail-frame__iframe"
+          :name="selectedMoment.isVideo ? MOMENTS_VIDEO_DIALOG_IFRAME_NAME : undefined"
           :src="detailFrameUrl"
           :title="t('moments.author_detail', { name: selectedMoment.author.name })"
           referrerpolicy="no-referrer-when-downgrade"
@@ -5476,35 +5487,6 @@ watch(
   .moments-filter-header {
     grid-template-columns: minmax(0, 1fr);
   }
-}
-.moments-page__empty button {
-  border: 1px solid var(--bew-border-color);
-  min-height: var(--bew-control-height);
-  border-radius: var(--bew-interactive-radius);
-  background: var(--bew-elevated);
-  color: var(--bew-text-1);
-  padding: 0 var(--bew-space-4);
-  display: flex;
-  align-items: center;
-  gap: var(--bew-space-2);
-  font-size: var(--bew-font-size-control);
-  font-weight: var(--bew-font-weight-semibold);
-  line-height: var(--bew-line-height-control);
-  cursor: pointer;
-  transition:
-    color var(--bew-duration-normal) var(--bew-ease-standard),
-    background-color var(--bew-duration-normal) var(--bew-ease-standard),
-    border-color var(--bew-duration-normal) var(--bew-ease-standard),
-    opacity var(--bew-duration-normal) var(--bew-ease-standard);
-}
-.moments-page__empty button:hover {
-  color: #fff;
-  background: var(--bew-theme-color);
-  border-color: var(--bew-theme-color);
-}
-.moments-page__empty button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
 }
 .moments-grid {
   display: grid;

@@ -3,19 +3,25 @@ export type PageCommentReplyPaginationMode = 'loadMore' | 'pagination'
 
 /** Minimal settings payload shared with the page's main-world script. */
 export interface PageSettingsPayload {
+  localLoudnessEnabled: boolean
+  localLoudnessTarget: number
+  localLoudnessStrength: number
   adjustCommentImageHeight: boolean
   cleanShareLinkIncludeTitle: boolean
   cleanShareLinkRemoveTrackingParams: boolean
   commentReplyPaginationMode: PageCommentReplyPaginationMode
+  commentReplyTreeContainerHeight: number
   commentReplyTreeMode: PageCommentReplyTreeMode
   depersonalizeSearchResults: boolean
   enableCleanShareLink: boolean
+  enableCommentReplyTreeContainer: boolean
   enableCommentReplyTreeDisplay: boolean
   language: string
   preventMobileRedirect: boolean
   showCommentHostTag: boolean
   showIPLocation: boolean
   showSex: boolean
+  skipConciseDanmaku: boolean
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -30,15 +36,21 @@ function isCommentReplyPaginationMode(value: unknown): value is PageCommentReply
   return value === 'loadMore' || value === 'pagination'
 }
 
+function isCommentReplyTreeContainerHeight(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
 export function createPageSettingsPayload(value: unknown): PageSettingsPayload | null {
   if (!isRecord(value)
     || typeof value.adjustCommentImageHeight !== 'boolean'
     || typeof value.cleanShareLinkIncludeTitle !== 'boolean'
     || typeof value.cleanShareLinkRemoveTrackingParams !== 'boolean'
     || !isCommentReplyPaginationMode(value.commentReplyPaginationMode)
+    || !isCommentReplyTreeContainerHeight(value.commentReplyTreeContainerHeight)
     || !isCommentReplyTreeMode(value.commentReplyTreeMode)
     || typeof value.depersonalizeSearchResults !== 'boolean'
     || typeof value.enableCleanShareLink !== 'boolean'
+    || typeof value.enableCommentReplyTreeContainer !== 'boolean'
     || typeof value.enableCommentReplyTreeDisplay !== 'boolean'
     || typeof value.language !== 'string'
     || typeof value.preventMobileRedirect !== 'boolean'
@@ -49,18 +61,28 @@ export function createPageSettingsPayload(value: unknown): PageSettingsPayload |
   }
 
   return {
+    localLoudnessEnabled: value.localLoudnessEnabled === true,
+    localLoudnessTarget: typeof value.localLoudnessTarget === 'number' && Number.isFinite(value.localLoudnessTarget)
+      ? Math.max(-24, Math.min(-14, value.localLoudnessTarget))
+      : -18,
+    localLoudnessStrength: typeof value.localLoudnessStrength === 'number' && Number.isFinite(value.localLoudnessStrength)
+      ? Math.max(40, Math.min(100, value.localLoudnessStrength))
+      : 75,
     adjustCommentImageHeight: value.adjustCommentImageHeight,
     cleanShareLinkIncludeTitle: value.cleanShareLinkIncludeTitle,
     cleanShareLinkRemoveTrackingParams: value.cleanShareLinkRemoveTrackingParams,
     commentReplyPaginationMode: value.commentReplyPaginationMode,
+    commentReplyTreeContainerHeight: value.commentReplyTreeContainerHeight,
     commentReplyTreeMode: value.commentReplyTreeMode,
     depersonalizeSearchResults: value.depersonalizeSearchResults,
     enableCleanShareLink: value.enableCleanShareLink,
+    enableCommentReplyTreeContainer: value.enableCommentReplyTreeContainer,
     enableCommentReplyTreeDisplay: value.enableCommentReplyTreeDisplay,
     language: value.language,
     preventMobileRedirect: value.preventMobileRedirect,
     showCommentHostTag: value.showCommentHostTag,
     showIPLocation: value.showIPLocation,
     showSex: value.showSex,
+    skipConciseDanmaku: value.skipConciseDanmaku !== false,
   }
 }

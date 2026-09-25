@@ -12,6 +12,7 @@ import { setupOptionalBackgroundFeatures } from './platformFeatures'
 import { setupSettingsCloudSync } from './settingsCloudSync'
 import { setupSettingsStorageCoordinator } from './settingsStorageCoordinator'
 import { setupTopBarStateBroker } from './topBarStateBroker'
+import { setupWatchLaterStateBroker } from './watchLaterStateBroker'
 import { initWbiKeys } from './wbiSign'
 
 // Initialize extension and set up message handlers
@@ -152,6 +153,7 @@ setupApiMsgListeners()
 setupTabMsgListeners()
 setupTopBarStateBroker()
 setupAppAuthScheduler()
+setupWatchLaterStateBroker()
 setupContentScriptRefreshPrompt()
 setupContentScriptRecovery()
 setupOptionalBackgroundFeatures(isSafariBuild, {

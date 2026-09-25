@@ -58,6 +58,17 @@ function checkUrlChange() {
 let hideTimer: number | null = null
 let urlChangeCheckQueued = false
 let topBarUnmounted = false
+// 后台恢复的标签页推迟到首次可见时再初始化，避免多个标签页同时挤占后台请求。
+let initDataDeferred = false
+
+async function initTopBarData() {
+  try {
+    await topBarStore.initData()
+  }
+  catch (error) {
+    console.error('初始化顶栏数据失败:', error)
+  }
+}
 
 function scheduleUrlChangeCheck() {
   if (urlChangeCheckQueued || topBarUnmounted)
@@ -158,6 +169,7 @@ watch(
     () => settings.value.enableTopBar,
     () => settings.value.useOriginalBilibiliTopBar,
     () => settings.value.videoPageTopBarConfig,
+    () => settings.value.autoHideTopBar,
   ],
   () => setupScrollListeners(),
 )
@@ -317,6 +329,9 @@ function setupScrollListeners() {
 
   // 清理之前的监听器
   cleanupScrollListeners()
+  // 设置切换后从当前位置重新累计滚动距离，避免沿用上一次隐藏的锚点。
+  oldScrollTop.value = scrollTop.value
+  topBarVisibilityAnchorScrollTop.value = scrollTop.value
 
   // 在视频页面根据配置决定是否设置滚动监听
   if (isVideoOrBangumiPage()) {
@@ -582,12 +597,10 @@ function handleClickOutsidePopup(event: MouseEvent) {
 onMounted(() => {
   nextTick(async () => {
     // 初始化数据和更新定时器
-    try {
-      await topBarStore.initData()
-    }
-    catch (error) {
-      console.error('初始化顶栏数据失败:', error)
-    }
+    if (document.hidden)
+      initDataDeferred = true
+    else
+      await initTopBarData()
     if (topBarUnmounted)
       return
 
@@ -621,9 +634,25 @@ onMounted(() => {
 
 function handleVisibilityChange() {
   if (!document.hidden) {
-    topBarStore.reconcileLocalLoginState()
+    if (initDataDeferred) {
+      initDataDeferred = false
+      void initTopBarData().then(() => {
+        if (!topBarUnmounted && !document.hidden)
+          topBarStore.startUpdateTimer()
+      })
+    }
+    else {
+      topBarStore.reconcileLocalLoginState()
+      topBarStore.startUpdateTimer()
+      void topBarStore.syncSharedData().catch((error) => {
+        console.error('同步顶栏共享状态失败:', error)
+      })
+    }
     scheduleUrlChangeCheck()
     scheduleConflictingHeaderVisibilityUpdate()
+  }
+  else {
+    topBarStore.stopUpdateTimer()
   }
 }
 

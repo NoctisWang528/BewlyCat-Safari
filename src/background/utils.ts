@@ -5,8 +5,11 @@
 import type Browser from 'webextension-polyfill'
 import browser from 'webextension-polyfill'
 
+import { waitWithSignal } from '~/utils/abort'
+
 import { createApiResponseCache } from './apiResponseCache'
 import { ensureFreshTokensOnDemand } from './appAuthScheduler'
+import { withRequestTimeout } from './requestTimeout'
 import { requestWithSafariCompat } from './requestWithSafariCompat'
 import { addWbiSign, clearWbiKeys, getWbiKeys, initWbiKeys, isBilibiliNavUrl, needsWbiSign, storeWbiKeys } from './wbiSign'
 
@@ -68,7 +71,7 @@ interface Message {
 }
 
 interface _FETCH {
-  method: string
+  method: 'get' | 'post'
   querySerializer?: (params: URLSearchParams) => string
   headers?: {
     [key: string]: any
@@ -96,7 +99,7 @@ interface APIMAP {
 }
 // 工厂函数API_LISTENER_FACTORY
 function apiListenerFactory(API_MAP: APIMAP) {
-  return async (data: any, sender?: Browser.Runtime.MessageSender) => {
+  return async (data: any, sender?: Browser.Runtime.MessageSender, signal?: AbortSignal) => {
     const typedMessage = data as Message
     const contentScriptQuery = typedMessage.contentScriptQuery
     // 检测是否有contentScriptQuery
@@ -120,7 +123,7 @@ function apiListenerFactory(API_MAP: APIMAP) {
     // eslint-disable-next-line node/prefer-global/process
     if (process.env.FIREFOX && sender && sender.tab?.id) {
       if (api._fetch.credentials === 'omit' || typedMessage.bewlyNoCookie === true)
-        return await doCachedRequest(typedMessage, api, sender.tab, undefined, authStrategy, appAccessToken)
+        return await doCachedRequest(typedMessage, api, sender.tab, undefined, authStrategy, appAccessToken, signal)
 
       // 获取tab信息以获取正确的cookieStoreId
       const tab = await browser.tabs.get(sender.tab.id)
@@ -128,10 +131,10 @@ function apiListenerFactory(API_MAP: APIMAP) {
       // Only copy cookies that the API target would receive naturally. Filtering
       // by store alone can mix cookies from unrelated permitted Bilibili hosts.
       const cookies = await browser.cookies.getAll({ url: api.url, storeId })
-      return await doCachedRequest(typedMessage, api, tab, cookies, authStrategy, appAccessToken)
+      return await doCachedRequest(typedMessage, api, tab, cookies, authStrategy, appAccessToken, signal)
     }
 
-    return await doCachedRequest(typedMessage, api, sender?.tab, undefined, authStrategy, appAccessToken)
+    return await doCachedRequest(typedMessage, api, sender?.tab, undefined, authStrategy, appAccessToken, signal)
   }
 }
 
@@ -142,8 +145,11 @@ async function doCachedRequest(
   cookies?: Browser.Cookies.Cookie[],
   authStrategy: AuthStrategy = 'none',
   appAccessToken?: string,
+  signal?: AbortSignal,
 ) {
-  const request = () => doRequest(message, api, cookies, authStrategy, appAccessToken)
+  signal?.throwIfAborted()
+  const request = () => doRequest(message, api, cookies, authStrategy, appAccessToken, signal)
+
   if (!api.cacheMaxAge || api._fetch.method.toLowerCase() !== 'get')
     return request()
 
@@ -159,7 +165,9 @@ async function doCachedRequest(
     noCookie,
     Object.entries(message).sort(([a], [b]) => a.localeCompare(b)),
   ])
-  return cacheApiResponse(key, api.cacheMaxAge, request)
+  // 缓存中的网络请求由所有等待者共享；一个页面取消只退出自己的等待。
+  signal?.throwIfAborted()
+  return waitWithSignal(cacheApiResponse(key, api.cacheMaxAge, () => doRequest(message, api, cookies, authStrategy, appAccessToken, signal)), signal)
 }
 
 function hasRequestValue(value: unknown) {
@@ -199,6 +207,24 @@ async function doRequest(
   cookies?: Browser.Cookies.Cookie[],
   authStrategy: AuthStrategy = 'none',
   appAccessToken?: string,
+  signal?: AbortSignal,
+) {
+  if (api._fetch.method.toLowerCase() === 'get') {
+    return withRequestTimeout(
+      requestSignal => performApiRequest(message, api, cookies, authStrategy, appAccessToken, requestSignal),
+      signal,
+    )
+  }
+  return performApiRequest(message, api, cookies, authStrategy, appAccessToken, signal)
+}
+
+async function performApiRequest(
+  message: Message,
+  api: API,
+  cookies?: Browser.Cookies.Cookie[],
+  authStrategy: AuthStrategy = 'none',
+  appAccessToken?: string,
+  signal?: AbortSignal,
 ) {
   try {
     let { contentScriptQuery, bewlyNoCookie = false, ...rest } = message
@@ -229,9 +255,10 @@ async function doRequest(
     // 如果需要WBI签名但没有密钥，主动获取密钥
     if (needsWbi && !getWbiKeys(wbiKeyOptions)) {
       try {
-        await initWbiKeys(wbiKeyOptions)
+        await waitWithSignal(initWbiKeys(wbiKeyOptions), signal)
       }
       catch (error) {
+        signal?.throwIfAborted()
         // 获取密钥失败，继续执行（降级到无签名请求）
         console.error('[doRequest] Failed to fetch WBI keys:', error)
       }
@@ -239,6 +266,7 @@ async function doRequest(
 
     // 内部函数：执行实际请求
     const performRequest = (useWbi: boolean) => {
+      signal?.throwIfAborted()
       let requestUrl = baseUrl
       let requestParams = Object.assign({}, targetParams)
 
@@ -295,6 +323,7 @@ async function doRequest(
         method,
         headers: requestHeaders,
         credentials,
+        signal,
       }
       if (!isGET)
         fetchOpt.body = requestBody
@@ -305,6 +334,7 @@ async function doRequest(
         headers: requestHeaders,
         body: fetchOpt.body ?? null,
         credentials,
+        signal,
       })
     }
 
@@ -367,7 +397,7 @@ async function doRequest(
             code: -403,
           })
           clearWbiKeys(wbiKeyOptions)
-          const refreshed = await initWbiKeys(wbiKeyOptions)
+          const refreshed = await waitWithSignal(initWbiKeys(wbiKeyOptions), signal)
           if (refreshed) {
             response = await executeFullRequest(true)
             if (isWbiSignatureRejected(response)) {
@@ -390,6 +420,8 @@ async function doRequest(
         return response
       }
       catch (error) {
+        // 用户取消和总超时不能触发无签名重试。
+        signal?.throwIfAborted()
         // 如果使用了 WBI 签名且失败，尝试不带 WBI 签名重试
         if (needsWbi && !hasTriedWithoutWbi) {
           hasTriedWithoutWbi = true
@@ -411,6 +443,7 @@ async function doRequest(
 
     // 执行请求并进行统一错误处理
     return executeRequestWithRetry().catch((error) => {
+      signal?.throwIfAborted()
       if (error instanceof ApiRiskControlError) {
         // 返回统一的风控错误格式
         const riskError = new Error(error.message)
@@ -430,6 +463,7 @@ async function doRequest(
     })
   }
   catch (e) {
+    signal?.throwIfAborted()
     const initError = new Error(e instanceof Error ? e.message : '请求初始化失败')
     Object.assign(initError, {
       code: -1,

@@ -1,4 +1,5 @@
 // 更完善的播放器元素选择器
+import { MOMENTS_VIDEO_DIALOG_IFRAME_NAME } from '~/constants/globalEvents'
 import { settings } from '~/logic'
 import type { AutoPlayMode, DefaultVideoPlayerMode, VideoPlayerModeContext, VideoPlayerModeOverride } from '~/logic/storage'
 import { i18n } from '~/utils/i18n'
@@ -80,22 +81,50 @@ function monitorCaptionState(closeSwitch: HTMLElement, languageItem: HTMLElement
 // 重试任务类，用于处理重试逻辑
 export class RetryTask {
   private count = 0
-  private repeat: () => void
+  private timer: ReturnType<typeof setTimeout> | undefined
+  private finished = false
+  private stop = () => {
+    if (this.finished)
+      return
+    this.finished = true
+    clearTimeout(this.timer)
+    this.options.signal?.removeEventListener('abort', this.stop)
+    this.options.onFinished?.()
+  }
 
   constructor(
     private max: number,
     private timeout: number,
     private fn: () => boolean,
+    private options: { signal?: AbortSignal, onFinished?: () => void } = {},
   ) {
-    this.repeat = this.start.bind(this)
+    options.signal?.addEventListener('abort', this.stop, { once: true })
   }
 
   start() {
-    this.count++
-    if (this.count > this.max)
+    if (this.finished)
       return
-    if (!this.fn())
-      setTimeout(this.repeat, this.timeout)
+    if (this.options.signal?.aborted) {
+      this.stop()
+      return
+    }
+    this.count++
+    if (this.count > this.max) {
+      this.stop()
+      return
+    }
+    try {
+      if (this.fn() || this.count >= this.max) {
+        this.stop()
+        return
+      }
+    }
+    catch (error) {
+      this.stop()
+      throw error
+    }
+    if (!this.finished)
+      this.timer = setTimeout(() => this.start(), this.timeout)
   }
 }
 
@@ -189,6 +218,21 @@ export function fullscreen() {
 export interface PlayerModeApplication {
   shouldApply: () => boolean
   onApplied: () => void
+  signal?: AbortSignal
+  onSettled?: () => void
+}
+
+function schedulePlayerModeEffect(effect: () => void, delay: number, signal?: AbortSignal) {
+  if (signal?.aborted)
+    return
+  let timer: ReturnType<typeof setTimeout>
+  const cancel = () => clearTimeout(timer)
+  timer = setTimeout(() => {
+    signal?.removeEventListener('abort', cancel)
+    if (!signal?.aborted)
+      effect()
+  }, delay)
+  signal?.addEventListener('abort', cancel, { once: true })
 }
 
 export function webFullscreen(application?: PlayerModeApplication) {
@@ -200,9 +244,7 @@ export function webFullscreen(application?: PlayerModeApplication) {
     if (document.querySelector('[data-screen=\'web\']')) {
       application?.onApplied()
       // 即使已经是网页全屏状态，也应用倍速记忆
-      setTimeout(() => {
-        applyPlayerEnhancements()
-      }, 1000)
+      schedulePlayerModeEffect(applyPlayerEnhancements, 1000, application?.signal)
       return true
     }
 
@@ -210,16 +252,14 @@ export function webFullscreen(application?: PlayerModeApplication) {
     if (result) {
       application?.onApplied()
       // 在成功进入网页全屏后应用倍速记忆
-      setTimeout(() => {
-        applyPlayerEnhancements()
-      }, 1000)
+      schedulePlayerModeEffect(applyPlayerEnhancements, 1000, application?.signal)
     }
     return result
-  }).start()
+  }, { signal: application?.signal, onFinished: application?.onSettled }).start()
 }
 
 // 将播放器滚动到设置的位置
-function scrollPlayerToOptimalPosition(delay = 1000) {
+function scrollPlayerToOptimalPosition(delay = 1000, signal?: AbortSignal) {
   // 如果设置了不滚动，直接返回
   if (!settings.value.videoPlayerScroll)
     return
@@ -258,7 +298,7 @@ function scrollPlayerToOptimalPosition(delay = 1000) {
   }
 
   if (delay > 0) {
-    setTimeout(scroll, delay)
+    schedulePlayerModeEffect(scroll, delay, signal)
   }
   else {
     scroll()
@@ -274,24 +314,20 @@ export function widescreen(application?: PlayerModeApplication) {
     if (document.querySelector('[data-screen=\'wide\']')) {
       application?.onApplied()
       // 即使已经是宽屏状态，也执行滚动和倍速记忆
-      scrollPlayerToOptimalPosition()
-      setTimeout(() => {
-        applyPlayerEnhancements()
-      }, 1000)
+      scrollPlayerToOptimalPosition(1000, application?.signal)
+      schedulePlayerModeEffect(applyPlayerEnhancements, 1000, application?.signal)
       return true
     }
 
     const result = widescreenClick()
     if (result) {
       application?.onApplied()
-      scrollPlayerToOptimalPosition()
+      scrollPlayerToOptimalPosition(1000, application?.signal)
       // 在成功进入宽屏后应用倍速记忆
-      setTimeout(() => {
-        applyPlayerEnhancements()
-      }, 1000)
+      schedulePlayerModeEffect(applyPlayerEnhancements, 1000, application?.signal)
     }
     return result
-  }).start()
+  }, { signal: application?.signal, onFinished: application?.onSettled }).start()
 }
 
 export function widescreenClick() {
@@ -322,12 +358,16 @@ export function webFullscreenClick() {
 }
 
 // 默认模式下也执行滚动和倍速记忆
-export function defaultMode() {
-  scrollPlayerToOptimalPosition()
+export function defaultMode(application?: PlayerModeApplication) {
+  if (application && !application.shouldApply()) {
+    application.onSettled?.()
+    return false
+  }
+  scrollPlayerToOptimalPosition(1000, application?.signal)
   // 在默认模式下也应用倍速记忆
-  setTimeout(() => {
-    applyPlayerEnhancements()
-  }, 2000) // 默认模式延迟稍长一些，确保页面完全加载
+  schedulePlayerModeEffect(applyPlayerEnhancements, 2000, application?.signal)
+  application?.onApplied()
+  application?.onSettled?.()
   return true
 }
 
@@ -482,40 +522,36 @@ export function detectVideoType(): VideoType {
 
   // 优先根据当前稿件的分 P 数判断。合集可以包含多 P 稿件，
   // 如果先根据右侧合集列表判断，这类稿件会错用合集的播放设置。
-  const app = document.querySelector('#app') as any
-  if (app?.__vue__) {
-    const videoData = app.__vue__.videoData
-    if (videoData) {
-      const { videos: videosCount } = videoData
-      const isSection = app.__vue__.isSection
-
-      // 分P视频：videos > 1
-      if (videosCount > 1) {
-        return VideoType.MULTIPART
-      }
-      // 合集视频：isSection = true
-      if (isSection) {
-        return VideoType.COLLECTION
-      }
+  const app = document.querySelector('#app') as (Element & {
+    __vue__?: {
+      isSection?: boolean
+      videoData?: { videos?: number, pages?: unknown[] }
     }
+  }) | null
+  const videoData = app?.__vue__?.videoData
+  const videosCount = videoData?.pages?.length || videoData?.videos
+  if (videosCount && videosCount > 1)
+    return VideoType.MULTIPART
+
+  // 内容脚本未必能读取页面的 Vue 实例，仍需 DOM 兜底。
+  // video-pod__item 可以包着 simple-base-item，两者都是合集的同一条目，
+  // 不能用它们同时存在来证明当前稿件有多个分 P。
+  // 只接受分 P 专属列表或选集容器内的视图切换；已知单 P 时不再推测。
+  if (videosCount !== 1 && document.querySelector([
+    '.multi-page .cur-list li',
+    '.multi-page-v1 .cur-list li',
+    '.multi-page .multi-page__item',
+    '.multi-page .page-item',
+    '.video-pod .multip-list-item',
+    '.video-pod .view-mode',
+    '.multi-page .view-mode',
+    '.multi-page-v1 .view-mode',
+  ].join(', '))) {
+    return VideoType.MULTIPART
   }
 
-  // DOM 兜底：普通分 P 视频有 .view-mode 切换视图组件，
-  // 只有合集列表的视频没有。合集中的多 P 稿件会同时渲染
-  // 分 P 列表和新版合集列表，即使 .view-mode 被合集面板隐去也要视为分 P。
-  const hasViewMode = !!document.querySelector('.view-mode')
-  const hasMultipartItems = !!document.querySelector(
-    '.video-pod__item, .multi-page__item, .page-item',
-  )
-  const hasCollectionItems = !!document.querySelector('.video-pod__list .simple-base-item')
-  const hasVideoPod = hasMultipartItems || hasCollectionItems
-
-  if (hasVideoPod) {
-    if (hasViewMode || (hasMultipartItems && hasCollectionItems))
-      return VideoType.MULTIPART
-
+  if (app?.__vue__?.isSection)
     return VideoType.COLLECTION
-  }
 
   // 如果以上都不是，检测是否为合集视频（通过DOM）
   if (isCollectionVideo()) {
@@ -553,9 +589,24 @@ function isVideoPlayerModeOverride(value: unknown): value is VideoPlayerModeOver
     || value === 'bewlyWidescreen'
 }
 
+/** 动态视频弹窗的显示模式覆盖；未启用覆盖或选择继承时返回 null，交由视频所属场景决定。 */
+export function resolveMomentsDialogPlayerModeOverride(): DefaultVideoPlayerMode | null {
+  if (!settings.value.enableVideoPlayerModeOverrides)
+    return null
+
+  const override = settings.value.videoPlayerModeOverrides?.momentsDialog
+  return isVideoPlayerModeOverride(override) && override !== 'inherit' ? override : null
+}
+
 export function resolveDefaultVideoPlayerMode(): DefaultVideoPlayerMode {
   if (!settings.value.enableVideoPlayerModeOverrides)
     return settings.value.defaultVideoPlayerMode
+
+  if (window.name === MOMENTS_VIDEO_DIALOG_IFRAME_NAME) {
+    const dialogMode = resolveMomentsDialogPlayerModeOverride()
+    if (dialogMode)
+      return dialogMode
+  }
 
   const context = detectVideoPlayerModeContext()
   if (!context)

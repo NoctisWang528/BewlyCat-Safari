@@ -31,6 +31,7 @@ interface Props {
   showPreview?: boolean
   moreBtn?: boolean
   hideAuthor?: boolean
+  hideWatchedBadge?: boolean
   disableContentVisibility?: boolean
   isFollowingPage?: boolean
   customClickHandler?: (event: MouseEvent) => void
@@ -394,6 +395,7 @@ provide('getVideoType', () => props.type!)
             :cover-stats-visibility="coverStatsVisibility"
             :has-cover-stats="Boolean(hasCoverStats)"
             :should-hide-cover-stats="Boolean(shouldHideCoverStats)"
+            :show-local-watch-progress="!hideWatchedBadge && settings.showVideoWatchedBadge && !props.video?.roomid"
             @toggle-watch-later="logic.toggleWatchLater"
             @undo="logic.handleUndo"
             @preview-fullscreen-change="logic.handlePreviewFullscreenChange"
@@ -425,6 +427,7 @@ provide('getVideoType', () => props.type!)
           :meta-font-size-class="metaFontSizeClass"
           :plugin-computed-tags="pluginComputedTags"
           :hide-author="hideAuthor"
+          :hide-watched-badge="hideWatchedBadge"
           @more-btn-click="logic.handleMoreBtnClick"
         />
         <!-- Keep the configured cover/info ratio after horizontal cards are removed. -->

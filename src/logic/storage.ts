@@ -51,6 +51,22 @@ export const momentsPinnedUsers = useStorageLocal<MomentsWantedUser[]>(
 export const FROSTED_GLASS_BLUR_MIN_PX = 1
 export const FROSTED_GLASS_BLUR_MAX_PX = 20
 
+// 展开的回复树在固定高度容器内滚动，避免整层评论把页面撑得过长
+export const COMMENT_REPLY_TREE_CONTAINER_MIN_HEIGHT = 240
+export const COMMENT_REPLY_TREE_CONTAINER_MAX_HEIGHT = 960
+export const COMMENT_REPLY_TREE_CONTAINER_DEFAULT_HEIGHT = 480
+
+export function normalizeCommentReplyTreeContainerHeight(value: unknown): number {
+  const height = Number(value)
+  if (!Number.isFinite(height))
+    return COMMENT_REPLY_TREE_CONTAINER_DEFAULT_HEIGHT
+
+  return Math.min(
+    COMMENT_REPLY_TREE_CONTAINER_MAX_HEIGHT,
+    Math.max(COMMENT_REPLY_TREE_CONTAINER_MIN_HEIGHT, Math.round(height)),
+  )
+}
+
 // 快捷键基础配置接口
 export interface BaseShortcutSetting {
   key: string
@@ -142,7 +158,7 @@ export type BewlyWidescreenSidebarPriority = 'video' | 'sidebar'
 export type PlayerDefaultState = 'system' | 'remember' | 'on' | 'off'
 export type VideoAspectRatio = '0:0' | '4:3' | '16:9'
 export type VideoPlayerModeOverride = DefaultVideoPlayerMode | 'inherit'
-export type VideoPlayerModeContext = 'multipart' | 'collection' | 'bangumi' | 'watchLater' | 'playlist'
+export type VideoPlayerModeContext = 'multipart' | 'collection' | 'bangumi' | 'watchLater' | 'playlist' | 'momentsDialog'
 export type VideoPlayerModeOverrides = Record<VideoPlayerModeContext, VideoPlayerModeOverride>
 export type RecommendationMode = 'web' | 'app' | 'webNoCookie'
 /**
@@ -234,6 +250,10 @@ export const defaultVideoCardContextMenuConfig: VideoCardContextMenuConfigItem[]
   = videoCardContextMenuKeys.map(key => ({ key, visible: true }))
 
 export interface Settings {
+  showLocalLoudnessButton: boolean
+  localLoudnessEnabled: boolean
+  localLoudnessTarget: number
+  localLoudnessStrength: number
   touchScreenOptimization: boolean
   showHomeButtonInTouchMode: boolean
   openTopBarItemsInBewly: boolean
@@ -245,6 +265,8 @@ export interface Settings {
   enableCommentReplyTreeDisplay: boolean // 启用评论回复树展示
   commentReplyTreeMode: CommentReplyTreeMode // 评论回复树展示模式
   commentReplyPaginationMode: CommentReplyPaginationMode // 评论回复树分页展示模式
+  enableCommentReplyTreeContainer: boolean // 展开的回复在固定高度容器内滚动
+  commentReplyTreeContainerHeight: number // 回复容器高度（px）
   adjustCommentImageHeight: boolean // 调整评论区图片高度以匹配实际比例
   hideCommentImageScrollbar: boolean // 评论区图片预览时隐藏页面滚动条
   enlargeFavoriteDialog: boolean // 视频页收藏夹放大样式增强
@@ -322,7 +344,12 @@ export interface Settings {
   topBarComponentsConfig: { key: string, visible: boolean, badgeType: 'number' | 'dot' | 'none' }[]
   topBarPinnedChannels: string[]
   openNotificationsPageAsDrawer: boolean
+  showReplyNotificationReminder: boolean
+  showAtNotificationReminder: boolean
   showLikeNotificationReminder: boolean
+  showSystemNotificationReminder: boolean
+  showFollowedPrivateMessageUnreadCount: boolean
+  showUnfollowedPrivateMessageUnreadCount: boolean
   hideTopBarUserPanelLv6LastLoginLocation: boolean
   showBCoinReceiveReminder: boolean
   autoReceiveBCoinCoupon: boolean
@@ -497,6 +524,7 @@ export interface Settings {
   enableBewlyWidescreenSidebarResize: boolean // 允许手动调整 Bewly 宽屏侧栏宽度
   defaultDanmakuState: PlayerDefaultState
   defaultCaptionState: PlayerDefaultState
+  skipConciseDanmaku: boolean // 弹幕开关跳过 B 站灰度的“精简弹幕”档位
   lastDanmakuState: boolean
   lastCaptionState: boolean
   enableVideoPlayerModeOverrides: boolean // 启用按场景覆盖播放器显示模式
@@ -527,6 +555,10 @@ export interface Settings {
   rememberPlaybackRate: boolean // 启用倍速记忆功能
   savedPlaybackRate: number // 记住的倍速值 (0.25-5)
 
+  // 清晰度记忆设置
+  rememberVideoQuality: boolean
+  savedVideoQuality: number | null // 播放器清晰度 ID；首次启用时沿用当前值
+
   // 视频比例记忆设置
   rememberVideoAspectRatio: boolean // 启用视频比例记忆功能
   savedVideoAspectRatio: VideoAspectRatio | null // 记住的视频比例；首次启用时沿用播放器当前值
@@ -549,6 +581,10 @@ export const originalLocalSettings: LocalSettings = {
 }
 
 export const originalSettings: Settings = {
+  showLocalLoudnessButton: true,
+  localLoudnessEnabled: false,
+  localLoudnessTarget: -18,
+  localLoudnessStrength: 75,
   touchScreenOptimization: false,
   showHomeButtonInTouchMode: true,
   openTopBarItemsInBewly: true,
@@ -560,6 +596,8 @@ export const originalSettings: Settings = {
   enableCommentReplyTreeDisplay: true, // 默认启用评论回复树展示
   commentReplyTreeMode: 'lineKeepMain', // 默认：线条树状，收起时保留父节点正文
   commentReplyPaginationMode: 'loadMore', // 默认累计加载评论回复
+  enableCommentReplyTreeContainer: false, // 默认保留回复树与根头像的连接，容器由用户按需开启
+  commentReplyTreeContainerHeight: COMMENT_REPLY_TREE_CONTAINER_DEFAULT_HEIGHT, // 默认容器高度
   adjustCommentImageHeight: true, // 默认启用评论图片高度调整
   hideCommentImageScrollbar: false, // 默认不隐藏评论图片预览时的页面滚动条
   enlargeFavoriteDialog: false, // 默认关闭收藏夹放大样式
@@ -643,7 +681,12 @@ export const originalSettings: Settings = {
   ],
   topBarPinnedChannels: [],
   openNotificationsPageAsDrawer: true,
+  showReplyNotificationReminder: true,
+  showAtNotificationReminder: true,
   showLikeNotificationReminder: false,
+  showSystemNotificationReminder: true,
+  showFollowedPrivateMessageUnreadCount: true,
+  showUnfollowedPrivateMessageUnreadCount: false,
   hideTopBarUserPanelLv6LastLoginLocation: false,
   showBCoinReceiveReminder: true,
   autoReceiveBCoinCoupon: false,
@@ -805,6 +848,7 @@ export const originalSettings: Settings = {
   enableBewlyWidescreenSidebarResize: false, // 默认使用自动布局
   defaultDanmakuState: 'system',
   defaultCaptionState: 'system',
+  skipConciseDanmaku: true,
   lastDanmakuState: true,
   lastCaptionState: false,
   enableVideoPlayerModeOverrides: false,
@@ -814,6 +858,7 @@ export const originalSettings: Settings = {
     bangumi: 'inherit',
     watchLater: 'inherit',
     playlist: 'inherit',
+    momentsDialog: 'inherit',
   },
   autoExitFullscreenOnEnd: false, // 全屏播放完毕后自动退出，默认关闭
   autoExitFullscreenExcludeAutoPlay: false, // 全屏自动退出时排除自动连播，默认关闭
@@ -868,6 +913,10 @@ export const originalSettings: Settings = {
   rememberPlaybackRate: false, // 启用倍速记忆功能
   savedPlaybackRate: 1, // 记住的倍速值 (0.25-5)
 
+  // 清晰度记忆设置
+  rememberVideoQuality: false,
+  savedVideoQuality: null,
+
   // 视频比例记忆设置
   rememberVideoAspectRatio: false, // 启用视频比例记忆功能
   savedVideoAspectRatio: null, // 首次启用时记住播放器当前比例
@@ -899,6 +948,13 @@ export const settings = useSettingsStorage(originalSettings, {
   normalize: (value) => {
     const record = value as Record<string, any>
 
+    // 旧私信开关同时控制两类私信，拆分后保留原有选择。
+    if (typeof record.showPrivateMessageUnreadCount === 'boolean') {
+      record.showFollowedPrivateMessageUnreadCount = record.showPrivateMessageUnreadCount
+      record.showUnfollowedPrivateMessageUnreadCount = record.showPrivateMessageUnreadCount
+    }
+    Reflect.deleteProperty(record, 'showPrivateMessageUnreadCount')
+
     if (typeof record.enableFavoriteCoverBlur === 'boolean') {
       record.enableSidebarCoverBlur = record.enableFavoriteCoverBlur
       Reflect.deleteProperty(record, 'enableFavoriteCoverBlur')
@@ -915,7 +971,19 @@ export const settings = useSettingsStorage(originalSettings, {
     if (!validTabsPositions.includes(record.momentsTabsPosition))
       record.momentsTabsPosition = originalSettings.momentsTabsPosition
 
-    // 清理已移除的音量均衡功能设置。
+    if (typeof record.showLocalLoudnessButton !== 'boolean')
+      record.showLocalLoudnessButton = true
+    if (typeof record.localLoudnessEnabled !== 'boolean')
+      record.localLoudnessEnabled = false
+    for (const [key, min, max, fallback] of [
+      ['localLoudnessTarget', -24, -14, -18],
+      ['localLoudnessStrength', 40, 100, 75],
+    ] as const) {
+      const value = record[key]
+      record[key] = typeof value === 'number' && Number.isFinite(value) ? Math.max(min, Math.min(max, value)) : fallback
+    }
+
+    // 清理旧版音量均衡功能设置，新算法不继承旧版参数。
     for (const field of [
       'enableVolumeNormalization',
       'targetVolume',
@@ -947,6 +1015,13 @@ export const settings = useSettingsStorage(originalSettings, {
     const validCommentReplyPaginationModes: CommentReplyPaginationMode[] = ['loadMore', 'pagination']
     if (!validCommentReplyPaginationModes.includes(record.commentReplyPaginationMode))
       record.commentReplyPaginationMode = originalSettings.commentReplyPaginationMode
+
+    // 分页脚本只同步合法字段，这里必须给出确定的布尔与数值，避免整份设置被判定为无效。
+    if (typeof record.enableCommentReplyTreeContainer !== 'boolean')
+      record.enableCommentReplyTreeContainer = originalSettings.enableCommentReplyTreeContainer
+    record.commentReplyTreeContainerHeight = normalizeCommentReplyTreeContainerHeight(
+      record.commentReplyTreeContainerHeight,
+    )
 
     const validTopBarLogoStyles: TopBarLogoStyle[] = ['icon', 'brand']
     if (!validTopBarLogoStyles.includes(record.topBarLogoStyle))
@@ -1152,7 +1227,7 @@ export const settings = useSettingsStorage(originalSettings, {
     if (record.enableBewlyWidescreenSidebarResize === true)
       record.bewlyWidescreenSidebarPriority = 'sidebar'
 
-    const modeOverrideContexts: VideoPlayerModeContext[] = ['multipart', 'collection', 'bangumi', 'watchLater', 'playlist']
+    const modeOverrideContexts: VideoPlayerModeContext[] = ['multipart', 'collection', 'bangumi', 'watchLater', 'playlist', 'momentsDialog']
     const validModeOverrides: VideoPlayerModeOverride[] = ['inherit', 'default', 'webFullscreen', 'widescreen', 'bewlyWidescreen']
     const storedModeOverrides = record.videoPlayerModeOverrides
     const needsModeOverrideNormalization = !storedModeOverrides
@@ -1255,6 +1330,12 @@ export const watchLaterLayout = useStorageLocal<WatchLaterLayout>(
   'watchLaterLayout',
   'list',
   { mergeDefaults: true, writeDefaults: false },
+)
+
+export const historyLayout = useStorageLocal<'list' | 'grid'>(
+  'historyLayout',
+  'list',
+  { writeDefaults: false },
 )
 
 export const sidePanel = useStorageLocal<{
