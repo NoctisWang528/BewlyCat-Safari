@@ -1,3 +1,5 @@
+import '~/utils/storageWriteQueue'
+
 import browser from 'webextension-polyfill'
 
 import { BILIBILI_DESKTOP_USER_AGENT, isBilibiliWwwUrl, isPreventMobileRedirectEnabled } from '~/utils/bilibiliDesktopNavigation'

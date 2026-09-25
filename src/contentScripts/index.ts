@@ -1,5 +1,6 @@
 import '~/styles'
 import 'uno.css'
+import '~/utils/storageWriteQueue'
 
 import { createApp } from 'vue'
 

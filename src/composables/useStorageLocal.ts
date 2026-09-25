@@ -1,3 +1,6 @@
+// 安装 Safari storage 写串行/重试守卫（幂等）
+import '~/utils/storageWriteQueue'
+
 import type { MaybeRef, Ref, WatchOptions } from 'vue'
 import { getCurrentScope, isProxy, onScopeDispose, ref, shallowRef, toRaw, toValue, watch } from 'vue'
 import browser from 'webextension-polyfill'
