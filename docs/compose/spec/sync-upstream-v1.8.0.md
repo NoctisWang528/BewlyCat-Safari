@@ -1,14 +1,20 @@
 ---
 feature: sync-upstream-v1.8.0
-status: designed
-updated: 2026-09-25
+status: delivered
+updated: 2026-09-26
 branch: codex/sync-upstream-v1.8.0
-commits:
+commits: c44ab465..aa3d2f70
 ---
 
 # 同步 BewlyCat 上游 v1.8.0 并发布 Safari 版
 
 ## Report
+
+**What was built** — 将上游正式 tag `v1.8.0` 合入 Safari 仓库并发布 `v1.8.0-safari.1`。保留 DNR、MAIN-world bridge、认证兼容层；合并上游请求超时/取消与共享稍后再看状态。验收中发现 Safari 并发 `storage.local.set` 触发 Disk I/O，已增加写串行化与瞬态重试。端到端工作流已写入 `docs/UPSTREAM-MAINTENANCE-cmn_CN.md`。
+
+**Verification** — `pnpm lint` / `typecheck` / `knip` / `test`（162）/ `build` / `validate-safari` 通过；Xcode Release arm64 构建、`codesign --deep --strict`、`check-safari-xcode-sync`（21 文件 SHA-256 一致）通过；zip 解压复检通过；GitHub 资产 digest 与本地一致。
+
+**Journey log** — 上游 `packageManager` 保持 `pnpm@10.21.0`；macOS 同步产生的 `* 2` 副本会干扰 knip 与 git refs，已清理；Safari storage Disk I/O 需跨上下文串行+重试，单队列不够。
 
 ## [S1] Problem
 
@@ -110,8 +116,8 @@ tag、创建 GitHub Release，并清理 Xcode 临时产物、安装到 `/Applica
 
 ## Tasks
 
-- [ ] T1: 将端到端工作流写入 `docs/UPSTREAM-MAINTENANCE-cmn_CN.md` — acceptance: 文档覆盖两阶段交付、版本号约定、清理与安装到 Applications (covers: S2)
-- [ ] T2: 合并上游 `v1.8.0` 并解决冲突 — acceptance: merge commit 存在，保留全部 Safari 适配 (covers: S2)
-- [ ] T3: 完成 Safari 适配与版本号更新 — acceptance: `fix(safari): adapt upstream v1.8.0` 提交，manifest/版本/Release 链接正确 (covers: S2; depends: T2)
-- [ ] T4: 全量校验与签名 `.app` 构建 — acceptance: lint/typecheck/knip/test/build/validate-safari 通过，Xcode Release arm64 构建与签名/资源一致性通过 (covers: S2; depends: T3)
-- [ ] T5: 用户验收后发布并清理安装 — acceptance: main/tag/Release 一致，DerivedData 已清理，`.app` 已安装至 `/Applications` (covers: S2; depends: T4)
+- [x] T1: 将端到端工作流写入 `docs/UPSTREAM-MAINTENANCE-cmn_CN.md` — acceptance: 文档覆盖两阶段交付、版本号约定、清理与安装到 Applications (covers: S2)
+- [x] T2: 合并上游 `v1.8.0` 并解决冲突 — acceptance: merge commit 存在，保留全部 Safari 适配 (covers: S2)
+- [x] T3: 完成 Safari 适配与版本号更新 — acceptance: `fix(safari): adapt upstream v1.8.0` 提交，manifest/版本/Release 链接正确 (covers: S2; depends: T2)
+- [x] T4: 全量校验与签名 `.app` 构建 — acceptance: lint/typecheck/knip/test/build/validate-safari 通过，Xcode Release arm64 构建与签名/资源一致性通过 (covers: S2; depends: T3)
+- [x] T5: 用户验收后发布并清理安装 — acceptance: main/tag/Release 一致，DerivedData 已清理，`.app` 已安装至 `/Applications` (covers: S2; depends: T4)
