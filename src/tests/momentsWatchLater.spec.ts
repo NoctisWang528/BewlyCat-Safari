@@ -11,9 +11,27 @@ const mocks = vi.hoisted(() => ({
   saveToWatchLater: vi.fn(),
   toastError: vi.fn(),
   toastSuccess: vi.fn(),
+  watchLaterEntries: new Map<string, boolean>(),
+  ensureWatchLaterState: vi.fn(async () => {}),
+  getWatchLaterAid: vi.fn((target?: { aid?: number | string, bvid?: string }) => {
+    const key = target?.bvid || String(target?.aid ?? '')
+    if (!mocks.watchLaterEntries.get(key))
+      return undefined
+    const aid = Number(target?.aid || 0)
+    return Number.isSafeInteger(aid) && aid > 0 ? aid : undefined
+  }),
+  isInWatchLater: vi.fn((target?: { aid?: number | string, bvid?: string }) => {
+    const key = target?.bvid || String(target?.aid ?? '')
+    return mocks.watchLaterEntries.get(key) ?? false
+  }),
+  markWatchLater: vi.fn((target?: { aid?: number | string, bvid?: string }, added?: boolean) => {
+    const key = target?.bvid || String(target?.aid ?? '')
+    if (added)
+      mocks.watchLaterEntries.set(key, true)
+    else
+      mocks.watchLaterEntries.delete(key)
+  }),
   store: {
-    addedWatchLaterBvids: new Set<string>(),
-    addedWatchLaterList: [] as number[],
     initMomentsData: vi.fn(),
     isLoadingMoments: false,
     isNewMoment: vi.fn(() => false),
@@ -21,6 +39,13 @@ const mocks = vi.hoisted(() => ({
     getMomentsData: vi.fn(),
     syncWatchLaterState: vi.fn(),
   },
+}))
+
+vi.mock('~/logic/watchLaterState', () => ({
+  ensureWatchLaterState: mocks.ensureWatchLaterState,
+  getWatchLaterAid: mocks.getWatchLaterAid,
+  isInWatchLater: mocks.isInWatchLater,
+  markWatchLater: mocks.markWatchLater,
 }))
 
 vi.mock('vue-toastification', () => ({
@@ -149,9 +174,8 @@ describe('moments watch-later toggle', () => {
 
     beforeEach(() => {
       vi.clearAllMocks()
+      mocks.watchLaterEntries.clear()
       mocks.getCSRF.mockReturnValue('csrf-token')
-      mocks.store.addedWatchLaterList.length = 0
-      mocks.store.addedWatchLaterBvids.clear()
       const ctx = mountWithMoments([makeVideoMoment()])
       root = ctx.root
       app = ctx.app
@@ -187,12 +211,13 @@ describe('moments watch-later toggle', () => {
         bvid: 'BV1abcdefg',
         csrf: 'csrf-token',
       })
-      expect(mocks.store.addedWatchLaterList).toEqual([123])
+      expect(mocks.isInWatchLater({ aid: 123, bvid: 'BV1abcdefg' })).toBe(true)
       expect(mocks.toastSuccess).not.toHaveBeenCalled()
     })
 
     it('removes only the selected aid', async () => {
-      mocks.store.addedWatchLaterList.push(123, 456)
+      mocks.watchLaterEntries.set('BV1abcdefg', true)
+      mocks.watchLaterEntries.set('BV1other', true)
       mocks.removeFromWatchLater.mockResolvedValueOnce({ code: 0 })
       await nextTick()
 
@@ -204,7 +229,8 @@ describe('moments watch-later toggle', () => {
         aid: 123,
         csrf: 'csrf-token',
       })
-      expect(mocks.store.addedWatchLaterList).toEqual([456])
+      expect(mocks.isInWatchLater({ aid: 123, bvid: 'BV1abcdefg' })).toBe(false)
+      expect(mocks.isInWatchLater({ bvid: 'BV1other' })).toBe(true)
       expect(mocks.toastSuccess).not.toHaveBeenCalled()
     })
 
@@ -221,7 +247,7 @@ describe('moments watch-later toggle', () => {
 
       expect(mocks.saveToWatchLater).toHaveBeenCalledTimes(2)
       expect(mocks.toastError).not.toHaveBeenCalled()
-      expect(mocks.store.addedWatchLaterList).toEqual([123])
+      expect(mocks.isInWatchLater({ aid: 123, bvid: 'BV1abcdefg' })).toBe(true)
     })
   })
 
@@ -232,9 +258,8 @@ describe('moments watch-later toggle', () => {
 
     beforeEach(() => {
       vi.clearAllMocks()
+      mocks.watchLaterEntries.clear()
       mocks.getCSRF.mockReturnValue('csrf-token')
-      mocks.store.addedWatchLaterList.length = 0
-      mocks.store.addedWatchLaterBvids.clear()
       const ctx = mountWithMoments([
         makeVideoMoment({ aid: undefined, rid: undefined, bvid: 'BV1bvid000' }),
       ])
@@ -264,12 +289,12 @@ describe('moments watch-later toggle', () => {
       })
       const callArgs = mocks.saveToWatchLater.mock.calls[0][0]
       expect(callArgs.aid).toBeUndefined()
-      expect(mocks.store.addedWatchLaterBvids.has('BV1bvid000')).toBe(true)
+      expect(mocks.isInWatchLater({ bvid: 'BV1bvid000' })).toBe(true)
       expect(mocks.toastSuccess).not.toHaveBeenCalled()
     })
 
     it('removes a bvid-only moment by resolving aid from getVideoInfo', async () => {
-      mocks.store.addedWatchLaterBvids.add('BV1bvid000')
+      mocks.watchLaterEntries.set('BV1bvid000', true)
       mocks.getVideoInfo.mockResolvedValueOnce({ code: 0, data: { aid: 789 } })
       mocks.removeFromWatchLater.mockResolvedValueOnce({ code: 0 })
 
@@ -282,13 +307,13 @@ describe('moments watch-later toggle', () => {
         aid: 789,
         csrf: 'csrf-token',
       })
-      expect(mocks.store.addedWatchLaterBvids.has('BV1bvid000')).toBe(false)
+      expect(mocks.isInWatchLater({ bvid: 'BV1bvid000' })).toBe(false)
       expect(mocks.toastSuccess).not.toHaveBeenCalled()
     })
 
     it('keeps the bvid lock after resolving aid while removal is pending', async () => {
       let resolveRemove: (value: unknown) => void = () => {}
-      mocks.store.addedWatchLaterBvids.add('BV1bvid000')
+      mocks.watchLaterEntries.set('BV1bvid000', true)
       mocks.getVideoInfo.mockResolvedValueOnce({ code: 0, data: { aid: 789 } })
       mocks.removeFromWatchLater.mockImplementationOnce(() => new Promise((resolve) => {
         resolveRemove = resolve
@@ -309,11 +334,11 @@ describe('moments watch-later toggle', () => {
 
       resolveRemove({ code: 0 })
       await flushAsyncAction()
-      expect(mocks.store.addedWatchLaterBvids.has('BV1bvid000')).toBe(false)
+      expect(mocks.isInWatchLater({ bvid: 'BV1bvid000' })).toBe(false)
     })
 
     it('shows error when getVideoInfo fails for bvid-only removal', async () => {
-      mocks.store.addedWatchLaterBvids.add('BV1bvid000')
+      mocks.watchLaterEntries.set('BV1bvid000', true)
       mocks.getVideoInfo.mockResolvedValueOnce({ code: -1, data: null })
       const toggle = root.querySelector('.moment-watch-later-toggle') as HTMLElement
 

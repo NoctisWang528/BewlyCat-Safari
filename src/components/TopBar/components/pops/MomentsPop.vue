@@ -112,18 +112,23 @@ async function toggleWatchLater(moment: TopBarMomentItem) {
   try {
     const added = isInWatchLater(target)
     if (!added) {
-      const res = await api.watchlater.saveToWatchLater({ csrf, ...(aid ? { aid } : {}), ...(bvid ? { bvid } : {}) })
+      const res = await api.watchlater.saveToWatchLater({ csrf, ...(aid ? { aid: Number(aid) } : {}), ...(bvid ? { bvid } : {}) })
       if (res?.code === 0) {
         markWatchLater(target, true)
       }
     }
     else {
-      const resolvedAid = getWatchLaterAid(target) ?? aid
-      if (!resolvedAid)
+      let resolvedAid = Number(getWatchLaterAid(target) ?? aid ?? 0)
+      if ((!Number.isSafeInteger(resolvedAid) || resolvedAid <= 0) && bvid) {
+        resolvedAid = Number((await api.video.getVideoInfo({ bvid }))?.data?.aid) || 0
+        if (resolvedAid)
+          moment.aid = resolvedAid
+      }
+      if (!Number.isSafeInteger(resolvedAid) || resolvedAid <= 0)
         return
       const res = await api.watchlater.removeFromWatchLater({ aid: resolvedAid, csrf })
       if (res?.code === 0) {
-        markWatchLater(target, false)
+        markWatchLater({ ...target, aid: resolvedAid }, false)
       }
     }
     void topBarStore.syncWatchLaterState()
