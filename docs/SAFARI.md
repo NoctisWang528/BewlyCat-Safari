@@ -256,6 +256,17 @@ The `isDnrCoveredRequest(url, method)` pure function reflects the URL and method
 portion of the DNR rule scope and is exported for testing. Safari assigns the
 request resource type at runtime.
 
+APP login, token refresh, HD recommendations, and dislike requests use a
+separate fixed endpoint allowlist in `src/background/appClient.ts`. The
+background signs those requests and applies APP-specific User-Agent, Referer,
+and client-hint headers. Chromium scopes its session DNR rules to non-tab
+requests with `tabIds: [-1]`. Safari does not support `tabIds`, so
+`buildAppClientHeaderRules(true)` omits that condition while retaining the exact
+endpoint regex and `xmlhttprequest` resource type. `appClientRules.spec.ts`
+guards both branches. This makes Safari's rule scope URL-based rather than
+tab-based; manual acceptance must verify that page-initiated calls to the same
+endpoints are not unexpectedly rewritten.
+
 Safari watch-later add/remove operations do not depend on background header
 rewriting. The content script sends a strictly typed request to the existing
 MAIN-world bridge, which accepts only the fixed add/remove operations and uses
@@ -263,20 +274,23 @@ the page's original `window.fetch`. This lets Safari generate the page Origin,
 Referer, and credentials naturally. The bridge never accepts arbitrary URLs and
 does not fall back to a background POST after a timeout.
 
-### Token Refresh (P1 fix)
+### APP Client and Token Refresh
 
-`ensureFreshTokensOnDemand()` waits for the shared `refreshPromise` and returns
-the latest access token from background memory. API definitions specify an
-auth strategy:
+APP endpoints are not routed through the generic API request assembler. The
+content script calls `requestAppClient()` with a fixed endpoint name and
+unprivileged parameters; the background validates that name against
+`APP_CLIENT_ENDPOINTS`, adds PiliPlus-compatible headers, signs the final
+parameters, uses `credentials: omit`, and sends the request itself.
 
-- `none`: no APP auth
-- `inject`: inject access token
-- `inject+sign`: inject access token and re-sign with TV APP credentials
+The scheduled auth checker and `ensureFreshTokensOnDemand()` share one
+`refreshPromise`. UI callers use `ensureFreshAppAccessToken()` before an APP
+operation. Token refresh tries the v3 endpoint and then v2, compares the token
+snapshot before committing a result, and cannot restore an authorization that
+was revoked or replaced while a request was in flight.
 
-The background overwrites `access_key` after merging parameters. For signing
-requests, the old `sign` from the content script is discarded and recomputed
-from the actual outgoing parameters. If no token is available after refresh,
-the request fails with `code: "ERR_APP_AUTH_REQUIRED"`.
+This split keeps packet-scoped APP credentials and generated APP headers out of
+normal Bilibili API calls. Do not restore the removed generic `auth` strategy
+on `api.bilibili.com` definitions.
 
 ### Storage
 

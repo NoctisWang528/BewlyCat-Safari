@@ -59,27 +59,27 @@ Safari 版本”类任务时按此执行。
 
 ### 版本号约定
 
-以同步上游 `v1.8.0`、首次 Safari 修订为例：
+以同步上游 `v1.8.1`、首次 Safari 修订为例：
 
 | 位置 | 值 |
 | --- | --- |
-| 发布 tag / Release | `v1.8.0-safari.1` |
-| `package.json#version` | `1.8.0` |
+| 发布 tag / Release | `v1.8.1-safari.1` |
+| `package.json#version` | `1.8.1` |
 | `package.json#safariRevision` | `1` |
-| 生成 manifest `version` | `1.8.0.1` |
-| Xcode `MARKETING_VERSION` | `1.8.0` |
+| 生成 manifest `version` | `1.8.1.1` |
+| Xcode `MARKETING_VERSION` | `1.8.1` |
 | Xcode `CURRENT_PROJECT_VERSION` | `1` |
-| 版本提醒文案 / 链接 | `v1.8.0-safari.1`，指向本仓库 Release |
+| 版本提醒文案 / 链接 | `v1.8.1-safari.1`，指向本仓库 Release |
 
 同上游基线的第二次及以后 Safari 修订：递增 `safariRevision` 与
-`CURRENT_PROJECT_VERSION`，manifest 变为 `1.8.0.2`，tag 变为 `v1.8.0-safari.2`。
+`CURRENT_PROJECT_VERSION`，manifest 变为 `1.8.1.2`，tag 变为 `v1.8.1-safari.2`。
 
 ### 提交历史约定
 
 一次上游版本同步在 `codex/sync-upstream-vX.Y.Z` 上保持清晰：
 
-1. `chore: merge upstream vX.Y.Z` —— 仅合并正式 tag 的 `--no-ff` merge commit
-2. `fix(safari): adapt upstream vX.Y.Z` —— Safari 兼容、版本号、测试与发布准备
+1. `chore: 合并上游 vX.Y.Z` —— 仅合并正式 tag 的 `--no-ff` merge commit
+2. `fix(safari): 适配上游 vX.Y.Z` —— Safari 兼容、版本号、测试与发布准备
 3. 如有独立文档更新，可用 `docs: ...` 单独提交
 
 生成的 `extension-safari/`、`extension-safari-macos/`、DerivedData 和 release
@@ -426,7 +426,8 @@ git merge --abort
 - `src/inject/`：页面 MAIN-world 脚本及 `window.postMessage` 桥
   （含新增 audio / player 相关 page-world 代码）；
 - `src/contentScripts/`：Safari 注入方式和初始化顺序；
-- `src/background/`：MV3 非持久后台生命周期、storage 协调器、token 刷新；
+- `src/background/`：MV3 非持久后台生命周期、storage 协调器、token 刷新、
+  `appClient.ts` 固定 APP 接口与 DNR 请求头规则；
 - `src/utils/api.ts` 及请求组装：Cookie、CSRF、Origin、Referer；
 - `src/logic/storage.ts`：新设置项与旧用户存储合并；
 - `assets/rules.json`：Safari DNR resource type 和请求头修改；
@@ -458,14 +459,16 @@ CI 证明源码可以通过自动检查和生成 Safari WebExtension，但不证
 - Safari 设置中扩展能安装、启用并获得网站权限；
 - 登录和未登录状态；
 - 首页、动态栏、搜索和视频播放；
-- 上游新功能（本次例如：音量均衡、清晰度记忆、稍后再看状态、历史网格）；
+- 上游新功能（本次例如：收藏夹整理、动态评论与富文本转发、常驻分区、
+  听视频模式、自定义播放倍速、视频分区标签）；
 - 稍后再看添加与移除；
 - 历史记录、通知和设置持久化；
 - 后台标签页打开；
 - iframe drawer；
 - MAIN-world READY/FAILED handshake；
 - 后台页终止后的 token 刷新；
-- DNR 对 API POST 请求的请求头处理；
+- DNR 对 API POST 与 APP 固定接口请求的请求头处理；Safari 的 APP 会话规则
+  不含 `tabIds`，需确认页面自身请求未被意外改写；
 - Safari 页面控制台和扩展后台控制台无新增错误。
 
 记录：
@@ -545,7 +548,7 @@ find "$HOME/Library/Developer/Xcode/DerivedData" -maxdepth 1 -type d -name 'Bewl
 ```
 
 - 将匹配的 BewlyCat DerivedData 目录移入废纸篓（保留可恢复命名，
-  如 `BewlyCat_Safari-v180-post-v1.8.0-release`）；
+  如 `BewlyCat_Safari-v181-post-v1.8.1-release`）；
 - 清理 `/tmp/BewlyCat-*` 校验解压目录；
 - **保留**：`extension-safari-macos/`、`release/` 下的 zip 与 `SHA256SUMS.txt`、
   `/Applications/BewlyCat Safari.app`。

@@ -5,11 +5,12 @@
 [上游同步与维护手册](./UPSTREAM-MAINTENANCE-cmn_CN.md)，构建细节见
 [SAFARI.md](./SAFARI.md)，仓库约束见 [AGENTS.md](../AGENTS.md)。
 
-核对日期：2026-10-20；核对源码基线：`98ed387c`，`package.json` 为
-`1.8.0` / `safariRevision: 1`。最近交付记录为
-[v1.8.0-safari.1](./compose/spec/sync-upstream-v1.8.0.md)。这是历史快照，
-接手时应重新读取当前 Git 状态和版本；本文不代表已重新检查远端 Release、
-本机证书或 Applications 中应用的现状。
+核对日期：2026-10-20；核对源码基线：`b24d7962`，`package.json` 为
+`1.8.1` / `safariRevision: 1`。最近候选记录为
+[v1.8.1-safari.1](./compose/spec/sync-upstream-v1.8.1.md)，截至本文更新时
+已完成构建与自动校验，仍等待用户 Safari 实机验收。接手时应重新读取当前
+Git 状态和版本；本文不代表已重新检查远端 Release、本机证书或 Applications
+中应用的现状。
 
 ## 新会话先做什么
 
@@ -46,9 +47,9 @@ LTS 要求，包管理器固定 `pnpm@10.21.0`；历史记录里出现过的具�
 | isolated 脚本恢复与版本诊断 | `src/constants/contentScript.ts`、`src/contentScripts/pageLoading.ts`、`src/contentScripts/index.ts`、`src/background/contentScriptRecovery.ts`、`src/background/contentScriptRefreshPrompt.ts` | `contentScript.spec.ts`、`contentScriptRecovery.spec.ts`、`messaging.spec.ts` |
 | MAIN-world 注入、握手、幂等与失败状态 | `src/contentScripts/pageWorldInjection.ts`、`src/constants/pageWorld.ts`、`src/inject/index.ts`、`src/inject/pageWorldLifecycle.ts` | `pageWorld.spec.ts` |
 | 深色评论配色与 Lit 主题同步 | `src/contentScripts/commentThemeTokens.ts`、`src/inject/commentShadowDarkMode.ts`、`src/inject/index.ts`、`src/styles/adaptedStyles/common/comments.scss` | `commentThemeTokens.spec.ts`、`commentShadowDarkMode.spec.ts`、`commentStyles.spec.ts` |
-| 稍后再看页面请求桥与动态卡片 ID | `src/utils/api.ts`、`src/utils/pageWatchLater.ts`、`src/inject/pageWatchLater.ts`、`src/utils/momentVideoIdentifier.ts`、`src/logic/watchLaterState.ts`、`src/background/watchLaterStateBroker.ts` | `api.spec.ts`、`pageWatchLater.spec.ts`、`momentVideoIdentifier.spec.ts`、`momentsWatchLater.spec.ts`、`useVideoCardLogic.spec.ts`、`openTabsWatchLater.spec.ts` |
+| 稍后再看页面请求桥与动态卡片 ID | `src/utils/api.ts`、`src/utils/pageWatchLater.ts`、`src/inject/pageWatchLater.ts`、`src/utils/momentVideoIdentifier.ts`、`src/utils/watchLaterActions.ts`、`src/logic/watchLaterState.ts`、`src/background/watchLaterStateBroker.ts` | `api.spec.ts`、`pageWatchLater.spec.ts`、`momentVideoIdentifier.spec.ts`、`momentsWatchLater.spec.ts`、`watchLaterActions.spec.ts`、`openTabsWatchLater.spec.ts` |
 | 消息响应、断连重试和可取消读取 | `src/utils/messaging.ts`、`src/background/messageListeners/api/index.ts`、`src/background/requestTimeout.ts` | `messaging.spec.ts`、`api.spec.ts` |
-| DNR、APP 鉴权、WBI、匿名搜索和请求缓存 | `assets/rules.json`、`src/background/requestWithSafariCompat.ts`、`src/background/utils.ts`、`src/background/appAuthScheduler.ts`、`src/background/wbiSign.ts`、`src/background/apiResponseCache.ts` | `requestWithSafariCompat.spec.ts`、`backgroundRequestAssembly.spec.ts`、`authApi.spec.ts`、`appAuthScheduler.spec.ts` |
+| DNR、APP 鉴权、WBI、匿名搜索和请求缓存 | `assets/rules.json`、`src/background/requestWithSafariCompat.ts`、`src/background/appClient.ts`、`src/background/utils.ts`、`src/background/appAuthScheduler.ts`、`src/background/wbiSign.ts`、`src/background/apiResponseCache.ts` | `requestWithSafariCompat.spec.ts`、`backgroundRequestAssembly.spec.ts`、`authApi.spec.ts`、`appAuthScheduler.spec.ts`、`appClientRules.spec.ts` |
 | local-only 设置、写入守卫与壁纸事务 | `src/background/platformFeatures.ts`、`src/background/settingsStorageCoordinator.ts`、`src/composables/useStorageLocal.ts`、`src/utils/storageWriteQueue.ts`、`src/utils/localWallpaper.ts` | `platformFeatures.spec.ts`、`settingsStorageCoordinator.spec.ts`、`storageWriteQueue.spec.ts`、`localWallpaper.spec.ts` |
 | 动态页经常访问的 UP 主横幅 | `src/contentScripts/views/Moments/Moments.vue`、`src/background/messageListeners/api/moment.ts`、`src/logic/storage.ts`、`src/components/Settings/PluginComponentsAndPages/Moments/Moments.vue` | `momentsUpList.spec.ts` |
 | Xcode 资源快照、签名与分发 | `scripts/package-safari.mjs`、`scripts/sync-safari-xcode-resources.mjs`、`scripts/validate-safari-build.mjs`、`scripts/release-macos.sh` | `validate-safari`、`check-safari-xcode-sync`、严格 codesign、解压复检与人工验收 |
@@ -165,9 +166,16 @@ Safari 的添加/移除由 `APIClient` 统一分流到页面桥，使用页面�
 - 非持久后台使用 `alarms` 每 5 分钟检查授权，缺失能力时才退回 interval；
   注册 installed/startup 路径，并在 setup 时做即时检查。仅 interval 不能保证
   后台被挂起后刷新。
-- 请求前 `ensureFreshTokensOnDemand()` 等待共享 refreshPromise，取后台最新
-  token；策略分 `none` / `inject` / `inject+sign`。合并参数后覆盖 access_key，
-  需要签名时删旧 sign 并按最终参数重算；授权不可用返回 `ERR_APP_AUTH_REQUIRED`。
+- 扫码登录、token 刷新、HD 推荐流和不感兴趣都走 `appClient.ts` 的固定
+  endpoint 白名单，由后台按 PiliPlus 的 APP 请求头签名；内容层只能提交受限
+  参数，不能把任意 URL 变成后台代理。通用 `api` 请求不再注入 APP token。
+- 定时器与按需刷新共用 refreshPromise，取后台内存中的最新 token。旧请求、
+  撤销或重新授权会替换 token 快照，完成后的旧刷新不得恢复旧授权。
+- `appClient.ts` 用会话 DNR 改写 APP 请求的 UA/Referer 并移除 Origin 与
+  client hints。Chromium 用 `tabIds: [-1]` 限定为非标签页请求；Safari 不支持
+  该字段，构建分支会省略它，仅保留固定接口的精确正则与 `xmlhttprequest`
+  resource type。因此 Safari 的作用域是 URL 而非标签页，实机必须确认 B 站
+  页面自己发出的同名接口请求没有被意外改写。
 - `requestWithSafariCompat` 与静态 DNR 配合：api/passport 的 POST 覆盖
   `xmlhttprequest` / `other`。覆盖范围内移除脚本 Origin/Referer，交 DNR 设置；
   其他请求移除 Origin、保留调用方 Referer。主机必须精确匹配，不能用后缀误匹配。
@@ -256,6 +264,7 @@ bundle ID、Release 版本与签名配置。不能为每个 CSS 修改反复重�
 | `a9531408`、`84afbc6e`（v1.7.8–v1.7.9） | 版本化 ping/构建标识、刷新提示、早期 pageLoading 与单一恢复生命周期 | 完整 manifest 版本与上游版本不同；旧脚本应提示刷新而非重复 mount |
 | `e743b983`（v1.7.10） | 接收打开标签页批量加入稍后再看；保留 querySerializer 与空 query 不附加问号 | 上游请求组装扩展不能覆盖 Safari 认证兼容层 |
 | `0ca3465f`、`aa3d2f70`（v1.8.0） | 上游超时/取消、共享状态及 Safari 验收中的 storage Disk I/O 修复 | 单个存储 ref 队列不能覆盖整个上下文，更不等于跨上下文锁 |
+| `f8957dba`、`b24d7962`（v1.8.1） | 合并 HD 推荐与固定 APP client；收窄 page-world 钩子并隔离补丁；Safari 会话 DNR 移除 `tabIds` | APP 鉴权不能再回退到通用 API 参数注入；Safari URL 级 DNR 需单独手测作用范围 |
 | `98ed387c` 交付记录 | 记录 macOS 同步产生的 `* 2` 副本干扰 knip / Git refs | 先辨认重复文件与来源；不要批量删除名字含空格/数字的正常文件或手改 Git refs |
 
 按文件追查即可，不需要重新依赖旧聊天：

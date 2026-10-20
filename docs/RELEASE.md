@@ -20,6 +20,8 @@ Use this checklist for a GitHub Release of the macOS Safari host app.
 - [ ] Test installation from the generated zip on a clean macOS user or machine.
 - [ ] Create and push the matching `vX.Y.Z-safari.N` tag.
 - [ ] Create the GitHub Release and upload the zip and `SHA256SUMS.txt`.
+- [ ] Base the release notes on the matching upstream Release, then add the
+      Safari-specific adaptation, signing, and notarization details.
 - [ ] Record the exact signing and notarization status in the notes.
 
 Do not store certificates, private keys, Apple account passwords, app-specific
