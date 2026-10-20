@@ -3,6 +3,12 @@
 This document covers how to build, validate, package, and troubleshoot the
 Safari Web Extension variant of BewlyCat.
 
+For a new-session handoff, start with the
+[Safari adaptation and historical pitfalls guide](./SAFARI-HANDOFF-cmn_CN.md).
+It maps the current compatibility decisions to source files, regression tests,
+and historical commits. For the end-to-end two-phase workflow, use the
+[upstream maintenance runbook](./UPSTREAM-MAINTENANCE-cmn_CN.md).
+
 ## Prerequisites
 
 - Node.js LTS

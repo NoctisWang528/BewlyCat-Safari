@@ -13,6 +13,23 @@ here.
 Upstream Chromium/Firefox source branches are preserved to reduce merge
 conflicts, but they are never built, tested, or released from this repository.
 
+## 新会话接手入口
+
+开始 Safari 适配、排障或上游同步前，按顺序阅读：
+
+1. [Safari 适配与历史踩坑交接](docs/SAFARI-HANDOFF-cmn_CN.md)：当前适配原理、
+   源码/测试索引、历史修复证据及不能恢复的旧方案。
+2. [上游同步与维护手册](docs/UPSTREAM-MAINTENANCE-cmn_CN.md)：正式 tag 合并、
+   两阶段验收、签名构建、发布、安装与清理步骤。
+3. [Safari 构建与维护说明](docs/SAFARI.md) 与
+   [发布清单](docs/RELEASE.md)。
+4. `docs/compose/spec/` 中与当前任务有关的最近交付记录；
+   [v1.8.0 记录](docs/compose/spec/sync-upstream-v1.8.0.md) 是本文更新时的最近基线。
+
+接手时重新检查 Git 状态、版本和工具链，不将文档中的历史版本或测试数量当作
+当前事实。代码与测试是当前行为的依据；用户在 Safari 验收通过后才进入发布阶段。
+新增 Safari 修复时同步维护交接文档的根因、实现入口、测试与手测边界。
+
 ## Toolchain
 
 - Use Node.js LTS, matching `.github/workflows/ci.yml`.
@@ -133,8 +150,9 @@ Review these hotspots when making Safari changes:
 
 Prefer capability checks or a centralized Safari build flag over user-agent
 sniffing. If runtime source code needs a compile-time Safari branch, add the
-define explicitly to the relevant Vite/tsup configuration; `isSafari` currently
-exists only in Node-side build configuration.
+define explicitly to the relevant Vite/tsup configuration. The current shared
+Vite config and tsup config define `process.env.SAFARI`; `isSafari` itself exists
+only in Node-side build configuration.
 
 Do not silently remove functionality to make conversion pass. If Safari cannot
 support a feature, isolate the fallback, document the user-visible limitation,

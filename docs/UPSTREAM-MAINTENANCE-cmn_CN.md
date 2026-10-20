@@ -6,6 +6,10 @@
 本仓库只维护 macOS Safari 版本。Chrome、Edge 和 Firefox 由上游
 [`keleus/BewlyCat`](https://github.com/keleus/BewlyCat) 维护，不应从本仓库构建或发布。
 
+新会话先读 [AGENTS.md](../AGENTS.md) 与
+[Safari 适配与历史踩坑交接](./SAFARI-HANDOFF-cmn_CN.md)。后者提供每项适配的
+源码、测试和历史证据；本文负责执行流程。文档中的版本示例不代替当前 Git 状态。
+
 ## 快速结论
 
 - 上游更新仅由维护者在正式 Release 节点手动合并，不配置自动合并工作流。
@@ -48,9 +52,9 @@ Safari 版本”类任务时按此执行。
     → 解压复检，撰写 Release notes
     → 创建并推送注释 tag vX.Y.Z-safari.N
     → gh release create 上传资产并回读 digest
-    → 清理 BewlyCat Xcode DerivedData 与临时校验目录（移入废纸篓）
     → 将 .app 安装到 /Applications（旧版移入废纸篓）
     → 最终复核版本 / 架构 / 签名 / 资源一致性
+    → 清理 BewlyCat Xcode DerivedData 与临时校验目录（移入废纸篓）
 ```
 
 ### 版本号约定
@@ -126,6 +130,7 @@ DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer \
     -derivedDataPath "$HOME/Library/Developer/Xcode/DerivedData/BewlyCat_Safari-vX.Y.Z" \
     DEVELOPMENT_TEAM=W5J4JBH2BR \
     CODE_SIGN_STYLE=Automatic \
+    MARKETING_VERSION=X.Y.Z CURRENT_PROJECT_VERSION=N \
     ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
     build
 
@@ -167,7 +172,7 @@ cd /Users/baixu/Documents/BewlyCat-Safari
 # 1. 发布前复核
 git status --short --branch
 git fetch origin --prune --tags
-# 确认 origin/main == 待快进的候选基线；工作树干净；tag/Release 尚不存在
+# 确认 origin/main 仍是建候选分支时的基线，且可快进到已验收提交；工作树干净；tag/Release 尚不存在
 
 # 2. 快进 main 并推送
 git switch main
@@ -194,17 +199,17 @@ gh release create vX.Y.Z-safari.N \
 
 # 7. 回读核对 tag 指向、资产名/大小/digest 与本地一致
 
-# 8. 清理 Xcode 临时文件（移入废纸篓，可恢复）
-#    - $HOME/Library/Developer/Xcode/DerivedData/BewlyCat*
-#    - /tmp/BewlyCat-* 校验目录
-#    保留：extension-safari-macos/、release/ 资产、/Applications 中的 .app
-
-# 9. 安装到 Applications
+# 8. 安装到 Applications（候选已安装时复核同一 app 即可）
 #    旧版 mv 到废纸篓（命名 BewlyCat Safari-vOLD-before-vNEW.app）
 #    ditto 新 .app → /Applications/BewlyCat Safari.app
 #    再跑 codesign + check-safari-xcode-sync + PlistBuddy 版本 + lipo 架构
 
-# 10. 最终只读复核 Git 状态、Release 资产、/Applications 应用
+# 9. 最终只读复核 Git 状态、Release 资产、/Applications 应用
+
+# 10. 安装与复核通过后，清理 Xcode 临时文件（移入废纸篓，可恢复）
+#     先列出并确认具体目标：BewlyCat* DerivedData 与本次临时校验目录
+#     保留：extension-safari-macos/、release/ 资产、/Applications 中的 .app
+#     不得先删除仍作为安装源的 DerivedData app
 ```
 
 Release notes 必须写明：
@@ -551,7 +556,7 @@ find "$HOME/Library/Developer/Xcode/DerivedData" -maxdepth 1 -type d -name 'Bewl
 
 收到“同步上游并更新 Safari”任务时，Agent 应：
 
-1. 阅读根目录 `AGENTS.md` 和本文；
+1. 阅读根目录 `AGENTS.md`、Safari 交接文档和本文；
 2. 检查 `git status`、当前分支、Node 与 pnpm 版本；
 3. 保留所有已有未提交修改；
 4. 确认上游正式 Release tag，并排除 `upstream/main` 未发布提交；
@@ -565,8 +570,8 @@ find "$HOME/Library/Developer/Xcode/DerivedData" -maxdepth 1 -type d -name 'Bewl
 12. 交付 `.app` 路径与验收清单后**停止**；
 13. 明确报告哪些真实 Safari 流程已测试、哪些需要维护者手测；
 14. 未经用户明确确认，不提交到 `main`、不推送、不打 tag、不创建 Release；
-15. 用户确认后按阶段二执行：推送 → 打包 → tag → Release → 清理 DerivedData
-    → 安装到 `/Applications` → 最终复核。
+15. 用户确认后按阶段二执行：推送 → 打包 → tag → Release → 安装到
+    `/Applications` → 最终复核 → 清理 DerivedData；候选已安装时复核同一 app 即可。
 
 禁止事项：
 
