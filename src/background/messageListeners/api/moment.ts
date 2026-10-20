@@ -10,6 +10,38 @@ function serializeMomentVoteBody(body: Record<string, any>) {
   return `${serializedRest.slice(0, -1)},"dynamic_id":${serializedDynamicId}}`
 }
 
+// 评论接口按 Web 端只提交非空字段，空 root/parent 会被视为非法楼层。
+function serializeCommentForm(body: Record<string, any>) {
+  const form = new URLSearchParams()
+  for (const [key, value] of Object.entries(body)) {
+    if (value !== undefined && value !== null && value !== '')
+      form.append(key, String(value))
+  }
+  return form
+}
+
+// 与 Web 端一致：三点菜单删除项附带的 params 原样提交，再以当前动态 id 覆盖。
+function serializeMomentRemoveBody(body: Record<string, any>) {
+  return JSON.stringify({ ...body.extra, dyn_id_str: String(body.dyn_id_str || '') })
+}
+
+// 运行时消息只能传可序列化数据，图片以 data URL 进入后台后再还原为 multipart 文件。
+function serializeImageUpload(body: Record<string, any>) {
+  const match = /^data:([^;,]+);base64,([\w+/=]+)$/.exec(String(body.file_up || ''))
+  if (!match)
+    throw new Error('Invalid image data')
+  const binary = atob(match[2])
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index++)
+    bytes[index] = binary.charCodeAt(index)
+  const form = new FormData()
+  form.append('file_up', new Blob([bytes], { type: match[1] }), String(body.file_name || 'image'))
+  form.append('category', String(body.category || 'daily'))
+  form.append('biz', String(body.biz || 'new_dyn'))
+  form.append('csrf', String(body.csrf || ''))
+  return form
+}
+
 const API_MOMENT = {
   getMomentComments: {
     url: 'https://api.bilibili.com/x/v2/reply',
@@ -29,6 +61,48 @@ const API_MOMENT = {
       method: 'post',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
       body: { type: 17, oid: '', rpid: '', action: 1, csrf: '' },
+    },
+    afterHandle: AHS.J_D,
+  },
+  // 与动态页 Web 评论框提交的字段保持一致；sync_to_dynamic=1 即“评论并转发”。
+  addMomentComment: {
+    url: 'https://api.bilibili.com/x/v2/reply/add',
+    _fetch: {
+      method: 'post',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+      body: {
+        type: 17,
+        oid: '',
+        root: '',
+        parent: '',
+        message: '',
+        plat: 1,
+        at_name_to_mid: '',
+        pictures: '',
+        sync_to_dynamic: '' as 1 | '',
+        gaia_source: 'main_web',
+        statistics: JSON.stringify({ appId: 100, platform: 5 }),
+        csrf: '',
+      },
+      bodySerializer: serializeCommentForm,
+    },
+    afterHandle: AHS.J_D,
+  },
+  deleteMomentComment: {
+    url: 'https://api.bilibili.com/x/v2/reply/del',
+    _fetch: {
+      method: 'post',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+      body: { type: 17, oid: '', rpid: '', csrf: '' },
+    },
+    afterHandle: AHS.J_D,
+  },
+  uploadMomentCommentImage: {
+    url: 'https://api.bilibili.com/x/dynamic/feed/draw/upload_bfs',
+    _fetch: {
+      method: 'post',
+      body: { file_up: '', file_name: '', category: 'daily', biz: 'new_dyn', csrf: '' },
+      bodySerializer: serializeImageUpload,
     },
     afterHandle: AHS.J_D,
   },
@@ -116,6 +190,28 @@ const API_MOMENT = {
     params: {
       csrf: '',
     },
+    afterHandle: AHS.J_D,
+  },
+  removeMoment: {
+    url: 'https://api.bilibili.com/x/dynamic/feed/operate/remove',
+    _fetch: {
+      method: 'post',
+      headers: { 'Content-Type': 'application/json' },
+      body: { dyn_id_str: '', extra: {} as Record<string, unknown> },
+      bodySerializer: serializeMomentRemoveBody,
+    },
+    params: { csrf: '', platform: 'web' },
+    afterHandle: AHS.J_D,
+  },
+  reportMoment: {
+    url: 'https://api.bilibili.com/x/dynamic/feed/dynamic_report/add',
+    _fetch: {
+      method: 'post',
+      headers: { 'Content-Type': 'application/json' },
+      // reason_type 为 0（其他）时才提交说明，其余理由与 Web 端一致传 null。
+      body: { accused_uid: 0, dynamic_id: '', reason_type: 0, reason_desc: null as string | null },
+    },
+    params: { csrf: '' },
     afterHandle: AHS.J_D,
   },
   getRepostConfig: {

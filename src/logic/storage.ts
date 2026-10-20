@@ -11,6 +11,7 @@ import {
   MOBILE_LIST_LAYOUT_BREAKPOINT,
   normalizeListLayoutBreakpoint,
 } from '~/utils/gridLayout'
+import { normalizePlaybackRateStep } from '~/utils/playbackRate'
 
 export const storageDemo = useStorageLocal('webext-demo', 'Storage Demo')
 
@@ -91,6 +92,7 @@ export interface ShortcutsSettings {
   turnOffLight?: BaseShortcutSetting // I
   caption?: BaseShortcutSetting // C
   videoScreenshot?: BaseShortcutSetting // Shift+S
+  listenVideo?: BaseShortcutSetting // Shift+M
   increasePlaybackRate?: BaseShortcutSetting // +
   decreasePlaybackRate?: BaseShortcutSetting // -
   resetPlaybackRate?: BaseShortcutSetting // 0
@@ -102,9 +104,9 @@ export interface ShortcutsSettings {
   homeRefresh?: BaseShortcutSetting // R
 
   // 全屏模式下快捷键
-  increaseVideoSize?: BaseShortcutSetting // Shift++
-  decreaseVideoSize?: BaseShortcutSetting // Shift+-
-  resetVideoSize?: BaseShortcutSetting // Shift+0
+  increaseVideoSize?: BaseShortcutSetting // 默认未绑定
+  decreaseVideoSize?: BaseShortcutSetting // 默认未绑定
+  resetVideoSize?: BaseShortcutSetting // 默认未绑定
   videoTitle?: BaseShortcutSetting // B
   videoTime?: BaseShortcutSetting // G
   clockTime?: BaseShortcutSetting // H
@@ -230,6 +232,7 @@ export const videoCardContextMenuKeys = [
   'openInNewWindow',
   'openInCurrentTab',
   'openInDrawer',
+  'favorite',
   'copyVideoLink',
   'copyCleanVideoLink',
   'copyBVNumber',
@@ -248,6 +251,26 @@ export interface VideoCardContextMenuConfigItem {
 
 export const defaultVideoCardContextMenuConfig: VideoCardContextMenuConfigItem[]
   = videoCardContextMenuKeys.map(key => ({ key, visible: true }))
+
+export interface FavoriteOrganizerUp {
+  mid: string
+  name: string
+}
+
+/** 同一条规则内各类条件需同时满足；同一类条件填多个值时满足其一即可。 */
+export interface FavoriteOrganizerRule {
+  id: string
+  ups: FavoriteOrganizerUp[]
+  zones: number[] // 旧版分区 tid，主分区包含其下全部子分区
+  titleKeywords: string[]
+}
+
+/** 收藏夹满足任一规则即归入。 */
+export interface FavoriteOrganizerFolder {
+  mediaId: number
+  title: string
+  rules: FavoriteOrganizerRule[]
+}
 
 export interface Settings {
   showLocalLoudnessButton: boolean
@@ -272,6 +295,8 @@ export interface Settings {
   enlargeFavoriteDialog: boolean // 视频页收藏夹放大样式增强
   enableSidebarCoverBlur: boolean // 页面侧栏封面高斯渐变背景
   externalWatchLaterButton: boolean // 稍后再看按钮外置
+  favoriteOrganizerFolders: FavoriteOrganizerFolder[] // 收藏夹整理：各目标收藏夹的规则组
+  favoriteOrganizerSyncAfterTriple: boolean // 一键三连后按规则把视频同步到目标收藏夹
 
   // Grid 相关设置
   gridColumns: GridColumnsConfig
@@ -318,6 +343,7 @@ export interface Settings {
   onlyCoverVideoPreview: boolean
   showVideoCardAuthorAvatar: boolean
   showVideoCardAuthorName: boolean
+  showVideoCardCategory: boolean
   showVideoCardVideoTag: boolean
   showVideoCardRecommendTag: boolean
   showVideoCardPublishTime: boolean
@@ -360,6 +386,8 @@ export interface Settings {
   originalMomentsShowCommunityCenter: boolean
   originalMomentsShowHotSearch: boolean
   originalMomentsShowUpList: boolean
+  /** 将 Bewly 动态过滤设置同时应用到 Bilibili 原版动态流 */
+  originalMomentsUseBewlyFilters: boolean
   momentsSidebarShowUserCard: boolean
   momentsSidebarShowPublish: boolean
   momentsSidebarShowLive: boolean
@@ -421,6 +449,7 @@ export interface Settings {
   themeColor: string
   darkModeBaseColor: string // 深色模式基准颜色
   useLinearGradientThemeColorBackground: boolean
+  disableBackground: boolean
   wallpaperMode: 'buildIn' | 'byUrl'
   wallpaper: string
   enableWallpaperMasking: boolean
@@ -534,6 +563,8 @@ export interface Settings {
   showVerticalVideoZoomButton: boolean // 显示竖屏视频放大按钮
   showBewlyWidescreenButton: boolean // 显示播放器 Bewly 宽屏按钮
   showVideoScreenshotButton: boolean // 显示播放器截图按钮
+  enableListenVideo: boolean // 听视频功能总开关
+  showListenVideoButton: boolean // 显示播放器听视频按钮
 
   // 自动连播总开关
   useBilibiliDefaultAutoPlay: boolean // 使用B站默认自动播放行为（总开关）
@@ -554,6 +585,7 @@ export interface Settings {
   // 倍速记忆设置
   rememberPlaybackRate: boolean // 启用倍速记忆功能
   savedPlaybackRate: number // 记住的倍速值 (0.25-5)
+  playbackRateStep: number // 倍速快捷键每次调节的幅度 (0.01-1)
 
   // 清晰度记忆设置
   rememberVideoQuality: boolean
@@ -603,6 +635,8 @@ export const originalSettings: Settings = {
   enlargeFavoriteDialog: false, // 默认关闭收藏夹放大样式
   enableSidebarCoverBlur: true, // 默认启用页面侧栏封面高斯渐变背景
   externalWatchLaterButton: true, // 默认开启稍后再看按钮外置
+  favoriteOrganizerFolders: [],
+  favoriteOrganizerSyncAfterTriple: false,
 
   // Grid 相关默认设置
   gridColumns: { ...defaultGridColumns },
@@ -644,6 +678,7 @@ export const originalSettings: Settings = {
   onlyCoverVideoPreview: false,
   showVideoCardAuthorAvatar: true,
   showVideoCardAuthorName: true,
+  showVideoCardCategory: true,
   showVideoCardVideoTag: true,
   showVideoCardRecommendTag: true,
   showVideoCardPublishTime: true,
@@ -697,6 +732,7 @@ export const originalSettings: Settings = {
   originalMomentsShowCommunityCenter: true,
   originalMomentsShowHotSearch: true,
   originalMomentsShowUpList: true,
+  originalMomentsUseBewlyFilters: false,
   momentsSidebarShowUserCard: true,
   momentsSidebarShowPublish: true,
   momentsSidebarShowLive: true,
@@ -748,6 +784,7 @@ export const originalSettings: Settings = {
   themeColor: '#00a1d6',
   darkModeBaseColor: '#2a2d32', // 默认深色模式基准颜色
   useLinearGradientThemeColorBackground: false,
+  disableBackground: false,
   wallpaperMode: 'buildIn',
   wallpaper: '',
   enableWallpaperMasking: false,
@@ -865,6 +902,8 @@ export const originalSettings: Settings = {
   showVerticalVideoZoomButton: true, // 默认显示竖屏视频放大按钮
   showBewlyWidescreenButton: true, // 默认显示播放器 Bewly 宽屏按钮
   showVideoScreenshotButton: true, // 默认显示播放器截图按钮
+  enableListenVideo: true, // 默认启用听视频功能，进入模式仍需手动切换
+  showListenVideoButton: true, // 默认显示播放器听视频按钮
 
   // 自动连播总开关
   useBilibiliDefaultAutoPlay: true, // 使用B站默认自动播放行为（总开关），默认开启
@@ -894,24 +933,27 @@ export const originalSettings: Settings = {
     turnOffLight: { key: 'I', enabled: true },
     caption: { key: 'C', enabled: true },
     videoScreenshot: { key: 'Shift+S', enabled: true },
+    listenVideo: { key: 'Shift+M', enabled: true },
     increasePlaybackRate: { key: '+', enabled: true },
     decreasePlaybackRate: { key: '-', enabled: true },
     resetPlaybackRate: { key: '0', enabled: true },
     previousFrame: { key: ',', enabled: true },
     nextFrame: { key: '.', enabled: true },
     replay: { key: 'Shift+Backspace', enabled: true },
-    increaseVideoSize: { key: 'Shift++', enabled: true },
-    decreaseVideoSize: { key: 'Shift+-', enabled: true },
-    resetVideoSize: { key: 'Shift+0', enabled: true },
+    increaseVideoSize: { key: '', enabled: false },
+    decreaseVideoSize: { key: '', enabled: false },
+    resetVideoSize: { key: '', enabled: false },
     videoTitle: { key: 'B', enabled: true },
     videoTime: { key: 'G', enabled: true },
     clockTime: { key: 'H', enabled: true },
     homeRefresh: { key: 'R', enabled: true },
+    toggleFollow: { key: 'Shift+F', enabled: false },
   },
 
   // 倍速记忆设置
   rememberPlaybackRate: false, // 启用倍速记忆功能
   savedPlaybackRate: 1, // 记住的倍速值 (0.25-5)
+  playbackRateStep: 0.25,
 
   // 清晰度记忆设置
   rememberVideoQuality: false,
@@ -938,6 +980,38 @@ export const originalSettings: Settings = {
 // 本地存储配置（不会同步到云端）
 export const localSettings = useStorageLocal('localSettings', originalLocalSettings, { mergeDefaults: true, writeDefaults: false })
 
+function normalizeFavoriteOrganizerFolders(value: unknown): FavoriteOrganizerFolder[] {
+  if (!Array.isArray(value))
+    return []
+
+  const strings = (items: unknown) => Array.isArray(items)
+    ? items.filter((item): item is string => typeof item === 'string' && item.trim() !== '')
+    : []
+  const folders: FavoriteOrganizerFolder[] = []
+  const seen = new Set<number>()
+  for (const folder of value) {
+    const mediaId = Number(folder?.mediaId)
+    if (!Number.isSafeInteger(mediaId) || mediaId <= 0 || seen.has(mediaId))
+      continue
+    seen.add(mediaId)
+    folders.push({
+      mediaId,
+      title: typeof folder.title === 'string' ? folder.title : '',
+      rules: (Array.isArray(folder.rules) ? folder.rules : []).map((rule: any, index: number) => ({
+        id: typeof rule?.id === 'string' && rule.id ? rule.id : `${mediaId}-${index}`,
+        ups: (Array.isArray(rule?.ups) ? rule.ups : [])
+          .filter((up: any) => /^\d+$/.test(String(up?.mid ?? '')))
+          .map((up: any) => ({ mid: String(up.mid), name: typeof up.name === 'string' ? up.name : '' })),
+        zones: (Array.isArray(rule?.zones) ? rule.zones : [])
+          .map(Number)
+          .filter((tid: number) => Number.isSafeInteger(tid) && tid > 0),
+        titleKeywords: strings(rule?.titleKeywords),
+      })),
+    })
+  }
+  return folders
+}
+
 let resolveSettingsReady: (value: Settings) => void = () => {}
 export const settingsReady = new Promise<Settings>((resolve) => {
   resolveSettingsReady = resolve
@@ -947,6 +1021,12 @@ export const settings = useSettingsStorage(originalSettings, {
   onReady: value => resolveSettingsReady(value),
   normalize: (value) => {
     const record = value as Record<string, any>
+    record.playbackRateStep = normalizePlaybackRateStep(record.playbackRateStep)
+
+    // 旧配置也补齐新入口，保持菜单按钮与各项的默认可见状态一致。
+    const menuConfig = record.videoCardContextMenuConfig
+    if (Array.isArray(menuConfig) && !menuConfig.some(item => item.key === 'favorite'))
+      menuConfig.push({ key: 'favorite', visible: true })
 
     // 旧私信开关同时控制两类私信，拆分后保留原有选择。
     if (typeof record.showPrivateMessageUnreadCount === 'boolean') {
@@ -959,6 +1039,8 @@ export const settings = useSettingsStorage(originalSettings, {
       record.enableSidebarCoverBlur = record.enableFavoriteCoverBlur
       Reflect.deleteProperty(record, 'enableFavoriteCoverBlur')
     }
+
+    record.favoriteOrganizerFolders = normalizeFavoriteOrganizerFolders(record.favoriteOrganizerFolders)
 
     Reflect.deleteProperty(record, 'detectCommentShadowBan')
     Reflect.deleteProperty(record, 'showBewlyOrBiliTopBarSwitcher')
@@ -1181,9 +1263,6 @@ export const settings = useSettingsStorage(originalSettings, {
     Reflect.deleteProperty(record, 'customPlayDefaultEnabled')
     Reflect.deleteProperty(record, 'randomPlayOrder')
 
-    if (record.shortcuts?.webFullscreen?.key === 'W')
-      record.shortcuts.webFullscreen.key = originalSettings.shortcuts.webFullscreen?.key
-
     if (!record.shortcuts?.bewlyWidescreen) {
       record.shortcuts = {
         ...record.shortcuts,
@@ -1195,6 +1274,13 @@ export const settings = useSettingsStorage(originalSettings, {
       record.shortcuts = {
         ...record.shortcuts,
         videoScreenshot: { ...originalSettings.shortcuts.videoScreenshot },
+      }
+    }
+
+    if (!record.shortcuts?.listenVideo) {
+      record.shortcuts = {
+        ...record.shortcuts,
+        listenVideo: { ...originalSettings.shortcuts.listenVideo },
       }
     }
 

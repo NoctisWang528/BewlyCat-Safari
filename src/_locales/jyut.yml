@@ -23,7 +23,6 @@ common:
   just_now: 啱啱
   please_log_in_first: 唔該登入先
   login: 登入
-  save_to_watch_later: 陣間至睇
   add_to_watch_later: 加到陣間至睇
   added_to_watch_later: 已加到陣間至睇
   remove_from_watch_later: 由陣間至睇剷走
@@ -111,6 +110,10 @@ player_screenshot:
   saved: 截圖已儲存
   failed: 截圖失敗
   video_unavailable: 而家嘅影片畫面用唔到
+player_listen:
+  enter: 聽影片
+  exit: 還原影片畫面
+  listening: 而家聽緊
 settings:
   local_loudness:
     gain_history: 均衡增益變化 · 近 60 秒
@@ -159,10 +162,11 @@ settings:
   category_appearance_desc: 設定毛玻璃、主題顏色、桌布、字型、自訂樣式同其他頁面嘅適配。
   category_shortcuts_desc: 啟用、修改或者還原 BewlyCat 同播放器快捷鍵。
   breadcrumb: 設定位置
+  usage_guide: 使用說明：BewlyCat 功能講解影片合集
   group_interaction_layout: 互動同版面
   category_browsing_home_desc: 設定首頁推薦、內容過濾、關注頁同首頁分頁。
   category_browsing_video_card_desc: 設定影片卡片嘅版面、預覽、資料顯示同開啟方式。
-  category_browsing_favorites_desc: 設定收藏內容嘅顯示同互動方式。
+  category_browsing_favorites_desc: 按規則整理收藏夾，一鍵三連之後自動同步去對應收藏夾。
   category_navigation_link_opening_desc: 統一設定頂欄、影片卡片同搜尋列連結嘅開啟位置同抽屜行為。
   category_navigation_topbar_desc: 統一調整頂欄版面、元件、頻道、搜尋入口同通知顯示。
   category_navigation_dock_desc: 設定 Dock 欄同側欄嘅位置、顯示同快捷操作。
@@ -321,6 +325,7 @@ settings:
   group_following: 跟緊啲人
   group_following_desc: 設定「跟緊啲人」頁面嘅版面、直播內容同影片過濾規則。
   group_favorites: 收藏
+  group_favorite_organizer: 收藏夾整理
   sidebar_cover_blur: 側邊欄封面高斯漸變
   sidebar_cover_blur_desc: 喺收藏、稍後再睇等頁面側邊欄用封面模糊背景；閂咗之後用透出頁面桌布嘅 Pop 背景，唔跟封面染色。
   group_search_page_mode: 搵嘢頁模式
@@ -329,6 +334,7 @@ settings:
   group_original_moments_page: Bilibili 頁面
   group_new_moments_page: Bewly動態頁
   group_new_moments_page_desc: 呢個頁面唔係最終成品，相關形態之後可能會有較大改動。
+  group_moments_filters: 動態過濾
   group_moments_sidebar: 動態頁左邊元件
   group_moments_interaction: 動態卡片互動
   group_environment_info: 環境資訊
@@ -348,6 +354,8 @@ settings:
   original_moments_show_community_center: 顯示社羣中心
   original_moments_show_hot_search: 顯示熱搜
   original_moments_show_up_list: 顯示動態 UP 橫幅
+  original_moments_use_bewly_filters: 過濾原版動態流
+  original_moments_use_bewly_filters_desc: 開啟之後，上面嘅動態類型同關鍵詞過濾設定亦會套用到 Bilibili 原版動態頁。
   moments_show_user_card: 顯示用戶卡片
   moments_show_publish: 顯示發布動態元件
   moments_show_live: 顯示直播中元件
@@ -521,8 +529,10 @@ settings:
   only_cover_video_preview: 淨係喺封面做影片預覽
   show_video_card_author_avatar: 顯示用戶頭像
   show_video_card_author_name: 顯示用戶暱稱
+  show_video_card_category: 顯示影片分區
+  show_video_card_category_desc: 顯示 API 提供嘅影片分區，撳一下可以搜尋呢個分區。
   show_video_card_video_tag: 顯示 API 同搜尋標籤
-  show_video_card_video_tag_desc: 顯示 API 提供嘅推薦原因、狀態或分區標籤，同埋搜尋頁嘅影片內容標籤。
+  show_video_card_video_tag_desc: 顯示 API 提供嘅推薦原因或狀態標籤，同埋搜尋頁嘅影片內容標籤。
   show_video_card_recommend_tag: 顯示插件計算標籤
   show_video_card_recommend_tag_desc: 顯示插件計算嘅標籤，好似「高讚」、「高互動」、「百萬播放」咁
   show_video_card_publish_time: 顯示發佈時間
@@ -564,12 +574,42 @@ settings:
   topbar_components_adjustment: 頂欄組件角標設定
   topbar_components_adjustment_desc: 設定每個頂欄圖示嘅角標顯示方式
   group_topbar_pinned_channels: 頂欄固定分區
-  topbar_pinned_channels_desc: 可以將 Logo 展開嘅分區固定喺頂欄外面，並且設定顯示順序。
+  topbar_pinned_channels_desc: 按順序優先顯示，放唔落嘅分區會收埋喺更多選單。
   topbar_pinned_channels_title: 固定分區
-  topbar_pinned_channels_hint: 撳卡片就可以固定或者取消，撳落去嘅順序會決定顯示順序。排後面嗰啲會喺空間唔夠時優先收埋。
+  pinned_manager:
+    count: '已加入 {count} 項'
+    add: 加入分區
+    clear: 清空
+    search: 搜尋分區
+    categories: 分區分類
+    screen: 影音娛樂
+    animation_games: 動漫遊戲
+    knowledge_news: 知識科技
+    life_interests: 生活方式
+    services: 平台服務
+    history_reset: 分區選擇已經畀其他操作更新，舊復原記錄已清空。
+    all: 全部
+    selected: 已揀
+    no_results: 搵唔到符合嘅分區
+    move_before: '將 {name} 移前'
+    move_after: '將 {name} 移後'
+    remove: '移除 {name}'
+    undo: 復原上一步
+    hidden: 固定分區而家已隱藏
+    enable: 啟用
+    layout: '頂欄 {visible} · 更多 {hidden}'
+    unavailable: 頂欄而家睇唔到
+    open: '展開分區，包括 {count} 個收埋咗嘅項目'
+    channels: 分區
+    manage: 管理固定分區
+    collapse: 收起加入
+    clear_search: 清除搜尋
+    view_all: 睇全部分類
+    all_visible: 全部顯示
+  topbar_pinned_channels_hint: 透過加入分區揀內容，用拖曳手柄或者移前、移後掣調整順序。
   topbar_pinned_channels_all_selected: 所有可用分區都已經加入。
   topbar_pinned_channels_empty: 仲未揀任何固定分區。
-  topbar_pinned_channels_order_tip: 撳嘅順序決定顯示，再撳一次就會取消固定。
+  topbar_pinned_channels_order_tip: 透過加入分區揀內容，用拖曳手柄或者移前、移後掣調整順序。
   top_bar_logo_style: Logo 樣式
   top_bar_logo_style_desc: 揀頂欄用圓形圖示或者橫向品牌標誌。
   top_bar_logo_style_opt:
@@ -702,8 +742,59 @@ settings:
   filter_by_publish_time_desc: 避開啲發布時間超過設定日數嘅片（淨係得 Web 推介模式下有效，最少 7 日）。
   filter_by_publish_time_unit: 日
   filter_item_already_exist: 呢個篩選條件已經有咗喇！
+  favorite_organizer:
+    sync_after_triple: 三連之後自動同步
+    sync_after_triple_desc: 喺影片頁一鍵三連之後，按下面嘅規則將影片同時加入符合嘅收藏夾，預設收藏夾入面嘅影片會保留。
+    batch_title: 批量整理預設收藏夾
+    batch_desc: 掃描預設收藏夾入面全部影片，將符合規則嘅影片複製去對應收藏夾；已經喺目標收藏夾嘅影片會跳過，預設收藏夾唔會改動。
+    start: 開始整理
+    stop: 停止
+    preparing: 準備緊…
+    scanning: 掃描緊預設收藏夾，已讀取 {count} 條影片
+    copying: 複製緊去目標收藏夾，已加入 {count} 條影片
+    result_summary: 一共掃描咗 {scanned} 條影片
+    result_folder: '{title}：符合 {matched} 條，新加入 {copied} 條'
+    result_folder_failed: '{title}：符合 {matched} 條，新加入 {copied} 條，之後失敗（{message}）'
+    stopped: 已經停止整理
+    no_rules: 冇可用嘅規則，請先幫收藏夾設定條件
+    no_default_folder: 搵唔到預設收藏夾
+    account_changed: 帳號已經切換，整理已中止
+    failed: 整理失敗：{message}
+    rules_title: 整理規則
+    rules_desc: 每個收藏夾可以設定多條規則，符合任何一條就會歸入；同一條規則入面嘅條件要同時符合，同一項條件填咗多個值嘅話符合其中一個就得。
+    load_folders_failed: 攞收藏夾清單失敗，請遲啲重新整理再試
+    empty: 未設定規則。㩒「新增規則」揀收藏夾再設定條件。
+    folder_missing: 而家嘅帳號搵唔到呢個收藏夾，整理時會跳過
+    remove_rule: 刪除規則
+    new_rule: 新增規則
+    edit_rule: 編輯規則
+    copy_rule: 複製做新規則
+    refresh_folders: 重新整理收藏夾
+    rule_editor_desc: 揀目標收藏夾再設定條件：每類條件要同時符合，同一類填咗多個值嘅話符合其中一個就得。
+    folder: 目標收藏夾
+    folder_placeholder: 揀收藏夾
+    folder_missing_option: '{title}（已失效）'
+    folder_required: 請揀目標收藏夾
+    conditions_required: 請至少設定一個條件
+    rule_duplicate: 呢個收藏夾已經有相同嘅規則：{rule}
+    rule_covered: 呢個收藏夾已經有更闊嘅規則包含咗呢條：{rule}
+    rule_covers: 呢條規則包含咗呢個收藏夾 {count} 條現有規則，儲存之後會移除佢哋：
+    summary_part: '{label}：{value}'
+    value_separator: 、
+    part_separator: ；
+    rule_empty: 未設定條件，呢條規則唔會生效
+    up: UP 主
+    up_placeholder: 輸入 UID、空間連結或者暱稱之後按 Enter
+    up_already_added: 呢個 UP 主已經喺呢條規則入面
+    zone: 分區
+    zone_placeholder: 輸入名稱篩選再加入分區（主分區包括佢全部子分區）
+    zone_main: 主分區
+    zone_no_match: 冇對應嘅分區
+    title_keyword: 標題關鍵字
+    title_keyword_placeholder: 輸入關鍵字之後按 Enter，唔分大細階
+    triple_synced: 已經同步去收藏夾：{folders}
+    triple_sync_failed: 三連之後同步收藏夾失敗
   wanted_users:
-    enter_query: 請輸入 UP 主 UID 或暱稱
     no_results: 搵唔到相關 UP 主，試下其他暱稱
     search_failed: 搜尋 UP 主失敗，請遲啲再試
     invalid_uid: 請輸入有效嘅 UP 主 UID
@@ -789,6 +880,8 @@ settings:
     bewly: BewlyCat 頂欄
   adapt_to_other_page_styles: 適應其他版面風格
   adapt_to_other_page_styles_desc: 執執啲常用嘅版面，襯返 BewlyBewly 主題風格。
+  disable_background: 閂咗背景
+  disable_background_desc: 徹底閂咗插件版面嘅純色背景、漸層背景同埋桌布（包括搜尋頁桌布），顯示返 B 站原本版面嘅背景。
   prevent_mobile_redirect: 防止跳轉去流動版
   prevent_mobile_redirect_desc: 開啟之後，只會喺進入 www.bilibili.com 時使用桌面版 UA，避免跳轉去 m.bilibili.com；直接進入流動版唔受影響。
   follow_bilibili_evolved_color: 跟返 Bilibili Evolved 主題色
@@ -836,8 +929,16 @@ settings:
   keep_watch_later_video_default_mode_desc: 啟用後，稍後再睇入面嘅影片會一直用預設播放器模式，唔會套用寬螢幕或者全螢幕設定
   remember_playback_rate: 記住倍速
   remember_playback_rate_desc: 開啟後，播放器會記住你上次設定嘅倍速，並喺下次開片嗰陣自動套用
+  custom_playback_rate: 自訂播放倍速
+  custom_playback_rate_desc: 輸入 0.25–5 倍，套用到而家嘅影片（支援抽屜同彈窗入面嘅影片）。開咗「記住倍速」就會儲存呢個值。
+  custom_playback_rate_apply: 套用到而家嘅影片
+  custom_playback_rate_no_video: 呢個頁面冇可以控制嘅影片，請喺影片播放頁開啟呢個設定。
+  playback_rate_step: 倍速快捷鍵調整幅度
+  playback_rate_step_desc: 每次增減 0.01–1 倍；預設 0.25。快捷鍵可以喺「快捷鍵」設定修改。
   remember_video_quality: 記住畫質
-  remember_video_quality_desc: 啟用後自動恢復上次揀嘅畫質；用唔到時沿用播放器目前畫質，唔會覆蓋記憶。
+  remember_video_quality_desc: 啟用後自動恢復上次揀嘅畫質；用唔到或者而家個帳號唔係大會員時沿用播放器目前畫質，唔會覆蓋記憶。
+  remember_video_quality_confirm_title: 確認開啟記住畫質？
+  remember_video_quality_confirm_message: B 站本身已經識記住畫質，擴充功能嘅記住畫質淨係用嚟喺網絡唔好嘅時候，避免 B 站自動試用高畫質。如果網絡狀況本身唔錯，就唔使開呢個功能，用返 B 站預設嘅記憶邏輯就得。
   remember_video_aspect_ratio: 記住影片比例
   remember_video_aspect_ratio_desc: 啟用後，播放器會記住你上次揀嘅影片比例，並喺下次打開影片嗰陣自動套用
   auto_exit_fullscreen_on_end: 全螢幕/網頁全螢幕播完後自動退出
@@ -876,10 +977,14 @@ settings:
   native_home_feed_back: 返上一組推介
   native_home_feed_forward: 去下一組推介
   shortcuts:
+    undo_reset: 復原重設
+    reset_undo_hint: 已重設，離開呢頁之前可以復原，還原最近一次重設前嘅快捷鍵設定。
     caption: 字幕
     caption_desc: 顯示/隱藏字幕。
     video_screenshot: 影片截圖
     video_screenshot_desc: 將目前影片畫面儲存成 PNG 圖片，關咗播放器截圖按鈕之後仍然用得。
+    listen_video: 聽影片
+    listen_video_desc: 切換聽影片模式，收埋畫面淨係留低聲音。
     clock_time: 時鐘
     clock_time_desc: 顯示/隱藏系統時間。
     danmu_status: 顯示彈幕狀態
@@ -893,7 +998,6 @@ settings:
     group:
       fullscreen_mode: 全螢幕模式快捷鍵
       general: 一般快捷鍵
-      global_actions: 全域操作
       official_bilibili: Bilibili 官方快捷鍵
       homepage: ''
     increase_playback_rate: 加速播放
@@ -934,7 +1038,8 @@ settings:
     pip_desc: 切換字母畫面模式。
     play_pause_ext: 播放/暫停
     play_pause_ext_desc: 播放或暫停影片（延伸功能）。
-    press_keys: 點擊輸入框，跟住撳低快捷鍵
+    press_keys: 請撳低快捷鍵
+    not_set: 未設定
     conflict: 呢個快捷鍵已經俾延伸功能快捷鍵「{name}」用緊，唔可以重複設定。
     previous_frame: 上一影格
     previous_frame_desc: 去返上一影格（暫停時）。
@@ -1053,6 +1158,10 @@ settings:
   show_bewly_widescreen_button_desc: 啓用後，喺影片播放器控制欄顯示 Bewly 闊螢幕按鈕。
   show_video_screenshot_button: 顯示播放器截圖按鈕
   show_video_screenshot_button_desc: 啓用後，喺影片播放器控制欄顯示擷取目前影片畫面嘅按鈕。關咗之後仍然可以用截圖快捷鍵，可以喺「快捷鍵」設定入面更改。
+  enable_listen_video: 啓用聽影片功能
+  enable_listen_video_desc: 開咗之後可以用播放器按鈕或者快捷鍵聽影片。關閉會退出聽影片、還原彈幕同停止相關監聽；關閉後開頁面唔會載入功能模組。功能會收埋畫面，但影片串流仍然會下載同解碼。
+  show_listen_video_button: 顯示播放器「聽影片」按鈕
+  show_listen_video_button_desc: 啓用後，喺影片播放器控制欄顯示聽影片切換按鈕：收埋影片畫面淨係留低聲音，用封面同標題砌返個聽歌畫面。關咗之後仍然可以用快捷鍵切換，可以喺「快捷鍵」設定入面更改。
   group_fonts: ''
   group_visual_effects: ''
   group_search_results: 搜尋結果
@@ -1175,6 +1284,7 @@ video_card:
   episode_watch_later_info_failed: 攞唔到呢集嘅稍後再睇資料
   feedback_options_unavailable: 攞唔到回饋選項
   operation:
+    favorite: 收藏到收藏夾
     not_interested: 唔鍾意
     not_interested_uploader: 唔想睇呢個 UP 主
     open_in_new_tab: 新分頁開啓
@@ -1193,6 +1303,11 @@ video_card:
     more_options: 更多操作
     scroll_top: 捲到頂
     scroll_bottom: 捲到底
+  favorite_dialog:
+    hint: 揀收藏夾，可以揀多個；取消勾選就會移出收藏夾。
+    empty: 暫時冇收藏夾，請先喺 B 站建立收藏夾再重新整理。
+    saved: 收藏設定已儲存
+    save_failed: 儲存收藏失敗，請再試
   follow_user_confirm:
     title: 確認關注用戶
     message: 確定要關注 {name} 嗎？
@@ -1363,6 +1478,8 @@ version_reminder:
   title: BewlyCat 已更新
   current_version: 而家版本 v{version}
   description: 睇吓呢個版本嘅更新記錄同最新動態。確認之後，呢個版本就唔會再顯示提醒。
+  usage_guide: 使用說明
+  usage_guide_desc: 睇吓 BewlyCat 功能講解影片合集，了解每樣功能點用
   github_releases: GitHub Releases
   github_releases_desc: 睇完整版本記錄同下載資料
   bilibili_dynamic: Bilibili 動態
@@ -1601,14 +1718,29 @@ moment_card:
   comments_retry: 再試
   load_comment_replies: 載入更多回覆
   comments_empty: 暫時未有留言
+  comment_placeholder: 留個友善嘅留言
+  comment_login: 登入咗先可以發表留言
+  comment_send: 發佈
+  comment_send_shortcut: Ctrl / ⌘ + Enter 發送
+  comment_reply: 回覆
+  comment_reply_to: "回覆 {'@'}{name}"
+  comment_send_failed: 留言發送失敗，請稍後再試
+  comment_delete_confirm: 確認刪除
+  comment_delete_failed: 留言刪除失敗，請稍後再試
+  comment_image_add: 加圖片
+  comment_image_remove: 移除第 {index} 張圖片
+  comment_sync_repost: 同時轉發去我嘅動態
+  comment_image_limit: 最多可以加 {count} 張圖片
+  comment_image_invalid: 只支援 PNG、JPG、GIF 或者 WebP 圖片
+  comment_image_too_large: 每張圖片唔可以超過 {size}MB
+  comment_image_upload_failed: 圖片上載失敗，請稍後再試
+  editor_load_failed: 載入失敗，請重試
   video_post: 投稿咗影片
   cancel_reservation: 取消預約
   reserve: 預約
   open_space: 打開 {name} 嘅空間
   just_now: 啱啱
   charging_exclusive: 充電專屬
-  added_watch_later: 已加到稍後再睇
-  add_watch_later: 加到稍後再睇
   live_post: 直播動態
   open_original_video: '打開原影片：{title}'
   author_images: '{name} 嘅動態圖片'
@@ -1632,6 +1764,30 @@ moment_card:
   like_unsupported: 呢條動態暫時唔支援讚好
   unlike: 取消讚好
   like: 讚好
+  copy_link: 複製動態連結
+  report: 舉報
+  delete: 刪除動態
+  delete_title: 刪除動態
+  delete_confirm: 確定要刪除呢條動態？
+  delete_success: 刪除咗
+  delete_failed: 動態刪除唔到，請稍後再試
+  report_title: 舉報動態
+  report_select_reason: 請揀舉報理由
+  report_remark_placeholder: 請補充問題類型同出現位置等詳細資料
+  report_remark_required: 揀「其他」嘅時候請填寫舉報說明
+  report_success: 舉報咗
+  report_failed: 舉報唔到，請稍後再試
+  report_reasons:
+    spam: 垃圾廣告
+    inciting_conflict: 引戰
+    pornography: 色情
+    personal_attack: 人身攻擊
+    illegal_content: 違法資訊
+    political_rumors: 涉政謠言
+    social_event_rumor: 涉社會事件謠言
+    false_information: 虛假失實資訊
+    illegal_link: 違法資訊外鏈
+    other: 其他
 user_card:
   followed: 已關注
   follow: 關注

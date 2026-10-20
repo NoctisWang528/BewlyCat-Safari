@@ -33,6 +33,7 @@ import { parseTopBarPublicationTime, recordUploaderLatestVideoTimes } from '~/lo
 import { markWatchLater, noteWatchLaterCount } from '~/logic/watchLaterState'
 import type { List as VideoItem } from '~/models/video/watchLater'
 import api from '~/utils/api'
+import { stripBilibiliLocaleUrl } from '~/utils/bilibiliLocale'
 import { shouldShowBewlyTopBar } from '~/utils/bilibiliTopBar'
 import { i18n } from '~/utils/i18n'
 import { getCSRF, isHomePage } from '~/utils/main'
@@ -133,6 +134,7 @@ export const useTopBarStore = defineStore('topBar', () => {
   const notificationsDrawerUrl = ref<string>('https://message.bilibili.com/')
   const popupVisible = reactive({
     channels: false,
+    pinnedChannels: false,
     userPanel: false,
     notifications: false,
     moments: false,
@@ -153,10 +155,11 @@ export const useTopBarStore = defineStore('topBar', () => {
   })
 
   const isTopBarFixed = computed((): boolean => {
+    const pageUrl = stripBilibiliLocaleUrl(location.href)
     if (
       isHomePage()
-      || VIDEO_LIST_URL.test(location.href)
-      || BANGUMI_PLAY_URL.test(location.href)
+      || VIDEO_LIST_URL.test(pageUrl)
+      || BANGUMI_PLAY_URL.test(pageUrl)
       || MOMENTS_URL.test(location.href)
       || CHANNEL_PAGE_URL.test(location.href)
       || READ_HOME_URL.test(location.href)

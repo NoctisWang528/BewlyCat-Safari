@@ -4,15 +4,26 @@ import type { CSSProperties } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { useBewlyApp } from '~/composables/useAppProvider'
+import { USAGE_GUIDE_URL } from '~/constants/usageGuide'
 import { settings } from '~/logic'
 import { createTransformer } from '~/utils/transformer'
 
+import { createPinnedChannelHistory, pinnedChannelHistoryKey } from './composables/usePinnedChannelHistory'
 import type { SettingsSearchEntry } from './searchCatalog'
 import { settingsSearchEntries } from './searchCatalog'
 import type { MenuItem } from './types'
 import { MenuType } from './types'
 
 const emit = defineEmits(['close'])
+
+const pinnedChannelHistory = createPinnedChannelHistory(computed({
+  get: () => settings.value.topBarPinnedChannels,
+  set: keys => settings.value.topBarPinnedChannels = keys,
+}))
+provide(pinnedChannelHistoryKey, pinnedChannelHistory)
+// Settings is cached by KeepAlive; closing it does not dispose its scope.
+onDeactivated(pinnedChannelHistory.reset)
+onActivated(pinnedChannelHistory.reset)
 
 const { t, tm, rt } = useI18n()
 const breadcrumbDetail = ref<string>()
@@ -168,6 +179,7 @@ useEventListener(() => scrollViewportRef.value, 'scroll', () => {
 }, { capture: true })
 
 provide('scrollSettingsContentToTop', () => {
+  cancelSearchNavigation()
   scrollViewportRef.value?.scrollTo({ top: 0 })
 })
 
@@ -335,6 +347,19 @@ function getMenuTitle(menu: MenuType) {
 let highlightedSearchTarget: HTMLElement | undefined
 let searchTargetHighlightTimer: number | undefined
 let searchNavigationId = 0
+let searchTargetRetryTimer: number | undefined
+let searchTargetFrame: number | undefined
+
+function cancelSearchNavigation() {
+  searchNavigationId++
+  if (searchTargetRetryTimer !== undefined)
+    window.clearTimeout(searchTargetRetryTimer)
+  if (searchTargetFrame !== undefined)
+    window.cancelAnimationFrame(searchTargetFrame)
+  searchTargetRetryTimer = undefined
+  searchTargetFrame = undefined
+  clearSearchTargetHighlight()
+}
 
 function clearSearchTargetHighlight() {
   if (searchTargetHighlightTimer)
@@ -362,27 +387,67 @@ function scrollToSearchTarget(expectedTitle: string | undefined, navigationId: n
   if (!expectedTitle || navigationId !== searchNavigationId || attempts > 30)
     return
 
-  const target = Array.from(settingsWindow.value?.querySelectorAll<HTMLElement>('[data-settings-title]') ?? [])
-    .find(element =>
-      element.dataset.settingsTitle === expectedTitle
-      && !element.closest('.page-fade-leave-active'),
-    )
-
-  if (target) {
-    nextTick(() => {
-      window.requestAnimationFrame(() => {
-        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        highlightSearchTarget(target)
-      })
-    })
+  const retry = () => {
+    searchTargetRetryTimer = window.setTimeout(() => {
+      searchTargetRetryTimer = undefined
+      scrollToSearchTarget(expectedTitle, navigationId, attempts + 1)
+    }, 100)
+  }
+  const viewport = scrollViewportRef.value
+  // 异步页面挂载及离场节点都会影响布局，等待过渡结束后再测量。
+  if (!viewport || viewport.querySelector('.page-fade-enter-active, .page-fade-leave-active')) {
+    retry()
     return
   }
 
-  window.setTimeout(() => scrollToSearchTarget(expectedTitle, navigationId, attempts + 1), 100)
+  const target = Array.from(viewport.querySelectorAll<HTMLElement>('[data-settings-title]'))
+    .find(element => element.dataset.settingsTitle === expectedTitle)
+  if (!target) {
+    retry()
+    return
+  }
+
+  // 展开所有祖先分组，但不启用功能或改写配置。
+  let ancestor: HTMLElement | null = target
+  while (ancestor && ancestor !== viewport) {
+    if (ancestor instanceof HTMLDetailsElement)
+      ancestor.open = true
+    ancestor = ancestor.parentElement
+  }
+
+  nextTick(() => {
+    if (navigationId !== searchNavigationId)
+      return
+    searchTargetFrame = window.requestAnimationFrame(() => {
+      searchTargetFrame = undefined
+      if (navigationId !== searchNavigationId || !viewport.contains(target))
+        return
+      if (viewport.querySelector('.page-fade-enter-active, .page-fade-leave-active')) {
+        retry()
+        return
+      }
+      if (!target.getClientRects().length) {
+        retry()
+        return
+      }
+
+      const targetRect = target.getBoundingClientRect()
+      const viewportRect = viewport.getBoundingClientRect()
+      const headerInset = Number.parseFloat(window.getComputedStyle(viewport).paddingTop) || 0
+      const centerOffset = Math.max(0, (viewport.clientHeight - headerInset - targetRect.height) / 2)
+      // 只滚动设置容器，避免 scrollIntoView 连带滚动外层页面；避开固定顶栏。
+      viewport.scrollTo({
+        top: Math.max(0, viewport.scrollTop + targetRect.top - viewportRect.top - viewport.clientTop - headerInset - centerOffset),
+        behavior: 'smooth',
+      })
+      highlightSearchTarget(target)
+    })
+  })
 }
 
 function navigateToSearchResult(entry: SettingsSearchEntry) {
-  const navigationId = ++searchNavigationId
+  cancelSearchNavigation()
+  const navigationId = searchNavigationId
   entry.storageValues?.forEach(({ key, value }) => sessionStorage.setItem(key, value))
 
   activatedMenuItem.value = entry.menu
@@ -419,8 +484,7 @@ watch(pendingSettingsNavigation, (request) => {
 onBeforeUnmount(() => {
   if (settingsContentFrame !== undefined)
     cancelAnimationFrame(settingsContentFrame)
-  searchNavigationId++
-  clearSearchTargetHighlight()
+  cancelSearchNavigation()
 })
 
 function handleClose() {
@@ -428,6 +492,7 @@ function handleClose() {
 }
 
 function changeMenuItem(menuItem: MenuType) {
+  cancelSearchNavigation()
   activatedMenuItem.value = menuItem
 }
 </script>
@@ -620,7 +685,8 @@ function changeMenuItem(menuItem: MenuType) {
           h-inherit of-y-auto of-x-hidden
           style="padding-top: 92px;"
         >
-          <main w-full min-h="[calc(100%-92px)]" p="x-12 b-10">
+          <!-- 底部留白高于右下角帮助按钮（16px 边距 + 32px），让末行内容可滚到按钮上方 -->
+          <main w-full min-h="[calc(100%-92px)]" p="x-12 b-20">
             <!-- <div h-80px mt--8 /> -->
 
             <Transition name="page-fade">
@@ -632,6 +698,21 @@ function changeMenuItem(menuItem: MenuType) {
             </Transition>
           </main>
         </div>
+
+        <!-- 右下角落在内容区 x-12 内边距内，不遮挡设置项右侧控件 -->
+        <Tooltip class="settings-usage-guide" :content="$t('settings.usage_guide')" placement="left" floating>
+          <a
+            :href="USAGE_GUIDE_URL"
+            target="_blank"
+            rel="noopener noreferrer"
+            :aria-label="$t('settings.usage_guide')"
+            :style="{
+              backdropFilter: settings.enableFrostedGlass ? 'var(--bew-filter-glass-1)' : 'none',
+            }"
+          >
+            <i i-mingcute:question-line />
+          </a>
+        </Tooltip>
       </div>
     </div>
 
@@ -786,6 +867,46 @@ function changeMenuItem(menuItem: MenuType) {
   strong:last-child {
     flex: 1 1 auto;
   }
+}
+
+/* 需高于 Tooltip 根节点自带的 relative 定位 */
+.settings-content .settings-usage-guide {
+  position: absolute;
+  right: var(--bew-space-4);
+  bottom: var(--bew-space-4);
+  z-index: 1;
+
+  a {
+    display: flex;
+    box-sizing: border-box;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    color: var(--bew-text-2);
+    font-size: 16px;
+    background: var(--bew-elevated);
+    border: 1px solid var(--bew-border-color);
+    border-radius: 50%;
+    box-shadow: var(--bew-shadow-edge-glow-1), var(--bew-shadow-2);
+    transition:
+      color var(--bew-duration-moderate) var(--bew-ease-standard),
+      background-color var(--bew-duration-moderate) var(--bew-ease-standard);
+  }
+
+  a:hover {
+    color: var(--bew-theme-color);
+    background: var(--bew-theme-color-30);
+  }
+
+  a:focus-visible {
+    outline: 2px solid var(--bew-theme-color-40);
+    outline-offset: 2px;
+  }
+}
+
+.dark .settings-content .settings-usage-guide a:not(:hover) {
+  background: var(--bew-fill-1);
 }
 
 .settings-search {

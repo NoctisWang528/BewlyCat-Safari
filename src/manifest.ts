@@ -81,6 +81,7 @@ export async function getManifest() {
           'dist/contentScripts/style.css',
           'dist/contentScripts/inject.global.js',
           'assets/*',
+          'dist/contentScripts/listenVideoControl.js',
         ],
         matches: [...CONTENT_SCRIPT_MATCHES],
       },

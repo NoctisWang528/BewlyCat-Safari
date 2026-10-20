@@ -1,8 +1,9 @@
 import { settings } from '~/logic'
 import type { CustomPlayOrderContext, RandomPlayOrder } from '~/logic/storage'
+import { getBilibiliPathname, stripBilibiliLocaleUrl } from '~/utils/bilibiliLocale'
 import { i18n } from '~/utils/i18n'
 
-import { applyAutoPlayByVideoType, detectVideoType, disableNativeEndPlaybackBehavior, doesEndBehaviorAllowCustomAdvance, getVideoElement, isPlayerEndingPanelVisible, isPlayerShowingAdvertisement, setCustomEndPlaybackHandlerActive, supportsCustomPlaybackForVideoType, VideoType } from './player'
+import { applyAutoPlayByVideoType, canCustomPlayHandleCurrentEnd, detectCustomPlayListVideoType, detectVideoType, disableNativeEndPlaybackBehavior, getVideoElement, isPlayerEndingPanelVisible, isPlayerShowingAdvertisement, setCustomEndPlaybackHandlerActive, supportsCustomPlaybackForVideoType, VideoType } from './player'
 
 // 随机播放状态管理
 let isRandomPlayEnabled = false
@@ -70,7 +71,7 @@ function getVideoTypeCustomPlayOrder(): RandomPlayOrder | null {
     return null
 
   let context: CustomPlayOrderContext | null = null
-  switch (detectVideoType()) {
+  switch (detectCustomPlayListVideoType()) {
     case VideoType.MULTIPART:
       context = 'multipart'
       break
@@ -108,7 +109,7 @@ function getEffectiveCustomPlayOrder(): RandomPlayOrder | null {
 }
 
 function shouldCustomPlayHandleEnd(): boolean {
-  return isRandomPlayEnabled && doesEndBehaviorAllowCustomAdvance()
+  return isRandomPlayEnabled && canCustomPlayHandleCurrentEnd()
 }
 
 function isGenuineCustomPlayEnd(
@@ -158,8 +159,10 @@ export function getRandomPlayText(): string {
 
 // 获取视频选集
 export function getVideoEpisodes(): HTMLElement[] {
-  // 多P视频选集（B站标准选集列表）
+  // 多P视频选集（B站标准选集列表）。新版合集把多 P 稿件的分 P 嵌在条目内，
+  // 自定义播放只在合集条目之间切换，稿件内切 P 交给分 P 设置。
   const episodes = queryEpisodeItems('.video-pod__item, .multi-page__item, .page-item')
+    .filter(item => !item.parentElement?.closest('.video-pod__item'))
 
   if (episodes.length > 0) {
     return episodes
@@ -406,7 +409,7 @@ export function getCurrentEpisodeIndex(episodes: HTMLElement[]): number {
     return activeIndex
 
   const currentUrl = new URL(location.href)
-  const currentPath = currentUrl.pathname.replace(/\/$/, '')
+  const currentPath = getBilibiliPathname(currentUrl.href).replace(/\/$/, '')
   const currentPage = currentUrl.searchParams.get('p') ?? '1'
   const urlIndex = episodes.findIndex((episode) => {
     const link = getEpisodeLink(episode)
@@ -414,7 +417,7 @@ export function getCurrentEpisodeIndex(episodes: HTMLElement[]): number {
       return false
     try {
       const episodeUrl = new URL(link.href, location.href)
-      return episodeUrl.pathname.replace(/\/$/, '') === currentPath
+      return getBilibiliPathname(episodeUrl.href).replace(/\/$/, '') === currentPath
         && (episodeUrl.searchParams.get('p') ?? '1') === currentPage
     }
     catch {
@@ -493,8 +496,13 @@ export function jumpToEpisode(episodes: HTMLElement[], targetIndex: number): voi
   const link = targetEpisode.matches('a[href]')
     ? targetEpisode as HTMLAnchorElement
     : targetEpisode.querySelector<HTMLAnchorElement>('a[href]')
+  // 合集中的多 P 条目点第一 P，明确切到该稿件开头，而不是只操作标题行。
+  const firstPage = targetEpisode.querySelector<HTMLElement>('.multi-p .page-item')
   if (link && link.href) {
     clickableElement = link
+  }
+  else if (firstPage) {
+    clickableElement = firstPage
   }
   else {
     // 2. 查找 .simple-base-item 元素（B站新版播放列表项）
@@ -1334,5 +1342,5 @@ export function initRandomPlay(): void {
 
 // 判断是否是视频页面
 export function isCustomPlayPage(): boolean {
-  return /https?:\/\/(?:www\.)?bilibili\.com\/(?:video|list)\/.*/.test(window.location.href)
+  return /https?:\/\/(?:www\.)?bilibili\.com\/(?:video|list)\/.*/.test(stripBilibiliLocaleUrl(window.location.href))
 }

@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { useInfiniteScroll } from '@vueuse/core'
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import { settings } from '~/logic'
+import { useTopBarStore } from '~/stores/topBarStore'
 import { getCommentSexIcon } from '~/utils/commentUserInfo'
+import { getUserID } from '~/utils/main'
 
-import type { CommentPreviewState, CommentSort } from './commentPreview'
+import type { CommentPreviewState, CommentSort, PreviewComment } from './commentPreview'
 import { getCommentRows } from './commentPreview'
+import MomentCommentComposer from './MomentCommentComposer.vue'
 import MomentCommentTree from './MomentCommentTree.vue'
 import type { DisplayMoment } from './types'
 import { useMomentComments } from './useMomentComments'
@@ -16,10 +19,25 @@ import { formatCount, getAuthorSpaceUrl } from './utils'
 const { moment, state } = defineProps<{ moment: DisplayMoment, state: CommentPreviewState }>()
 const emit = defineEmits<{
   collapse: []
+  ready: []
   openImagePreview: [urls: string[], index: number, trigger: HTMLElement | null]
+  countChange: [delta: number]
+  reposted: []
 }>()
 const { t } = useI18n()
-const { loadComments, changeSort, loadReplies, toggleReplies, toggleLike, saveScrollPosition } = useMomentComments(moment, state)
+const account = useTopBarStore()
+const {
+  loadComments,
+  changeSort,
+  loadReplies,
+  toggleReplies,
+  toggleLike,
+  uploadImage,
+  addComment,
+  deleteComment,
+  setReplyTarget,
+  saveScrollPosition,
+} = useMomentComments(moment, state, delta => emit('countChange', delta), () => emit('reposted'))
 const scroller = ref<HTMLElement>()
 const { reset: checkScroll } = useInfiniteScroll(scroller, loadComments, {
   distance: 80,
@@ -45,6 +63,33 @@ const groups = computed(() => state.comments.map(root => ({
   rows: getCommentRows(root, treeEnabled.value, treeMode.value),
 })))
 
+const userId = computed(() => account.isLogin ? String(getUserID() || '') : '')
+const draftPrefix = computed(() => `${userId.value}:${moment.id}`)
+const pendingDeleteId = ref('')
+let pendingDeleteTimer: ReturnType<typeof setTimeout> | undefined
+
+function replyTo(root: PreviewComment, comment: PreviewComment) {
+  const target = state.replyTarget
+  if (target?.root === root && target.comment === comment) {
+    setReplyTarget()
+    return
+  }
+  setReplyTarget({ root, comment })
+  void nextTick(() => scroller.value?.querySelector('.moment-comment-composer.is-reply')?.scrollIntoView({ block: 'nearest' }))
+}
+
+// 删除不可撤销，首次点击只进入确认态，几秒内再次点击才真正删除。
+function requestDelete(comment: PreviewComment, root: PreviewComment) {
+  clearTimeout(pendingDeleteTimer)
+  if (pendingDeleteId.value !== comment.id) {
+    pendingDeleteId.value = comment.id
+    pendingDeleteTimer = setTimeout(() => pendingDeleteId.value = '', 4000)
+    return
+  }
+  pendingDeleteId.value = ''
+  void deleteComment(comment, root)
+}
+
 function openPicture(event: MouseEvent, pictures: string[], index: number) {
   emit('openImagePreview', pictures, index, event.currentTarget instanceof HTMLElement ? event.currentTarget : null)
 }
@@ -66,11 +111,29 @@ async function restoreScroll() {
 watch(() => state.expanded, expanded => expanded && void restoreScroll())
 // 首屏、切换排序和失败重试后，继续补齐尚未填满滚动区的评论。
 watch(() => state.loading, loading => !loading && checkScroll())
+// 首屏加载结束（成功、空列表或失败）后再通知父组件播放展开动画，确保动画起点就是最终高度。
+let readyEmitted = false
+function notifyReady() {
+  if (readyEmitted || !state.expanded)
+    return
+  if (state.page > 0 || state.error || state.done) {
+    readyEmitted = true
+    emit('ready')
+  }
+}
+watch(
+  () => [state.loading, state.page, state.error, state.done],
+  () => {
+    if (!state.loading)
+      notifyReady()
+  },
+)
 onMounted(() => {
   if (!state.page)
     void loadComments()
   void restoreScroll()
 })
+onBeforeUnmount(() => clearTimeout(pendingDeleteTimer))
 </script>
 
 <template>
@@ -100,6 +163,19 @@ onMounted(() => {
       :aria-busy="state.loading"
       @scroll.passive="saveScroll"
     >
+      <MomentCommentComposer
+        v-if="userId"
+        class="moment-comments__composer"
+        :draft-key="`${draftPrefix}:root`"
+        :placeholder="state.rootPlaceholder || t('moment_card.comment_placeholder')"
+        :disabled="state.inputDisabled"
+        :can-sync-to-dynamic="!moment.isForwardDisabled"
+        :submit="submission => addComment(submission)"
+        :upload="uploadImage"
+      />
+      <p v-else class="moment-comments__login">
+        {{ t('moment_card.comment_login') }}
+      </p>
       <MomentCommentTree
         v-for="group in groups"
         :key="group.root.id"
@@ -172,6 +248,14 @@ onMounted(() => {
                     v-if="part.image" :src="part.image" :alt="part.text" :title="part.text" class="moment-comments__emoji"
                     loading="lazy"
                   >
+                  <a
+                    v-else-if="part.url"
+                    class="moment-comments__link"
+                    :href="part.url"
+                    :title="part.title"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >{{ part.text }}</a>
                   <template v-else>
                     {{ part.text }}
                   </template>
@@ -192,20 +276,43 @@ onMounted(() => {
                 <time v-if="row.comment.time" :datetime="new Date(row.comment.time * 1000).toISOString()">
                   {{ new Date(row.comment.time * 1000).toLocaleString() }}
                 </time>
-                <button
-                  type="button"
-                  class="moment-comments__like"
-                  :class="{ 'is-liked': row.comment.liked }"
-                  :aria-label="t(row.comment.liked ? 'moment_card.unlike' : 'moment_card.like')"
-                  :aria-pressed="row.comment.liked"
-                  :aria-busy="row.comment.liking"
-                  :aria-disabled="row.comment.liking"
-                  @click="toggleLike(row.comment)"
-                >
-                  <span v-if="row.comment.liking" i-svg-spinners:ring-resize aria-hidden="true" />
-                  <span v-else :class="row.comment.liked ? 'i-tabler-thumb-up-filled' : 'i-tabler-thumb-up'" aria-hidden="true" />
-                  {{ formatCount(row.comment.likeCount) }}
-                </button>
+                <span class="moment-comments__actions">
+                  <button
+                    type="button"
+                    class="moment-comments__like"
+                    :class="{ 'is-liked': row.comment.liked }"
+                    :aria-label="t(row.comment.liked ? 'moment_card.unlike' : 'moment_card.like')"
+                    :aria-pressed="row.comment.liked"
+                    :aria-busy="row.comment.liking"
+                    :aria-disabled="row.comment.liking"
+                    @click="toggleLike(row.comment)"
+                  >
+                    <span v-if="row.comment.liking" i-svg-spinners:ring-resize aria-hidden="true" />
+                    <span v-else :class="row.comment.liked ? 'i-tabler-thumb-up-filled' : 'i-tabler-thumb-up'" aria-hidden="true" />
+                    {{ formatCount(row.comment.likeCount) }}
+                  </button>
+                  <button
+                    v-if="userId && !state.inputDisabled"
+                    type="button"
+                    :aria-expanded="state.replyTarget?.comment === row.comment"
+                    @click="replyTo(group.root, row.comment)"
+                  >
+                    <span i-tabler-message-circle aria-hidden="true" />
+                    {{ t('moment_card.comment_reply') }}
+                  </button>
+                  <button
+                    v-if="userId && row.comment.mid === userId"
+                    type="button"
+                    :class="{ 'is-danger': pendingDeleteId === row.comment.id }"
+                    :aria-busy="row.comment.deleting"
+                    :aria-disabled="row.comment.deleting"
+                    @click="!row.comment.deleting && requestDelete(row.comment, group.root)"
+                  >
+                    <span v-if="row.comment.deleting" i-svg-spinners:ring-resize aria-hidden="true" />
+                    <span v-else i-tabler-trash aria-hidden="true" />
+                    {{ t(pendingDeleteId === row.comment.id ? 'moment_card.comment_delete_confirm' : 'common.operation.delete') }}
+                  </button>
+                </span>
               </footer>
             </template>
           </template>
@@ -229,6 +336,19 @@ onMounted(() => {
             {{ group.root.repliesExpanded ? t('moment_card.collapse_comment_replies') : t('moment_card.expand_comment_replies', { count: group.root.replyCount }) }}
           </button>
         </div>
+        <MomentCommentComposer
+          v-if="state.replyTarget?.root === group.root"
+          :key="state.replyTarget.comment.id"
+          class="moment-comments__reply-composer"
+          :draft-key="`${draftPrefix}:${state.replyTarget.comment.id}`"
+          :reply-name="state.replyTarget.comment.author || t('moments.bilibili_user')"
+          :placeholder="state.childPlaceholder || t('moment_card.comment_placeholder')"
+          :disabled="state.inputDisabled"
+          :submit="submission => addComment(submission, state.replyTarget)"
+          :upload="uploadImage"
+          autofocus
+          @cancel="setReplyTarget()"
+        />
       </MomentCommentTree>
       <div class="moment-comments__status" aria-live="polite">
         <span v-if="state.error" role="alert">{{ state.error }}</span>
@@ -458,6 +578,42 @@ onMounted(() => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.moment-comments__composer,
+.moment-comments__login {
+  margin: 0 0 var(--bew-space-4);
+}
+
+.moment-comments__login {
+  color: var(--bew-text-2);
+  font-size: var(--bew-font-size-control);
+  line-height: var(--bew-line-height-control);
+}
+
+.moment-comments__reply-composer {
+  padding-block: var(--bew-space-2) var(--bew-space-3);
+  padding-inline-start: calc(var(--bew-space-6) + var(--bew-space-3));
+}
+
+.moment-comments__link {
+  color: var(--bew-theme-color);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.moment-comments__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--bew-space-1);
+}
+
+.moment-comments .is-danger {
+  color: var(--bew-error-color);
 }
 
 .moment-comments__meta {

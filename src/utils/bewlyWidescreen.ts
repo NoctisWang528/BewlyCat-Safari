@@ -60,6 +60,9 @@ interface BewlyWidescreenState {
 }
 
 const ROOT_ID = 'bewly-widescreen-root'
+const DANMAKU_DOCK_SENDING_BAR = '.bewly-widescreen-danmaku-dock .bpx-player-sending-bar'
+const REVISED_SENDING_BAR = `#${ROOT_ID}:has(.bpx-player-container:is([data-revision="1"], [data-revision="2"])) ${DANMAKU_DOCK_SENDING_BAR}`
+const REVISION_2_SENDING_BAR = `#${ROOT_ID}:has(.bpx-player-container[data-revision="2"]) ${DANMAKU_DOCK_SENDING_BAR}`
 const LOADING_ROOT_ID = 'bewly-widescreen-loading'
 const SWITCH_HINT_ID = 'bewly-widescreen-switch-hint'
 export const BEWLY_WIDESCREEN_USER_EXIT = 'bewly-widescreen-user-exit'
@@ -1220,7 +1223,8 @@ function injectLayoutStyle() {
       --bewly-widescreen-sidebar-offset: 0px;
     }
 
-    #${ROOT_ID} * {
+    /* 视频内引导与播放结束面板依赖原站 content-box 尺寸，否则图标、边框和推荐列表被压缩。 */
+    #${ROOT_ID} :where(*:not(.bili-danmaku-x-guide *, .bpx-player-ending-panel *)) {
       box-sizing: border-box;
     }
 
@@ -1332,6 +1336,129 @@ function injectLayoutStyle() {
       z-index: auto !important;
     }
 
+    /* 发送栏移出 .bpx-player-container 后，原站按 [data-revision] 限定的新版发送栏样式失效：
+       设置按钮撑满发送栏，弹层底边贴住输入框。以下按原站数值补回，播放器版本由 :has 读取。 */
+    ${REVISED_SENDING_BAR} {
+      font-size: 13px;
+      padding-left: 12px;
+    }
+
+    ${REVISED_SENDING_BAR} .bpx-player-video-info {
+      width: auto;
+      margin-right: 24px;
+      line-height: 18px;
+    }
+
+    ${REVISED_SENDING_BAR} .bpx-player-video-info-online {
+      margin-right: 0;
+    }
+
+    ${REVISED_SENDING_BAR} .bpx-player-video-info-online b {
+      font-weight: 400;
+      margin-right: 3px;
+    }
+
+    ${REVISED_SENDING_BAR} .bpx-player-dm-root .bpx-player-dm-setting,
+    ${REVISED_SENDING_BAR} .bpx-player-dm-root .bpx-player-dm-switch {
+      width: 24px;
+      height: 24px;
+      margin-right: 12px;
+    }
+
+    ${REVISED_SENDING_BAR} .bpx-player-dm-root .bpx-player-dm-setting {
+      padding: 0;
+    }
+
+    ${REVISED_SENDING_BAR} .bpx-player-video-inputbar {
+      width: calc(100% - 72px);
+      min-width: 300px;
+      height: 32px;
+      border-radius: 8px;
+    }
+
+    ${REVISED_SENDING_BAR} .bpx-player-video-inputbar-wrap {
+      height: 100%;
+      border: none;
+      border-radius: 8px 0 0 8px;
+    }
+
+    ${REVISED_SENDING_BAR} .bpx-player-video-inputbar .bpx-player-dm-wrap {
+      padding: 0 0 0 6px;
+    }
+
+    ${REVISED_SENDING_BAR} .bpx-player-video-inputbar .bpx-player-dm-input {
+      font-size: inherit;
+    }
+
+    ${REVISED_SENDING_BAR} .bpx-player-video-inputbar .bpx-player-dm-hint {
+      width: auto;
+      margin-right: 5px;
+    }
+
+    ${REVISED_SENDING_BAR} .bpx-player-video-inputbar .bpx-player-dm-btn-send {
+      width: 62px;
+      min-width: 62px;
+      height: 100%;
+      border-radius: 0 8px 8px 0;
+    }
+
+    ${REVISED_SENDING_BAR} .bpx-player-video-inputbar .bpx-player-dm-btn-send.bui-button .bui-area {
+      font-size: 13px;
+    }
+
+    ${REVISED_SENDING_BAR} .bpx-player-video-inputbar .bpx-player-dm-btn-send.bui-disabled {
+      filter: none;
+    }
+
+    ${REVISED_SENDING_BAR} .bpx-player-video-inputbar .bpx-player-dm-btn-send.bui-disabled .bui-button-blue {
+      color: var(--bpx-dmsend-disable-button-text, #999);
+      background-color: var(--bpx-dmsend-disable-button-bg, #e7e7e7);
+    }
+
+    @media screen and (min-width: 1681px) {
+      ${REVISED_SENDING_BAR} {
+        height: 56px;
+        font-size: 14px;
+      }
+
+      ${REVISED_SENDING_BAR} .bpx-player-video-info {
+        margin-right: 36px;
+        line-height: 20px;
+      }
+
+      ${REVISED_SENDING_BAR} .bpx-player-dm-root .bpx-player-dm-setting,
+      ${REVISED_SENDING_BAR} .bpx-player-dm-root .bpx-player-dm-switch {
+        margin-right: 18px;
+      }
+
+      ${REVISED_SENDING_BAR} .bpx-player-video-inputbar {
+        width: calc(100% - 84px);
+        height: 40px;
+      }
+
+      ${REVISED_SENDING_BAR} .bpx-player-video-inputbar .bpx-player-dm-btn-send {
+        width: 64px;
+      }
+
+      ${REVISED_SENDING_BAR} .bpx-player-video-inputbar .bpx-player-dm-btn-send.bui-button .bui-area {
+        font-size: 14px;
+      }
+    }
+
+    ${REVISION_2_SENDING_BAR} .bpx-player-video-info {
+      display: none;
+    }
+
+    /* 发送栏贴着播放器列左缘，原站向左展开 147px 的弹幕设置弹层会在人数文本较短时越界被裁切。
+       统一采用原站新版播放器向右展开的位置，并把弹层与按钮间的悬停桥移回 24px 按钮中心。 */
+    #${ROOT_ID} ${DANMAKU_DOCK_SENDING_BAR} .bpx-player-dm-setting-wrap {
+      right: -256px !important;
+    }
+
+    #${ROOT_ID} ${DANMAKU_DOCK_SENDING_BAR} .bpx-player-dm-setting-expand-interaction-area::before {
+      left: calc(100% - 256px - 12px);
+    }
+
     #${ROOT_ID} #bilibili-player-wrap,
     #${ROOT_ID} #playerWrap,
     #${ROOT_ID} #bilibili-player,
@@ -1362,9 +1489,8 @@ function injectLayoutStyle() {
       filter: none !important;
     }
 
-    #${ROOT_ID} .player-wrap *:not(.bili-danmaku-x-guide, .bili-danmaku-x-guide *),
-    #${ROOT_ID} .bpx-player-container *:not(.bili-danmaku-x-guide, .bili-danmaku-x-guide *),
-    #${ROOT_ID} #bilibili-player-wrap *:not(.bili-danmaku-x-guide, .bili-danmaku-x-guide *),
+    /* 仅处理播放器外框；不要对播放器内部元素通配，否则开关、下拉框和 border 三角会缺失上下边框。 */
+    #${ROOT_ID} #bilibili-player-placeholder,
     #${ROOT_ID} .bpx-player-primary-area,
     #${ROOT_ID} .bpx-player-video-area,
     #${ROOT_ID} .bpx-player-video-wrap,
@@ -1403,8 +1529,8 @@ function injectLayoutStyle() {
       background: color-mix(in srgb, var(--bew-theme-color, #00aeec) 82%, white) !important;
     }
 
-    #${ROOT_ID} .bili-danmaku-x-guide-three {
-      display: none !important;
+    #${ROOT_ID} .bili-danmaku-x-guide-three > span.bili-danmaku-x-active svg {
+      fill: var(--bew-theme-color, #00aeec) !important;
     }
 
     #${ROOT_ID} .bili-danmaku-x-guide-cyc > span {
@@ -2249,8 +2375,10 @@ function injectLayoutStyle() {
       flex: 0 1 auto !important;
     }
 
-    #${ROOT_ID} .bewly-widescreen-action-slot .video-toolbar-left-item [class*="anim"],
-    #${ROOT_ID} .bewly-widescreen-action-slot .video-toolbar-left-item [class*="Anim"],
+    /* 排除图标本身：长按三连时 B 站给点赞图标加 shake-anime，若被当作特效层绝对定位，
+       按钮会塌缩导致指针移出、触发 mouseleave 取消三连 */
+    #${ROOT_ID} .bewly-widescreen-action-slot .video-toolbar-left-item [class*="anim"]:not(.video-toolbar-item-icon),
+    #${ROOT_ID} .bewly-widescreen-action-slot .video-toolbar-left-item [class*="Anim"]:not(.video-toolbar-item-icon),
     #${ROOT_ID} .bewly-widescreen-action-slot .video-toolbar-left-item > canvas,
     #${ROOT_ID} .bewly-widescreen-action-slot .toolbar-left-item-wrap > [class*="anim"],
     #${ROOT_ID} .bewly-widescreen-action-slot .toolbar-left-item-wrap > [class*="Anim"] {
@@ -2274,8 +2402,8 @@ function injectLayoutStyle() {
       opacity: 0.96 !important;
     }
 
-    #${ROOT_ID} .bewly-widescreen-action-slot .video-toolbar-left-item [class*="anim"] svg,
-    #${ROOT_ID} .bewly-widescreen-action-slot .video-toolbar-left-item [class*="Anim"] svg,
+    #${ROOT_ID} .bewly-widescreen-action-slot .video-toolbar-left-item [class*="anim"]:not(.video-toolbar-item-icon) svg,
+    #${ROOT_ID} .bewly-widescreen-action-slot .video-toolbar-left-item [class*="Anim"]:not(.video-toolbar-item-icon) svg,
     #${ROOT_ID} .bewly-widescreen-action-slot .toolbar-left-item-wrap > [class*="anim"] svg,
     #${ROOT_ID} .bewly-widescreen-action-slot .toolbar-left-item-wrap > [class*="Anim"] svg {
       width: 100% !important;
@@ -2283,15 +2411,15 @@ function injectLayoutStyle() {
       color: var(--bew-theme-color, #00aeec) !important;
     }
 
-    #${ROOT_ID} .bewly-widescreen-action-slot .video-toolbar-left-item [class*="anim"] [stroke],
-    #${ROOT_ID} .bewly-widescreen-action-slot .video-toolbar-left-item [class*="Anim"] [stroke],
+    #${ROOT_ID} .bewly-widescreen-action-slot .video-toolbar-left-item [class*="anim"]:not(.video-toolbar-item-icon) [stroke],
+    #${ROOT_ID} .bewly-widescreen-action-slot .video-toolbar-left-item [class*="Anim"]:not(.video-toolbar-item-icon) [stroke],
     #${ROOT_ID} .bewly-widescreen-action-slot .toolbar-left-item-wrap > [class*="anim"] [stroke],
     #${ROOT_ID} .bewly-widescreen-action-slot .toolbar-left-item-wrap > [class*="Anim"] [stroke] {
       stroke: var(--bew-theme-color, #00aeec) !important;
     }
 
-    #${ROOT_ID} .bewly-widescreen-action-slot .video-toolbar-left-item [class*="anim"] [fill]:not([fill="none"]),
-    #${ROOT_ID} .bewly-widescreen-action-slot .video-toolbar-left-item [class*="Anim"] [fill]:not([fill="none"]),
+    #${ROOT_ID} .bewly-widescreen-action-slot .video-toolbar-left-item [class*="anim"]:not(.video-toolbar-item-icon) [fill]:not([fill="none"]),
+    #${ROOT_ID} .bewly-widescreen-action-slot .video-toolbar-left-item [class*="Anim"]:not(.video-toolbar-item-icon) [fill]:not([fill="none"]),
     #${ROOT_ID} .bewly-widescreen-action-slot .toolbar-left-item-wrap > [class*="anim"] [fill]:not([fill="none"]),
     #${ROOT_ID} .bewly-widescreen-action-slot .toolbar-left-item-wrap > [class*="Anim"] [fill]:not([fill="none"]) {
       fill: var(--bew-theme-color, #00aeec) !important;
@@ -2467,11 +2595,12 @@ function injectLayoutStyle() {
       box-sizing: border-box !important;
     }
 
+    /* 关注按钮保持原站常规宽度，仅在侧栏不足时收缩，不随展开宽度拉伸。 */
     #${ROOT_ID} .bewly-widescreen-up-slot .upinfo-btn-panel .follow-btn {
-      flex: 1 1 0% !important;
+      flex: 0 1 200px !important;
       width: auto !important;
       min-width: 0 !important;
-      max-width: none !important;
+      max-width: 200px !important;
     }
 
     #${ROOT_ID} .bewly-widescreen-tabs {
@@ -2484,18 +2613,6 @@ function injectLayoutStyle() {
       height: 42px;
       background: var(--bewly-widescreen-surface-bg);
       border-bottom: 1px solid var(--bewly-widescreen-divider);
-    }
-
-    /* 自动侧栏收起后仅部分面板留在视口内，Tab 应按可见列宽排列，
-       避免稍后再看的「选集」入口被完整面板宽度挤出屏幕。 */
-    #${ROOT_ID}[data-sidebar-mode="fit"]:not([data-sidebar-expanded="true"]) .bewly-widescreen-tabs {
-      width: min(100%, max(0px, calc(var(--bewly-widescreen-sidebar-column-width) - var(--bew-space-2, 8px))));
-      align-self: flex-start;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    #${ROOT_ID}[data-sidebar-position="left"][data-sidebar-mode="fit"]:not([data-sidebar-expanded="true"]) .bewly-widescreen-tabs {
-      align-self: flex-end;
     }
 
     #${ROOT_ID} .bewly-widescreen-tab {
@@ -2653,8 +2770,14 @@ function injectLayoutStyle() {
       max-height: min(52dvh, 560px) !important;
       overflow-x: hidden !important;
       overflow-y: auto !important;
-      overscroll-behavior: contain;
       scrollbar-gutter: stable;
+    }
+
+    /* 选集列表滚到边界后需把滚轮交给侧栏，继续滚到推荐列表；
+       B 站自带的 contain 也会截住滚轮，这里统一放开。 */
+    #${ROOT_ID} .bewly-widescreen-panel-playlist,
+    #${ROOT_ID} .bewly-widescreen-panel-playlist * {
+      overscroll-behavior: auto !important;
     }
 
     /* New bangumi lists already scroll inside EpisodeVirtualList. Keep the
@@ -2729,7 +2852,6 @@ function injectLayoutStyle() {
       max-height: min(40dvh, 420px) !important;
       overflow-x: hidden !important;
       overflow-y: auto !important;
-      overscroll-behavior: contain;
     }
 
     #${ROOT_ID} .bewly-widescreen-panel-playlist [class*="SectionHeader_header"] h3,
@@ -3223,7 +3345,7 @@ function setupSidebarInteractionTracking(currentState: BewlyWidescreenState) {
       return
     if (currentState.root.dataset.sidebarExpanded === 'true')
       return
-    // 点击前不搬动收起状态的 Tab，避免展开动画把指针下的目标换成相邻项。
+    // 点击前不平移收起状态的侧栏，避免展开动画把指针下的 Tab 换成相邻项。
     // 移入内容区仍可展开；点击 Tab 则先完成选中，再展开面板。
     if (event && tablist && isPointInRect(event, tablist.getBoundingClientRect()))
       return

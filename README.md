@@ -63,6 +63,7 @@ Extension 的权限、脚本注入、后台生命周期、登录请求和 Xcode 
 - 视频卡片预览、稍后再看、收藏及后台打开
 - 播放器样式、自动播放、倍速记忆、音量均衡等增强
 - 深色模式、主题色、壁纸与界面布局设置
+- 收藏夹整理规则、一键三连自动同步及默认收藏夹批量复制
 - 设置导入、导出和本地持久化
 - 面向 Safari 的登录态 API 与页面脚本兼容
 
@@ -178,5 +179,6 @@ DNR、后台生命周期和 Xcode 打包逻辑。
 - [Bilibili-Evolved](https://github.com/the1812/Bilibili-Evolved)
 - [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect)
 - [vitesse-webext](https://github.com/antfu/vitesse-webext)
+- [PiliPlus](https://github.com/bggRGjQaUbCoE/PiliPlus)
 
 本项目遵循上游 [Custom License](./LICENSE)，使用、修改与分发时请遵守其中的限制。

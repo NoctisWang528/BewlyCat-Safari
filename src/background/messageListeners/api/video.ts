@@ -41,45 +41,6 @@ const API_VIDEO = {
     params: WEB_RECOMMEND_PARAMS,
     afterHandle: AHS.J_D,
   },
-  getAppRecommendVideos: {
-    url: 'https://app.bilibili.com/x/v2/feed/index',
-    _fetch: {
-      method: 'get',
-    },
-    params: {
-      build: 74800100,
-      device: 'pad',
-      mobi_app: 'iphone',
-      c_locate: 'CN',
-      s_locale: 'zh-CN',
-      idx: 0,
-      appkey: '27eb53fc9058f8c3',
-      access_key: '',
-    },
-    afterHandle: AHS.J_D,
-    auth: 'inject' as const,
-  },
-  // https://github.com/indefined/UserScripts/blob/master/bilibiliHome/bilibiliHome.API.md#%E6%8F%90%E4%BA%A4%E4%B8%8D%E5%96%9C%E6%AC%A2
-  dislikeVideo: {
-    url: 'https://app.bilibili.com/x/feed/dislike',
-    _fetch: {
-      method: 'get',
-    },
-    params: {
-      access_key: '',
-      goto: '',
-      id: 0 as number | string,
-      reason_id: undefined as number | undefined,
-      feedback_id: undefined as number | undefined,
-      mobi_app: 'android',
-      build: 1,
-      appkey: '',
-      ts: '',
-      sign: '',
-    },
-    afterHandle: AHS.J_D,
-    auth: 'inject+sign' as const,
-  },
   webDislikeVideo: {
     url: 'https://api.bilibili.com/x/web-interface/feedback/dislike',
     _fetch: {
@@ -102,27 +63,6 @@ const API_VIDEO = {
       },
     },
     afterHandle: AHS.J_D,
-  },
-  // https://github.com/indefined/UserScripts/blob/master/bilibiliHome/bilibiliHome.API.md#%E6%92%A4%E9%94%80%E4%B8%8D%E5%96%9C%E6%AC%A2
-  undoDislikeVideo: {
-    url: 'https://app.bilibili.com/x/feed/dislike/cancel',
-    _fetch: {
-      method: 'get',
-    },
-    params: {
-      access_key: '',
-      goto: '',
-      id: 0 as number | string,
-      reason_id: undefined as number | undefined,
-      feedback_id: undefined as number | undefined,
-      mobi_app: 'android',
-      build: 1,
-      appkey: '',
-      ts: '',
-      sign: '',
-    },
-    afterHandle: AHS.J_D,
-    auth: 'inject+sign' as const,
   },
   // https://socialsisteryi.github.io/bilibili-API-collect/docs/video/info.html#%E8%8E%B7%E5%8F%96%E8%A7%86%E9%A2%91%E8%AF%A6%E7%BB%86%E4%BF%A1%E6%81%AF-web%E7%AB%AF
   getVideoInfo: {

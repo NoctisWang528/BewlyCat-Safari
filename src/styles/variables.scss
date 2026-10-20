@@ -134,6 +134,8 @@
 
   // Search and logo stay one step larger (still full capsule/circle).
   // Compact TopBar thumbnails use a tighter radius than full-size media cards.
+  // Space reserved for search before expanding the pinned channel strip.
+  --bew-top-bar-pinned-search-reserve: 320px;
   --bew-top-bar-primary-control-height: 46px;
   --bew-top-bar-primary-control-radius: var(--bew-radius-full);
   --bew-top-bar-media-width: 160px;
@@ -152,7 +154,6 @@
   --bew-top-bar-media-meta-line-height: var(--bew-line-height-caption);
   --bew-top-bar-brand-logo-width: 66px;
   --bew-top-bar-brand-logo-height: 22px;
-  --bew-top-bar-brand-logo-compact-size: 24px;
 
   // Interaction tokens aligned with home tab buttons
   --bew-segment-item-hover-bg: var(--bew-fill-1);

@@ -11,6 +11,7 @@ import SettingsItemGroup from '../../components/SettingsItemGroup.vue'
 import SettingsItemSubgroup from '../../components/SettingsItemSubgroup.vue'
 import SettingsToggleTag from '../../components/SettingsToggleTag.vue'
 import VolumeBalance from '../VolumeBalance/VolumeBalance.vue'
+import PlaybackRate from './PlaybackRate.vue'
 
 const { t } = useI18n()
 
@@ -133,6 +134,17 @@ const playbackMemoryOptions = computed<ToggleTagOption[]>(() => [
   { setting: 'rememberVideoQuality', label: t('settings.remember_video_quality'), icon: 'i-tabler-badge-hd' },
   { setting: 'rememberVideoAspectRatio', label: t('settings.remember_video_aspect_ratio'), icon: 'i-tabler-aspect-ratio' },
 ])
+
+// B 站自身会记住清晰度，开启插件记忆前先说明适用场景。
+const showVideoQualityMemoryConfirm = ref(false)
+
+function updatePlaybackMemory(setting: ToggleSetting, enabled: boolean) {
+  if (setting === 'rememberVideoQuality' && enabled) {
+    showVideoQualityMemoryConfirm.value = true
+    return
+  }
+  settings.value[setting] = enabled
+}
 
 const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefaultState }[]>(() => [
   { label: t('settings.video_default_state_opt.system'), value: 'system' },
@@ -271,6 +283,8 @@ const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefault
         />
       </SettingsItem>
 
+      <PlaybackRate />
+
       <SettingsItemSubgroup
         :title="t('settings.group_playback_memory')"
         :desc="t('settings.group_playback_memory_desc')"
@@ -279,12 +293,26 @@ const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefault
           <SettingsToggleTag
             v-for="option in playbackMemoryOptions"
             :key="option.setting"
-            v-model="settings[option.setting]"
+            :model-value="settings[option.setting]"
             :label="option.label"
             :icon="option.icon"
             :show-state-icon="false"
+            @update:model-value="updatePlaybackMemory(option.setting, $event)"
           />
         </div>
+
+        <Dialog
+          v-if="showVideoQualityMemoryConfirm"
+          :title="t('settings.remember_video_quality_confirm_title')"
+          width="420px"
+          append-to-bewly-body
+          @close="showVideoQualityMemoryConfirm = false"
+          @confirm="settings.rememberVideoQuality = true"
+        >
+          <p text="$bew-text-1">
+            {{ t('settings.remember_video_quality_confirm_message') }}
+          </p>
+        </Dialog>
       </SettingsItemSubgroup>
 
       <SettingsItemSubgroup
@@ -329,6 +357,23 @@ const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefault
           right-width="auto"
         >
           <Radio v-model="settings.showVideoScreenshotButton" />
+        </SettingsItem>
+
+        <SettingsItem
+          :title="t('settings.enable_listen_video')"
+          :desc="t('settings.enable_listen_video_desc')"
+          right-width="auto"
+        >
+          <Radio v-model="settings.enableListenVideo" />
+        </SettingsItem>
+
+        <SettingsItem
+          v-if="settings.enableListenVideo"
+          :title="t('settings.show_listen_video_button')"
+          :desc="t('settings.show_listen_video_button_desc')"
+          right-width="auto"
+        >
+          <Radio v-model="settings.showListenVideoButton" />
         </SettingsItem>
       </SettingsItemSubgroup>
     </SettingsItemGroup>

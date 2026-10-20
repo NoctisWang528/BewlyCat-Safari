@@ -15,6 +15,7 @@ import { settings } from '~/logic'
 import type { DockItem } from '~/stores/mainStore'
 import { useMainStore } from '~/stores/mainStore'
 import { isHomePage, openLinkToNewTab } from '~/utils/main'
+import { matchesShortcutKey } from '~/utils/shortcutKeys'
 
 import Tooltip from '../Tooltip.vue'
 import type { HoveringDockItem } from './types'
@@ -471,11 +472,8 @@ function handleHomeRefreshKeydown(event: KeyboardEvent) {
     return
   }
 
-  // 获取配置的快捷键
-  const configuredKey = shortcutConfig.key || 'R'
-
   // 检查是否按下了配置的快捷键
-  if (event.key && event.key.toUpperCase() === configuredKey.toUpperCase() && !event.ctrlKey && !event.metaKey && !event.altKey) {
+  if (matchesShortcutKey(event, shortcutConfig.key || 'R')) {
     // 检查页面中是否有任何输入框处于焦点状态
     const activeElement = document.activeElement
 
@@ -554,7 +552,8 @@ onUnmounted(() => {
 <template>
   <aside
     class="dock-wrap"
-    pos="fixed top-0" z-100 flex="~ col justify-center items-center" w-full h-full
+    :class="`dock-wrap--${settings.dockPosition}`"
+    pos="fixed" z-100 flex="~ col justify-center items-center"
     z-10 pointer-events-none
   >
     <!-- Edge Div -->
@@ -838,7 +837,24 @@ onUnmounted(() => {
 </template>
 
 <style lang="scss" scoped>
+// Avoid a viewport-sized click-through layer: it makes Chrome hit-test wheel
+// scrolls on the main thread, which can stall a notch on an idle page.
 .dock-wrap {
+  &--left {
+    inset: 0 auto 0 0;
+    width: 0;
+  }
+
+  &--right {
+    inset: 0 0 0 auto;
+    width: 0;
+  }
+
+  &--bottom {
+    inset: auto 0 0 0;
+    height: 0;
+  }
+
   > * {
     --uno: "pointer-events-auto";
   }

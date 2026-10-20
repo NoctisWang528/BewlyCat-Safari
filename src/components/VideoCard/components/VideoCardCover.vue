@@ -7,11 +7,12 @@ import Button from '~/components/Button.vue'
 import Icon from '~/components/Icon.vue'
 import LazyPicture from '~/components/LazyPicture.vue'
 import Progress from '~/components/Progress.vue'
-import Tooltip from '~/components/Tooltip.vue'
+import WatchLaterCoverButton from '~/components/WatchLaterCoverButton.vue'
 import { useVideoPreviewSwipeSeek } from '~/composables/useVideoPreviewSwipeSeek'
 import { settings } from '~/logic'
 import { calcCurrentTime } from '~/utils/dataFormatter'
 import { getVideoWatchState } from '~/utils/videoVisitHistory'
+import { normalizeWatchLaterTarget } from '~/utils/watchLaterActions'
 
 import type { Video } from '../types'
 
@@ -24,8 +25,6 @@ interface Props {
   isHover: boolean
   shouldHideOverlayElements: boolean
   previewVideoUrl: string
-  videoElement: HTMLVideoElement | null
-  isInWatchLater: boolean
   showWatcherLater: boolean
   coverTopLeftAlwaysVisible?: boolean
   coverTopRightAlwaysVisible?: boolean
@@ -51,11 +50,13 @@ interface Props {
 
 const props = defineProps<Props>()
 const emit = defineEmits<{
-  toggleWatchLater: []
   undo: []
   imageLoaded: []
   previewFullscreenChange: [isFullscreen: boolean]
 }>()
+
+// 无任何视频标识的卡片识别不到目标，按钮自然不渲染。
+const watchLaterTarget = computed(() => normalizeWatchLaterTarget(props.video))
 
 const playbackProgress = computed(() => {
   const video = props.video
@@ -70,7 +71,11 @@ const playbackProgress = computed(() => {
   return watchState?.status === 'watched' ? watchState.percentage : undefined
 })
 
-const videoRef = ref<HTMLVideoElement | null>(null)
+const videoRef = defineModel<HTMLVideoElement | null>('videoElement', { default: null })
+const previewTime = defineModel<number | null>('previewTime', { default: null })
+const previewIdentity = computed(() => [props.video?.bvid, props.video?.aid, props.video?.cid, props.video?.epid].join(':'))
+let activePreviewIdentity = ''
+let canSavePreviewTime = false
 const isActive = ref(true)
 const isCoverHovered = ref(false)
 const isLoadingStream = ref<boolean>(false)
@@ -131,13 +136,22 @@ const previewInteractionEvents = computed(() => ({
 }))
 
 function resetVideoElement(videoEl: HTMLVideoElement) {
+  canSavePreviewTime = false
   videoEl.pause()
   videoEl.srcObject = null
   videoEl.removeAttribute('src')
   videoEl.load()
 }
 
+function savePreviewTime(videoEl = videoRef.value) {
+  if (!canSavePreviewTime || props.video?.roomid || activePreviewIdentity !== previewIdentity.value || !videoEl)
+    return
+  if (Number.isFinite(videoEl.currentTime))
+    previewTime.value = videoEl.ended ? 0 : videoEl.currentTime
+}
+
 function stopPreview(videoEl: HTMLVideoElement | null = videoRef.value) {
+  savePreviewTime(videoEl)
   cleanupPlayers()
   resetPreviewScrub()
   showVideoControls.value = false
@@ -337,8 +351,17 @@ async function setupPreviewVideo(url: string, videoEl: HTMLVideoElement) {
     }
   }
   else {
+    savePreviewTime(videoEl)
+    const resumeTime = previewTime.value
     cleanupPlayers()
     resetVideoElement(videoEl)
+    activePreviewIdentity = previewIdentity.value
+    previewEvents = new AbortController()
+    videoEl.addEventListener('loadedmetadata', () => {
+      if (resumeTime && Number.isFinite(videoEl.duration) && resumeTime < videoEl.duration)
+        videoEl.currentTime = resumeTime
+      canSavePreviewTime = true
+    }, { once: true, signal: previewEvents.signal })
     showControls()
     videoEl.src = url
     videoEl.load()
@@ -349,7 +372,10 @@ async function setupPreviewVideo(url: string, videoEl: HTMLVideoElement) {
 }
 
 // Watch for preview URL and videoRef changes
-watch([() => props.previewVideoUrl, () => props.isHover, videoRef, isActive], ([url, isHover, videoEl, active]) => {
+watch([() => props.previewVideoUrl, () => props.isHover, videoRef, isActive], ([url, isHover, videoEl, active], [, , previousVideo]) => {
+  if (previousVideo && previousVideo !== videoEl)
+    stopPreview(previousVideo)
+
   if (!active) {
     stopPreview(videoEl)
     return
@@ -417,7 +443,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div
-    class="group/cover"
+    class="group/cover bew-cover-action-host"
     :data-layout-edit-target="skeleton ? undefined : 'video-card-cover'"
     :data-layout-settings-menu="skeleton ? undefined : 'BewlyComponents'"
     :data-layout-settings-page="skeleton ? undefined : 'video-card'"
@@ -482,7 +508,10 @@ onBeforeUnmount(() => {
             autoplay muted
             :draggable="false"
             :controls="showVideoControls"
-            w-full h-full
+            w-full
+            h-full
+            @timeupdate="savePreviewTime()"
+            @pause="savePreviewTime()" @ended="savePreviewTime()"
           />
 
           <div
@@ -602,30 +631,10 @@ onBeforeUnmount(() => {
           {{ video?.badge?.text }}
         </div>
 
-        <!-- Track cover hover separately so delayed preview playback does not delay this action. -->
-        <div
-          v-if="showWatcherLater && isCoverHovered"
-          role="button"
-          tabindex="0"
-          :aria-label="isInWatchLater ? $t('common.added') : $t('common.save_to_watch_later')"
-          pos="absolute top-0 right-0" z="2"
-          p="x-2 y-1" m="1"
-          rounded="$bew-radius"
-          text="!white xl"
-          bg="black opacity-60"
-          class="video-card-overlay-transform-transition opacity-0 group-hover/cover:opacity-100"
-          transform="scale-70 group-hover/cover:scale-100"
-          @click.prevent.stop="emit('toggleWatchLater')"
-          @keydown.enter.prevent.stop="emit('toggleWatchLater')"
-          @keydown.space.prevent.stop="emit('toggleWatchLater')"
-        >
-          <Tooltip v-if="!isInWatchLater" :content="$t('common.save_to_watch_later')" placement="bottom-right" type="dark">
-            <div i-mingcute:carplay-line />
-          </Tooltip>
-          <Tooltip v-else :content="$t('common.added')" placement="bottom-right" type="dark">
-            <Icon icon="line-md:confirm" />
-          </Tooltip>
-        </div>
+        <!-- 封面右上角稍后再看：统一样式与行为，状态和增删逻辑在共享组件内部处理 -->
+        <WatchLaterCoverButton
+          :target="showWatcherLater ? watchLaterTarget : undefined"
+        />
 
         <!-- Modern layout: Cover stats (bottom overlay) -->
         <div

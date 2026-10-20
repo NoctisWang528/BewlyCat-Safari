@@ -1,29 +1,20 @@
+import type { AppClientEndpoint, AppClientRequest } from '~/constants/appClient'
+import { APP_CLIENT_REQUEST } from '~/constants/appClient'
 import type { AppAuthTokens } from '~/logic/appAuthStorage'
 import { appAuthTokens, defaultAppAuthTokens, resetAppAuthTokens } from '~/logic/appAuthStorage'
 
-import { appSign } from './appSign'
+import { waitWithSignal } from './abort'
+import { HDAppKey } from './appSign'
+import { sendMessage } from './messaging'
 
 export function revokeAccessKey() {
   resetAppAuthTokens()
 }
 
-// https://socialsisteryi.github.io/bilibili-API-collect/docs/misc/sign/APPKey.html#appkey
-export const TVAppKey = {
-  appkey: '4409e2ce8ffd12b8',
-  appsec: '59b43e04ad6965f34319062b478f83dd',
-}
-
-// https://github.com/magicdawn/bilibili-app-recommend/blob/e91722cc076fe65b98116fb0248236851ae6e1dc/src/utility/access-key/tv-qrcode/api.ts#L8
-export function tvSignSearchParams(params: Record<string, any>) {
-  const sign = appSign(params, TVAppKey.appkey, TVAppKey.appsec)
-  return new URLSearchParams({
-    ...params,
-    sign,
-  })
-}
-
-export function getTvSign(params: Record<string, any>) {
-  return appSign(params, TVAppKey.appkey, TVAppKey.appsec)
+/** APP 接口交由后台按 PiliPlus 的请求方式签名并发出，参数无需在页面侧签名 */
+export function requestAppClient(endpoint: AppClientEndpoint, params: AppClientRequest['params']): Promise<any> {
+  const request: AppClientRequest = { endpoint, params, mid: appAuthTokens.value.mid }
+  return sendMessage(APP_CLIENT_REQUEST, request)
 }
 
 interface PollLoginTokenPayload {
@@ -42,10 +33,7 @@ interface PollLoginTokenPayload {
   }
 }
 
-const APP_TOKEN_REFRESH_ENDPOINTS = [
-  'https://passport.bilibili.com/api/v3/oauth2/refresh_token',
-  'https://passport.bilibili.com/api/v2/oauth2/refresh_token',
-]
+const APP_TOKEN_REFRESH_ENDPOINTS: AppClientEndpoint[] = ['refreshTokenV3', 'refreshTokenV2']
 const APP_TOKEN_REFRESH_BUFFER = 10 * 60 * 1000
 let appTokenRefresh: { tokens: AppAuthTokens, promise: Promise<AppAuthTokens | null> } | null = null
 
@@ -60,6 +48,7 @@ export function saveAppAuthTokens(payload: PollLoginTokenPayload) {
   const mid = payload.mid ?? tokenInfo.mid ?? null
 
   appAuthTokens.value = {
+    appKey: HDAppKey.appkey,
     accessToken,
     refreshToken,
     accessTokenExpiresAt: expiresIn ? Date.now() + expiresIn * 1000 : null,
@@ -102,26 +91,7 @@ async function refreshAppTokens(tokens: AppAuthTokens): Promise<AppAuthTokens | 
       return null
 
     try {
-      const payload = { ...basePayload }
-      const sign = appSign({ ...payload }, TVAppKey.appkey, TVAppKey.appsec)
-      const body = new URLSearchParams({
-        ...payload,
-        appkey: TVAppKey.appkey,
-        sign,
-      })
-
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-        },
-        body,
-      })
-
-      if (!response.ok)
-        continue
-
-      const data = await response.json() as RefreshTokenResponse
+      const data = await requestAppClient(endpoint, basePayload) as RefreshTokenResponse
       // 撤销、重新授权和其他标签页的更新都会替换快照；旧请求不得恢复旧授权。
       if (appAuthTokens.value !== tokens)
         return null
@@ -137,6 +107,7 @@ async function refreshAppTokens(tokens: AppAuthTokens): Promise<AppAuthTokens | 
       const refreshExpiresIn = refreshInfo.expires_in ?? null
 
       appAuthTokens.value = {
+        appKey: tokens.appKey,
         accessToken: nextAccessToken,
         refreshToken: nextRefreshToken,
         accessTokenExpiresAt: expiresIn ? Date.now() + expiresIn * 1000 : null,
@@ -215,46 +186,15 @@ export function clearAppAuthTokens() {
   appAuthTokens.value = { ...defaultAppAuthTokens }
 }
 
-const TV_LOGIN_REQUEST_TIMEOUT = 15_000
-
-async function requestTVLoginQRCode(path: string, params: Record<string, string>, signal?: AbortSignal): Promise<any> {
-  const controller = new AbortController()
-  const abort = () => controller.abort()
-  if (signal?.aborted)
-    abort()
-  else
-    signal?.addEventListener('abort', abort, { once: true })
-
-  const timeout = setTimeout(() => {
-    controller.abort(new DOMException('QR code request timed out', 'TimeoutError'))
-  }, TV_LOGIN_REQUEST_TIMEOUT)
-
-  try {
-    const response = await fetch(`https://passport.bilibili.com/x/passport-tv-login/qrcode/${path}`, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-      },
-      body: tvSignSearchParams({
-        appkey: TVAppKey.appkey,
-        local_id: '0',
-        ts: '0',
-        ...params,
-      }),
-    })
-    return await response.json()
-  }
-  finally {
-    clearTimeout(timeout)
-    signal?.removeEventListener('abort', abort)
-  }
+// HD 版沿用 TV 扫码登录接口，只是改用 HD APPKEY 签名并标明 mobi_app，参数与 PiliPlus 一致。
+export function pollAppLoginQRCode(authCode: string, signal?: AbortSignal): Promise<any> {
+  return waitWithSignal(requestAppClient('qrcodePoll', { auth_code: authCode, local_id: '0' }), signal)
 }
 
-export function pollTVLoginQRCode(authCode: string, signal?: AbortSignal): Promise<any> {
-  return requestTVLoginQRCode('poll', { auth_code: authCode }, signal)
-}
-
-export function getTVLoginQRCode(signal?: AbortSignal): Promise<any> {
-  return requestTVLoginQRCode('auth_code', {}, signal)
+export function getAppLoginQRCode(signal?: AbortSignal): Promise<any> {
+  return waitWithSignal(requestAppClient('qrcodeAuthCode', {
+    local_id: '0',
+    platform: 'android',
+    mobi_app: HDAppKey.mobiApp,
+  }), signal)
 }

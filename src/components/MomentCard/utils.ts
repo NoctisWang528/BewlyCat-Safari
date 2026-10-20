@@ -1,7 +1,23 @@
-import type { DisplayMoment, WatchLaterTarget } from './types'
+import type { DisplayMoment } from './types'
 
-function httpsUrl(url = '') {
+export function httpsUrl(url = '') {
   return url.replace(/^http:/, 'https:')
+}
+
+export function getSafeImageRatio(width: number, height: number) {
+  const ratio = width / height
+  return Number.isFinite(ratio) && ratio > 0 ? ratio : undefined
+}
+
+/** 视频跳转地址：优先接口给出的 jump_url，其次按 bvid / aid 拼接 */
+export function getMomentVideoUrl(video: { videoUrl?: string, bvid?: string, aid?: number | string }) {
+  if (video.videoUrl)
+    return video.videoUrl
+  if (video.bvid)
+    return `https://www.bilibili.com/video/${video.bvid}`
+  if (video.aid)
+    return `https://www.bilibili.com/video/av${video.aid}`
+  return ''
 }
 
 export function getMomentThumbnailUrl(url = '', width = 560) {
@@ -72,15 +88,6 @@ export function isCompactPlainTextMoment(moment: DisplayMoment) {
     && !moment.title
     && !moment.forward
     && (!moment.additional || isReservation)
-}
-
-export function getWatchLaterStateKey(target: WatchLaterTarget) {
-  const aid = Number(target.aid || 0)
-  if (aid)
-    return `aid:${aid}`
-  if (target.bvid)
-    return `bvid:${target.bvid}`
-  return target.epid ? `epid:${target.epid}` : ''
 }
 
 export type MomentLinkKind = 'video' | 'moment' | 'other'

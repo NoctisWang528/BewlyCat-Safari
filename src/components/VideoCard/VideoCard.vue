@@ -377,6 +377,8 @@ provide('getVideoType', () => props.type!)
           v-on="coverSkeleton ? {} : coverEvents"
         >
           <VideoCardCover
+            v-model:video-element="logic.videoElement.value"
+            v-model:preview-time="logic.videoCurrentTime.value"
             :skeleton="coverSkeleton"
             :video="props.video"
             :layout="layout"
@@ -385,9 +387,7 @@ provide('getVideoType', () => props.type!)
             :is-hover="logic.isHover.value"
             :should-hide-overlay-elements="Boolean(logic.shouldHideOverlayElements.value)"
             :preview-video-url="logic.previewVideoUrl.value || ''"
-            :video-element="logic.videoElement.value || null"
-            :is-in-watch-later="logic.isInWatchLater.value"
-            :show-watcher-later="showWatcherLater && settings.showVideoCardWatchLater"
+            :show-watcher-later="showWatcherLater"
             :cover-top-left-always-visible="coverTopLeftAlwaysVisible"
             :cover-top-right-always-visible="coverTopRightAlwaysVisible"
             :cover-image-url="coverImageUrl"
@@ -396,7 +396,6 @@ provide('getVideoType', () => props.type!)
             :has-cover-stats="Boolean(hasCoverStats)"
             :should-hide-cover-stats="Boolean(shouldHideCoverStats)"
             :show-local-watch-progress="!hideWatchedBadge && settings.showVideoWatchedBadge && !props.video?.roomid"
-            @toggle-watch-later="logic.toggleWatchLater"
             @undo="logic.handleUndo"
             @preview-fullscreen-change="logic.handlePreviewFullscreenChange"
           >

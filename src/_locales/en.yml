@@ -23,7 +23,6 @@ common:
   just_now: just now
   please_log_in_first: Please log in first
   login: Login
-  save_to_watch_later: Save to Watch later
   add_to_watch_later: Add to Watch later
   added_to_watch_later: Added to Watch later
   remove_from_watch_later: Remove from Watch later
@@ -111,6 +110,10 @@ player_screenshot:
   saved: Screenshot saved
   failed: Failed to capture screenshot
   video_unavailable: The current video frame is unavailable
+player_listen:
+  enter: Listen to video
+  exit: Restore video picture
+  listening: Listening
 settings:
   local_loudness:
     gain_history: Levelling gain · Last 60 seconds
@@ -159,10 +162,11 @@ settings:
   category_appearance_desc: Configure frosted glass, theme colors, wallpaper, fonts, custom styles, and page style adaptation.
   category_shortcuts_desc: Enable, customize, or restore BewlyCat and player shortcuts.
   breadcrumb: Settings location
+  usage_guide: Help — BewlyCat feature guide videos
   group_interaction_layout: Interaction & Layout
   category_browsing_home_desc: Configure home recommendations, content filters, following, and home tabs.
   category_browsing_video_card_desc: Configure video card layout, previews, metadata, and link behavior.
-  category_browsing_favorites_desc: Configure how favorite content is displayed and opened.
+  category_browsing_favorites_desc: Organize favorite folders by rules and sync videos after a triple action.
   category_navigation_link_opening_desc: Configure where top bar, video card, and search links open, including drawer behavior.
   category_navigation_topbar_desc: Adjust top bar layout, components, channels, search, and notifications in one place.
   category_navigation_dock_desc: Configure Dock and sidebar position, visibility, and quick actions.
@@ -296,6 +300,7 @@ settings:
   group_following: Following
   group_following_desc: Configure the Following page layout, live content, and video filters.
   group_favorites: Favorites
+  group_favorite_organizer: Favorites organizer
   sidebar_cover_blur: Sidebar cover blur gradient
   sidebar_cover_blur_desc: Use blurred covers in page sidebars such as Favorites and Watch Later. Turn it off to use a Pop surface that lets the page wallpaper show through without cover tinting.
   group_search_page_mode: Search Page Mode
@@ -304,6 +309,7 @@ settings:
   group_original_moments_page: Bilibili Page
   group_new_moments_page: Bewly Dynamic Feed
   group_new_moments_page_desc: This page is not final and may change significantly in future updates.
+  group_moments_filters: Dynamic Filters
   group_moments_sidebar: Dynamic Feed Sidebar
   group_moments_interaction: Dynamic Card Interaction
   group_environment_info: Environment information
@@ -323,6 +329,8 @@ settings:
   original_moments_show_community_center: Show community center
   original_moments_show_hot_search: Show hot search
   original_moments_show_up_list: Show dynamic uploader banner
+  original_moments_use_bewly_filters: Filter the original dynamic feed
+  original_moments_use_bewly_filters_desc: When enabled, the dynamic type and keyword filters above also apply to Bilibili's original dynamic page.
   moments_show_user_card: Show user card
   moments_show_publish: Show publish action
   moments_show_live: Show live users
@@ -519,8 +527,10 @@ settings:
   only_cover_video_preview: Preview videos only when hovering the cover
   show_video_card_author_avatar: Show uploader avatar
   show_video_card_author_name: Show uploader name
+  show_video_card_category: Show video category
+  show_video_card_category_desc: Show the video category provided by APIs. Click it to search the category.
   show_video_card_video_tag: Show API and search tags
-  show_video_card_video_tag_desc: Show recommendation, status, or category labels from APIs and content tags from search pages.
+  show_video_card_video_tag_desc: Show recommendation or status labels from APIs and content tags from search pages.
   show_video_card_recommend_tag: Show plugin-calculated tags
   show_video_card_recommend_tag_desc: Display tags calculated by the plugin, such as "High Engagement", "Popular", etc.
   show_video_card_publish_time: Show publish time
@@ -616,12 +626,42 @@ settings:
   topbar_components_adjustment: Top Bar Components Badge Settings
   topbar_components_adjustment_desc: Configure the badge display mode for each top bar icon
   group_topbar_pinned_channels: Top Bar Pinned Channels
-  topbar_pinned_channels_desc: Choose items from the logo dropdown to keep directly on the top bar and arrange their priority.
+  topbar_pinned_channels_desc: Channels appear in your chosen order. Those that do not fit remain available in the overflow menu.
   topbar_pinned_channels_title: Pinned channels
-  topbar_pinned_channels_hint: Click a tile to pin or unpin it; the order follows the sequence of your clicks. Items toward the end hide first when space is tight.
+  pinned_manager:
+    count: '{count} channels added'
+    add: Add channels
+    clear: Clear
+    search: Search channels
+    categories: Channel categories
+    screen: 'Media & entertainment'
+    animation_games: 'Anime & games'
+    knowledge_news: 'Knowledge & technology'
+    life_interests: Lifestyle
+    services: Platform services
+    history_reset: Another operation changed the selection. Previous undo history has been cleared.
+    all: All
+    selected: Selected
+    no_results: No matching channels
+    move_before: 'Move {name} earlier'
+    move_after: 'Move {name} later'
+    remove: 'Remove {name}'
+    undo: Undo last change
+    hidden: Pinned channels are currently hidden
+    enable: Enable
+    layout: 'Top bar {visible} · More {hidden}'
+    unavailable: Top bar not visible
+    open: 'Open channels, including {count} collapsed items'
+    channels: Channels
+    manage: Manage pinned channels
+    collapse: Hide picker
+    clear_search: Clear search
+    view_all: View all categories
+    all_visible: All visible
+  topbar_pinned_channels_hint: Add channels, then use the drag handles or move buttons to change their order.
   topbar_pinned_channels_all_selected: All channels have already been pinned.
   topbar_pinned_channels_empty: You have not pinned any channels yet.
-  topbar_pinned_channels_order_tip: Selection order follows your clicks. Click an item again to unpin it.
+  topbar_pinned_channels_order_tip: Add channels, then use the drag handles or move buttons to change their order.
   top_bar_logo_style: Logo style
   top_bar_logo_style_desc: Choose between the circular icon and the horizontal brand mark in the top bar.
   top_bar_logo_style_opt:
@@ -764,8 +804,59 @@ settings:
   filter_by_publish_time_desc: Filter out videos published more than the specified number of days ago (only works in Web recommendation mode, minimum 7 days).
   filter_by_publish_time_unit: days
   filter_item_already_exist: This filter item already exists!
+  favorite_organizer:
+    sync_after_triple: Sync after triple action
+    sync_after_triple_desc: After liking, coining and favoriting a video in one click on the video page, also add it to every folder whose rules it matches. It stays in the default folder.
+    batch_title: Organize default folder
+    batch_desc: Scan every video in the default folder and copy the ones that match a rule into the corresponding folders. Videos already in a target folder are skipped, and the default folder is left unchanged.
+    start: Start
+    stop: Stop
+    preparing: Preparing…
+    scanning: Scanning the default folder, {count} videos read
+    copying: Copying to target folders, {count} videos added
+    result_summary: Scanned {scanned} videos
+    result_folder: '{title}: {matched} matched, {copied} newly added'
+    result_folder_failed: '{title}: {matched} matched, {copied} newly added, then failed ({message})'
+    stopped: Organizing stopped
+    no_rules: No usable rules. Add conditions to a folder first.
+    no_default_folder: Default folder not found
+    account_changed: The account changed, so organizing was stopped
+    failed: 'Organizing failed: {message}'
+    rules_title: Rules
+    rules_desc: Each folder can have several rules, and a video goes into the folder when it matches any of them. All conditions in one rule must match; when a condition has several values, any one of them is enough.
+    load_folders_failed: Failed to load folders. Refresh and try again later.
+    empty: No rules yet. Click “New rule” to pick a folder and set conditions.
+    folder_missing: This folder is not in the current account and will be skipped
+    remove_rule: Delete rule
+    new_rule: New rule
+    edit_rule: Edit rule
+    copy_rule: Copy as new rule
+    refresh_folders: Refresh folders
+    rule_editor_desc: Pick a target folder and set conditions. All condition types must match; any one value within a type is enough.
+    folder: Target folder
+    folder_placeholder: Select a folder
+    folder_missing_option: '{title} (unavailable)'
+    folder_required: Select a target folder
+    conditions_required: Set at least one condition
+    rule_duplicate: 'This folder already has the same rule: {rule}'
+    rule_covered: 'A broader rule in this folder already covers this one: {rule}'
+    rule_covers: 'This rule covers {count} existing rule(s) in this folder, which will be removed when you save:'
+    summary_part: '{label}: {value}'
+    value_separator: ', '
+    part_separator: '; '
+    rule_empty: No conditions, so this rule never matches
+    up: Uploader
+    up_placeholder: Enter a UID, space link or name, then press Enter
+    up_already_added: This uploader is already in the rule
+    zone: Zone
+    zone_placeholder: Type to filter and add a zone (a main zone includes all its sub-zones)
+    zone_main: Main zone
+    zone_no_match: No matching zones
+    title_keyword: Title keyword
+    title_keyword_placeholder: Enter a keyword and press Enter (case-insensitive)
+    triple_synced: 'Synced to folders: {folders}'
+    triple_sync_failed: Failed to sync favorites after triple action
   wanted_users:
-    enter_query: Enter an uploader UID or name
     no_results: No uploader found. Try another name.
     search_failed: Failed to search uploaders. Please try again later.
     invalid_uid: Enter a valid uploader UID
@@ -865,6 +956,8 @@ settings:
     bewly: BewlyCat top bar
   adapt_to_other_page_styles: Adapt to other page styles
   adapt_to_other_page_styles_desc: Adapt to some common pages to match with the BewlyBewly theme.
+  disable_background: Disable background
+  disable_background_desc: Completely disable the plugin page's solid, gradient and wallpaper backgrounds (including the search page wallpaper) to show the original Bilibili page background.
   prevent_mobile_redirect: Prevent mobile redirect
   prevent_mobile_redirect_desc: When enabled, a desktop UA is used only for www.bilibili.com to prevent redirects to m.bilibili.com. Direct visits to the mobile site are unaffected.
   follow_bilibili_evolved_color: Follow the Bilibili Evolved theme color
@@ -917,8 +1010,16 @@ settings:
   remember_playback_rate_desc: >
     When enabled, the player will remember your last set playback rate and
     automatically apply it when opening videos
+  custom_playback_rate: Custom playback rate
+  custom_playback_rate_desc: Enter a rate from 0.25 to 5 and apply it to the current video, including videos in drawers and dialogs. Enable Remember playback rate to save it.
+  custom_playback_rate_apply: Apply to current video
+  custom_playback_rate_no_video: No controllable video on this page. Open these settings on a video playback page.
+  playback_rate_step: Playback rate shortcut step
+  playback_rate_step_desc: Change the rate by 0.01–1 per key press; the default is 0.25. Configure the keys in Shortcuts.
   remember_video_quality: Remember video quality
-  remember_video_quality_desc: Restore the last selected video quality. If unavailable, keep the current quality without overwriting the preference.
+  remember_video_quality_desc: Restore the last selected video quality. If unavailable, or if the account is not a Premium member, keep the current quality without overwriting the preference.
+  remember_video_quality_confirm_title: Enable Remember video quality?
+  remember_video_quality_confirm_message: Bilibili already remembers your video quality. This feature is only meant to stop Bilibili from automatically starting high-quality trials on a poor network. If your network is good, you don't need it; Bilibili's built-in memory is enough.
   remember_video_aspect_ratio: Remember video aspect ratio
   remember_video_aspect_ratio_desc: >
     When enabled, the player will remember your last selected video aspect ratio
@@ -982,6 +1083,8 @@ settings:
   native_home_feed_back: Previous recommendations
   native_home_feed_forward: Next recommendations
   shortcuts:
+    undo_reset: Undo reset
+    reset_undo_hint: Reset applied. Undo before leaving this page to restore the shortcut configuration from before the latest reset.
     title: Keyboard Shortcuts
     enable_all_shortcuts_toggle: Enable Keyboard Shortcuts
     enable_all_shortcuts_toggle_desc: Enable or disable all keyboard shortcuts functionality
@@ -990,7 +1093,6 @@ settings:
       homepage: Homepage Shortcuts
       general: General Shortcuts
       fullscreen_mode: Fullscreen Mode Shortcuts
-      global_actions: Global Actions
     official:
       play_pause: Play/Pause
       forward: Forward 5s
@@ -1015,7 +1117,8 @@ settings:
       reset_default: Reset to Default
     reset_all_button: Reset All Shortcuts
     reset_all_ext_shortcuts: Reset All Extension Shortcuts
-    press_keys: Click the input box, then press the shortcut keys
+    press_keys: Press the shortcut keys
+    not_set: Not set
     conflict: The shortcut is already used by the extension shortcut “{name}” and cannot be assigned again.
     danmu_status: Show Danmu Status
     danmu_status_desc: Show current danmu toggle status
@@ -1045,6 +1148,8 @@ settings:
     caption_desc: Toggle captions
     video_screenshot: Video Screenshot
     video_screenshot_desc: Save the current video frame as a PNG image, even when the player screenshot button is hidden.
+    listen_video: Listen to video
+    listen_video_desc: Toggle listen-video mode, hiding the video picture and keeping only the audio.
     increase_playback_rate: Increase Speed
     increase_playback_rate_desc: Increase playback speed
     decrease_playback_rate: Decrease Speed
@@ -1132,6 +1237,10 @@ settings:
   show_bewly_widescreen_button_desc: Show the Bewly Widescreen button in the video player controls.
   show_video_screenshot_button: Show player screenshot button
   show_video_screenshot_button_desc: Show a button in the video player controls for capturing the current video frame. The screenshot shortcut remains available when the button is hidden and can be configured in Shortcuts settings.
+  enable_listen_video: Enable listen-video mode
+  enable_listen_video_desc: Use the player button or shortcut to listen to videos. Disabling exits the mode, restores danmaku and removes its listeners. Pages opened while disabled do not load the feature module. Video streams are still downloaded and decoded.
+  show_listen_video_button: Show player listen-video button
+  show_listen_video_button_desc: Show a toggle in the video player controls that hides the video picture and keeps only the audio, replacing it with a cover-art listening panel. The shortcut remains available when the button is hidden and can be configured in Shortcuts settings.
   group_fonts: Font
   group_visual_effects: Visual Effects
   visibility: show
@@ -1253,6 +1362,7 @@ video_card:
   episode_watch_later_info_failed: Unable to get Watch later information for this episode
   feedback_options_unavailable: Feedback options are unavailable
   operation:
+    favorite: Save to favorites
     not_interested: Not Interested
     not_interested_uploader: Don't Recommend This Uploader
     open_in_new_tab: Open in New Tab
@@ -1271,6 +1381,11 @@ video_card:
     more_options: More options
     scroll_top: Scroll to top
     scroll_bottom: Scroll to bottom
+  favorite_dialog:
+    hint: Select one or more folders. Uncheck a folder to remove this video from it.
+    empty: No folders yet. Create a folder on Bilibili, then refresh.
+    saved: Favorites updated
+    save_failed: Failed to save favorites. Please try again.
   follow_user_confirm:
     title: Confirm Follow User
     message: Are you sure you want to follow {name}?
@@ -1444,6 +1559,8 @@ version_reminder:
   title: BewlyCat has been updated
   current_version: Current version v{version}
   description: View the release notes and latest updates for this version. After confirmation, this version will not be shown again.
+  usage_guide: Help & tutorials
+  usage_guide_desc: Watch the BewlyCat feature guide video series to learn how each feature works
   github_releases: GitHub Releases
   github_releases_desc: View the full release history and downloads
   bilibili_dynamic: Bilibili posts
@@ -1686,14 +1803,29 @@ moment_card:
   comments_retry: Retry
   load_comment_replies: Load more replies
   comments_empty: No comments yet
+  comment_placeholder: Leave a friendly comment
+  comment_login: Log in to post comments
+  comment_send: Post
+  comment_send_shortcut: Ctrl / ⌘ + Enter to send
+  comment_reply: Reply
+  comment_reply_to: "Reply to {'@'}{name}"
+  comment_send_failed: Failed to post the comment. Please try again later
+  comment_delete_confirm: Confirm delete
+  comment_delete_failed: Failed to delete the comment. Please try again later
+  comment_image_add: Add images
+  comment_image_remove: Remove image {index}
+  comment_sync_repost: Also repost to my feed
+  comment_image_limit: You can add up to {count} images
+  comment_image_invalid: Only PNG, JPG, GIF, or WebP images are supported
+  comment_image_too_large: Each image must be {size} MB or smaller
+  comment_image_upload_failed: Failed to upload the image. Please try again later
+  editor_load_failed: Failed to load. Please try again
   video_post: Uploaded a video
   cancel_reservation: Cancel reservation
   reserve: Reserve
   open_space: Open {name}'s profile
   just_now: Just now
   charging_exclusive: Charging exclusive
-  added_watch_later: Added to Watch later
-  add_watch_later: Add to Watch later
   live_post: Live post
   open_original_video: 'Open original video: {title}'
   author_images: '{name} post images'
@@ -1717,6 +1849,30 @@ moment_card:
   like_unsupported: Likes are unavailable for this post
   unlike: Unlike
   like: Like
+  copy_link: Copy post link
+  report: Report
+  delete: Delete post
+  delete_title: Delete post
+  delete_confirm: Are you sure you want to delete this post?
+  delete_success: Post deleted
+  delete_failed: Failed to delete the post. Please try again later
+  report_title: Report post
+  report_select_reason: Select a reason for reporting
+  report_remark_placeholder: Describe the issue and where it appears
+  report_remark_required: Please describe the issue when choosing "Other"
+  report_success: Report submitted
+  report_failed: Failed to submit the report. Please try again later
+  report_reasons:
+    spam: Spam or ads
+    inciting_conflict: Inciting conflict
+    pornography: Pornography
+    personal_attack: Personal attack
+    illegal_content: Illegal content
+    political_rumors: Political rumors
+    social_event_rumor: Rumors about social events
+    false_information: False information
+    illegal_link: Links to illegal content
+    other: Other
 user_card:
   followed: Followed
   follow: Follow

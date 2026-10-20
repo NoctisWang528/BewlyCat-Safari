@@ -19,6 +19,7 @@ export interface VideoCardDisplayData {
     followed: boolean
     mid: number
   }
+  category?: string
   tag?: string
   view?: number
   viewStr?: string
@@ -53,6 +54,10 @@ export interface ForYouState {
   // 视频列表数据 - 最关键的状态
   videoList: VideoElement[]
   appVideoList: AppVideoElement[]
+
+  // APP 推荐分页游标与之前刷新展示过的推荐
+  appFeedIdx?: number
+  appRecentShownKeys?: string[]
 
   // 基础页面状态
   refreshIdx: number

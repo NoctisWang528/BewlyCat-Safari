@@ -125,25 +125,6 @@ const momentsTabsPositionOptions = computed<{ label: string, value: TabsPosition
 
 <template>
   <div>
-    <SettingsItemGroup :title="$t('settings.group_original_moments_page')">
-      <SettingsItem
-        :title="$t('settings.moments_visible_components')"
-        :desc="$t('settings.moments_visible_components_original_desc')"
-      >
-        <template #bottom>
-          <div class="moment-setting-tags" role="group" :aria-label="$t('settings.moments_visible_components')">
-            <SettingsToggleTag
-              v-for="option in originalComponentOptions"
-              :key="option.setting"
-              v-model="settings[option.setting]"
-              :label="option.label"
-              :icon="option.icon"
-            />
-          </div>
-        </template>
-      </SettingsItem>
-    </SettingsItemGroup>
-
     <SettingsItemGroup
       :title="$t('settings.group_new_moments_page')"
       :desc="$t('settings.group_new_moments_page_desc')"
@@ -216,6 +197,50 @@ const momentsTabsPositionOptions = computed<{ label: string, value: TabsPosition
         </SettingsItem>
       </template>
       <SettingsItem
+        :title="$t('settings.moments_card_open_mode')"
+        :desc="$t('settings.moments_card_open_mode_desc')"
+        right-width="auto"
+      >
+        <Select
+          v-model="settings.momentsCardOpenMode"
+          :options="openModeOptions"
+          w="180px"
+        />
+      </SettingsItem>
+      <SettingsItem
+        :title="$t('settings.moments_video_card_open_mode')"
+        :desc="$t('settings.moments_video_card_open_mode_desc')"
+        right-width="auto"
+      >
+        <Select
+          v-model="settings.momentsVideoCardOpenMode"
+          :options="videoCardOpenModeOptions"
+          w="180px"
+        />
+      </SettingsItem>
+    </SettingsItemGroup>
+
+    <SettingsItemGroup :title="$t('settings.group_original_moments_page')">
+      <SettingsItem
+        :title="$t('settings.moments_visible_components')"
+        :desc="$t('settings.moments_visible_components_original_desc')"
+      >
+        <template #bottom>
+          <div class="moment-setting-tags" role="group" :aria-label="$t('settings.moments_visible_components')">
+            <SettingsToggleTag
+              v-for="option in originalComponentOptions"
+              :key="option.setting"
+              v-model="settings[option.setting]"
+              :label="option.label"
+              :icon="option.icon"
+            />
+          </div>
+        </template>
+      </SettingsItem>
+    </SettingsItemGroup>
+
+    <SettingsItemGroup :title="$t('settings.group_moments_filters')">
+      <SettingsItem
         :title="$t('settings.moments_filtered_types')"
         :desc="$t('settings.moments_filtered_types_desc')"
       >
@@ -252,26 +277,11 @@ const momentsTabsPositionOptions = computed<{ label: string, value: TabsPosition
         </div>
       </SettingsItem>
       <SettingsItem
-        :title="$t('settings.moments_card_open_mode')"
-        :desc="$t('settings.moments_card_open_mode_desc')"
+        :title="$t('settings.original_moments_use_bewly_filters')"
+        :desc="$t('settings.original_moments_use_bewly_filters_desc')"
         right-width="auto"
       >
-        <Select
-          v-model="settings.momentsCardOpenMode"
-          :options="openModeOptions"
-          w="180px"
-        />
-      </SettingsItem>
-      <SettingsItem
-        :title="$t('settings.moments_video_card_open_mode')"
-        :desc="$t('settings.moments_video_card_open_mode_desc')"
-        right-width="auto"
-      >
-        <Select
-          v-model="settings.momentsVideoCardOpenMode"
-          :options="videoCardOpenModeOptions"
-          w="180px"
-        />
+        <Radio v-model="settings.originalMomentsUseBewlyFilters" />
       </SettingsItem>
     </SettingsItemGroup>
 

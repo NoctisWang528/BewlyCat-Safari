@@ -23,7 +23,6 @@ common:
   just_now: 刚刚
   please_log_in_first: 请先登录
   login: 登录
-  save_to_watch_later: 稍后再看
   add_to_watch_later: 添加到稍后再看
   added_to_watch_later: 已添加到稍后再看
   remove_from_watch_later: 从稍后再看中移除
@@ -111,6 +110,10 @@ player_screenshot:
   saved: 截图已保存
   failed: 截图失败
   video_unavailable: 当前视频画面不可用
+player_listen:
+  enter: 听视频
+  exit: 恢复视频画面
+  listening: 正在收听
 settings:
   local_loudness:
     gain_history: 均衡增益变化 · 近 60 秒
@@ -159,10 +162,11 @@ settings:
   category_appearance_desc: 配置毛玻璃、主题颜色、壁纸、字体、自定义样式和其他页面的适配。
   category_shortcuts_desc: 启用、修改或恢复 BewlyCat 与播放器快捷键。
   breadcrumb: 设置位置
+  usage_guide: 使用帮助：BewlyCat 功能讲解视频合集
   group_interaction_layout: 交互与布局
   category_browsing_home_desc: 配置首页推荐、内容过滤、关注页和首页标签。
   category_browsing_video_card_desc: 配置视频卡片的布局、预览、信息展示与打开方式。
-  category_browsing_favorites_desc: 配置收藏内容的显示与交互方式。
+  category_browsing_favorites_desc: 按规则整理收藏夹，并在一键三连后自动同步到对应收藏夹。
   category_navigation_link_opening_desc: 统一配置顶栏、视频卡片与搜索栏链接的打开位置和抽屉行为。
   category_navigation_topbar_desc: 统一调整顶栏布局、组件、频道、搜索入口和通知显示。
   category_navigation_dock_desc: 配置 Dock 栏与侧栏的位置、显隐和快捷操作。
@@ -293,6 +297,7 @@ settings:
   group_following: 正在关注
   group_following_desc: 配置“正在关注”页面的布局、直播内容与视频过滤规则。
   group_favorites: 收藏
+  group_favorite_organizer: 收藏夹整理
   sidebar_cover_blur: 侧栏封面高斯渐变
   sidebar_cover_blur_desc: 在收藏、稍后再看等页面侧栏使用封面模糊背景；关闭后使用透出页面壁纸的 Pop 背景，不随封面染色。
   group_search_page_mode: 搜索页模式
@@ -301,6 +306,7 @@ settings:
   group_original_moments_page: Bilibili 页面
   group_new_moments_page: Bewly动态页
   group_new_moments_page_desc: 此页面并非最终成品，相关形态后续可能会有较大调整。
+  group_moments_filters: 动态过滤
   group_moments_sidebar: 动态页左侧组件
   group_moments_interaction: 动态卡片交互
   group_environment_info: 环境信息
@@ -320,6 +326,8 @@ settings:
   original_moments_show_community_center: 显示社区中心
   original_moments_show_hot_search: 显示热搜
   original_moments_show_up_list: 显示动态 UP 横幅
+  original_moments_use_bewly_filters: 过滤原版动态流
+  original_moments_use_bewly_filters_desc: 开启后，以上动态类型与关键词过滤设置也会应用于 Bilibili 原版动态页。
   moments_show_user_card: 显示用户卡片
   moments_show_publish: 显示发布动态组件
   moments_show_live: 显示正在直播组件
@@ -502,14 +510,26 @@ settings:
   show_bewly_widescreen_button_desc: 启用后，在视频播放器控制栏中显示 Bewly 宽屏按钮。
   show_video_screenshot_button: 显示播放器截图按钮
   show_video_screenshot_button_desc: 启用后，在视频播放器控制栏中显示截取当前视频画面的按钮。关闭后仍可使用截图快捷键，可在「快捷键」设置中配置。
+  enable_listen_video: 启用听视频功能
+  enable_listen_video_desc: 开启后可通过播放器按钮或快捷键进入听视频。关闭时退出听视频、恢复弹幕并停止相关监听；关闭后打开页面不加载功能模块。此功能隐藏画面，视频流仍会下载和解码。
+  show_listen_video_button: 显示播放器「听视频」按钮
+  show_listen_video_button_desc: 启用后，在视频播放器控制栏中显示听视频切换按钮：隐藏视频画面仅保留声音，以封面和标题组成音频播放界面。关闭后仍可使用快捷键切换，可在「快捷键」设置中配置。
   keep_collection_video_default_mode: 合集视频保持默认模式
   keep_collection_video_default_mode_desc: 当启用时，合集视频将始终使用默认播放器模式，不会应用宽屏或全屏设置
   keep_watch_later_video_default_mode: 稍后再看保持默认模式
   keep_watch_later_video_default_mode_desc: 启用后，稍后再看中的视频将始终使用默认播放器模式，不会应用宽屏或全屏设置
   remember_playback_rate: 记住倍速
   remember_playback_rate_desc: 启用后，播放器会记住您上次设置的倍速，并在下次打开视频时自动应用
+  custom_playback_rate: 自定义播放倍速
+  custom_playback_rate_desc: 输入 0.25–5 倍，应用到当前视频（支持抽屉和弹窗内的视频）。开启「记住倍速」后会保存此值。
+  custom_playback_rate_apply: 应用到当前视频
+  custom_playback_rate_no_video: 当前页面没有可控制的视频，请在视频播放页打开此设置。
+  playback_rate_step: 倍速快捷键调节幅度
+  playback_rate_step_desc: 每次增减 0.01–1 倍；默认 0.25。快捷键可在「快捷键」设置中修改。
   remember_video_quality: 记住清晰度
-  remember_video_quality_desc: 启用后自动恢复上次选择的清晰度；不可用时沿用播放器当前清晰度，不覆盖记忆。
+  remember_video_quality_desc: 启用后自动恢复上次选择的清晰度；不可用或当前账号非大会员时沿用播放器当前清晰度，不覆盖记忆。
+  remember_video_quality_confirm_title: 确认开启记住清晰度？
+  remember_video_quality_confirm_message: B 站自身就有记住清晰度能力，插件的记住清晰度功能仅用于网络不佳时避免 B 站自动试用高画质。如本身网络状况良好，无需开启此功能，使用 B 站默认的记忆逻辑即可。
   remember_video_aspect_ratio: 记住视频比例
   remember_video_aspect_ratio_desc: 启用后，播放器会记住您上次选择的视频比例，并在下次打开视频时自动应用
   auto_exit_fullscreen_on_end: 全屏/网页全屏播放完毕后自动退出
@@ -571,8 +591,10 @@ settings:
   only_cover_video_preview: 仅封面视频预览
   show_video_card_author_avatar: 显示用户头像
   show_video_card_author_name: 显示用户昵称
+  show_video_card_category: 显示视频分区
+  show_video_card_category_desc: 显示接口提供的视频分区，点击可搜索该分区。
   show_video_card_video_tag: 显示接口与搜索标签
-  show_video_card_video_tag_desc: 显示接口提供的推荐理由、状态或分区标签，以及搜索页的视频内容标签。
+  show_video_card_video_tag_desc: 显示接口提供的推荐理由或状态标签，以及搜索页的视频内容标签。
   show_video_card_recommend_tag: 显示插件计算标签
   show_video_card_recommend_tag_desc: 显示插件计算的标签，如"高赞"、"高互动"、"百万播放"等
   show_video_card_publish_time: 显示发布时间
@@ -677,12 +699,42 @@ settings:
   topbar_components_adjustment: 顶栏组件角标设置
   topbar_components_adjustment_desc: 配置各个顶栏图标的角标显示方式
   group_topbar_pinned_channels: 顶栏常驻分区
-  topbar_pinned_channels_desc: 可以将 Logo 展开中的分区固定在顶栏外侧，并自定义显示顺序。
+  topbar_pinned_channels_desc: 按顺序优先显示，放不下的分区会收进更多菜单。
   topbar_pinned_channels_title: 常驻分区
-  topbar_pinned_channels_hint: 点击卡片即可固定或取消，点击顺序决定展示顺序。靠后的分区会在空间不足时优先隐藏。
+  pinned_manager:
+    count: '已添加 {count} 项'
+    add: 添加分区
+    clear: 清空
+    search: 搜索分区
+    categories: 分区分类
+    screen: 影音娱乐
+    animation_games: 动漫游戏
+    knowledge_news: 知识科技
+    life_interests: 生活方式
+    services: 平台服务
+    history_reset: 分区选择已被其他操作更新，旧撤销历史已清空。
+    all: 全部
+    selected: 已选
+    no_results: 没有匹配的分区
+    move_before: '前移 {name}'
+    move_after: '后移 {name}'
+    remove: '移除 {name}'
+    undo: 撤销上一步
+    hidden: 常驻分区当前已隐藏
+    enable: 启用
+    layout: '顶栏 {visible} · 更多 {hidden}'
+    unavailable: 顶栏当前不可见
+    open: '展开分区，含 {count} 个折叠项'
+    channels: 分区
+    manage: 管理常驻分区
+    collapse: 收起添加
+    clear_search: 清除搜索
+    view_all: 查看全部分类
+    all_visible: 全部显示
+  topbar_pinned_channels_hint: 通过添加分区选择内容，使用拖动手柄或前移、后移按钮调整顺序。
   topbar_pinned_channels_all_selected: 所有可用分区都已添加。
   topbar_pinned_channels_empty: 还没有添加任何常驻分区。
-  topbar_pinned_channels_order_tip: 点击顺序决定展示顺序，再次点击可取消固定。
+  topbar_pinned_channels_order_tip: 通过添加分区选择内容，使用拖动手柄或前移、后移按钮调整顺序。
   top_bar_logo_style: Logo 样式
   top_bar_logo_style_desc: 选择顶栏使用圆形图标或横向品牌标识。
   top_bar_logo_style_opt:
@@ -810,8 +862,59 @@ settings:
   filter_by_publish_time_desc: 筛选掉发布时间超过设定天数的视频（仅在 Web 推荐模式下有效，最少 7 天）。
   filter_by_publish_time_unit: 天
   filter_item_already_exist: 这个筛选项目已经存在！
+  favorite_organizer:
+    sync_after_triple: 三连后自动同步
+    sync_after_triple_desc: 在视频页一键三连后，按下方规则把视频同时加入匹配的收藏夹，默认收藏夹中的视频保留。
+    batch_title: 批量整理默认收藏夹
+    batch_desc: 扫描默认收藏夹中的全部视频，把命中规则的视频复制到对应收藏夹；已在目标收藏夹中的视频会跳过，默认收藏夹不做改动。
+    start: 开始整理
+    stop: 停止
+    preparing: 正在准备…
+    scanning: 正在扫描默认收藏夹，已读取 {count} 个视频
+    copying: 正在复制到目标收藏夹，已加入 {count} 个视频
+    result_summary: 共扫描 {scanned} 个视频
+    result_folder: '{title}：命中 {matched} 个，新加入 {copied} 个'
+    result_folder_failed: '{title}：命中 {matched} 个，新加入 {copied} 个，后续失败（{message}）'
+    stopped: 已停止整理
+    no_rules: 没有可用的规则，请先为收藏夹设置条件
+    no_default_folder: 找不到默认收藏夹
+    account_changed: 账号已切换，整理已中止
+    failed: 整理失败：{message}
+    rules_title: 整理规则
+    rules_desc: 每个收藏夹可设置多条规则，满足任一规则即归入；同一条规则内的各项条件需同时满足，同一项条件填多个值时满足其一即可。
+    load_folders_failed: 获取收藏夹列表失败，请稍后刷新重试
+    empty: 尚未设置规则。点击“新建规则”选择收藏夹并设置条件。
+    folder_missing: 当前账号下找不到该收藏夹，整理时会跳过
+    remove_rule: 删除规则
+    new_rule: 新建规则
+    edit_rule: 编辑规则
+    copy_rule: 复制为新规则
+    refresh_folders: 刷新收藏夹
+    rule_editor_desc: 选择目标收藏夹并设置条件：各类条件需同时满足，同一类填多个值时满足其一即可。
+    folder: 目标收藏夹
+    folder_placeholder: 选择收藏夹
+    folder_missing_option: '{title}（已失效）'
+    folder_required: 请选择目标收藏夹
+    conditions_required: 请至少设置一个条件
+    rule_duplicate: 该收藏夹已有相同的规则：{rule}
+    rule_covered: 该收藏夹已有更宽泛的规则包含此规则：{rule}
+    rule_covers: 此规则包含该收藏夹的 {count} 条已有规则，保存后将移除它们：
+    summary_part: '{label}：{value}'
+    value_separator: 、
+    part_separator: ；
+    rule_empty: 未设置条件，此规则不会生效
+    up: UP 主
+    up_placeholder: 输入 UID、空间链接或昵称后按回车
+    up_already_added: 该 UP 主已在此规则中
+    zone: 分区
+    zone_placeholder: 输入名称筛选并添加分区（主分区包含其全部子分区）
+    zone_main: 主分区
+    zone_no_match: 没有匹配的分区
+    title_keyword: 标题关键词
+    title_keyword_placeholder: 输入关键词后按回车，不区分大小写
+    triple_synced: 已同步到收藏夹：{folders}
+    triple_sync_failed: 三连后同步收藏夹失败
   wanted_users:
-    enter_query: 请输入 UP 主 UID 或昵称
     no_results: 没有找到相关 UP 主，请尝试其他昵称
     search_failed: 搜索 UP 主失败，请稍后重试
     invalid_uid: 请输入有效的 UP 主 UID
@@ -883,6 +986,8 @@ settings:
     bewly: BewlyCat 顶栏
   adapt_to_other_page_styles: 适应其他页面样式
   adapt_to_other_page_styles_desc: 适应一些常见页面，以与 BewlyCat 主题相匹配。
+  disable_background: 关闭背景
+  disable_background_desc: 彻底关闭插件页面的纯色背景、渐变背景和壁纸（含搜索页壁纸），显示 B 站原页面背景。
   prevent_mobile_redirect: 防止跳转移动端
   prevent_mobile_redirect_desc: 开启后，仅在访问 www.bilibili.com 时使用桌面端 UA，避免被跳转到 m.bilibili.com；直接访问移动端不受影响。
   follow_bilibili_evolved_color: 使用 Bilibili Evolved 主题色
@@ -906,6 +1011,8 @@ settings:
   native_home_feed_back: 返回上一组推荐
   native_home_feed_forward: 前往下一组推荐
   shortcuts:
+    undo_reset: 撤销重置
+    reset_undo_hint: 已重置，可在离开此页前撤销，恢复最近一次重置前的快捷键配置。
     title: 快捷键
     enable_all_shortcuts_toggle: 启用键盘快捷键
     enable_all_shortcuts_toggle_desc: 启用或禁用所有键盘快捷键功能
@@ -914,7 +1021,6 @@ settings:
       homepage: 首页快捷键
       general: 常规快捷键
       fullscreen_mode: 全屏模式快捷键
-      global_actions: 全局操作
     official:
       play_pause: 播放/暂停
       forward: 快进5秒
@@ -939,7 +1045,8 @@ settings:
       reset_default: 重置为默认值
     reset_all_button: 重置所有快捷键
     reset_all_ext_shortcuts: 重置所有扩展快捷键
-    press_keys: 点击输入框，按下快捷键
+    press_keys: 请按下快捷键
+    not_set: 未设置
     conflict: 此快捷键已被插件快捷键“{name}”使用，不能重复设置。
     danmu_status: 显示弹幕状态
     danmu_status_desc: 显示当前弹幕开关状态
@@ -969,6 +1076,8 @@ settings:
     caption_desc: 打开/关闭字幕
     video_screenshot: 视频截图
     video_screenshot_desc: 将当前视频画面保存为 PNG 图片，关闭播放器截图按钮后仍可使用。
+    listen_video: 听视频
+    listen_video_desc: 切换听视频模式，隐藏视频画面、仅保留声音播放。
     increase_playback_rate: 加速播放
     increase_playback_rate_desc: 提高播放速度
     decrease_playback_rate: 减速播放
@@ -1160,6 +1269,7 @@ video_card:
   episode_watch_later_info_failed: 无法获取该剧集的稍后再看信息
   feedback_options_unavailable: 未能获取反馈选项
   operation:
+    favorite: 收藏到收藏夹
     not_interested: 不感兴趣
     not_interested_uploader: 不想看此 UP 主
     open_in_new_tab: 新标签页打开
@@ -1178,6 +1288,11 @@ video_card:
     more_options: 更多操作
     scroll_top: 滚动到顶部
     scroll_bottom: 滚动到底部
+  favorite_dialog:
+    hint: 选择收藏夹，可多选；取消勾选可移出收藏夹。
+    empty: 暂无收藏夹，请先在 B 站创建收藏夹后刷新。
+    saved: 收藏设置已保存
+    save_failed: 保存收藏失败，请重试
   follow_user_confirm:
     title: 确认关注用户
     message: 确定要关注 {name} 吗？
@@ -1348,6 +1463,8 @@ version_reminder:
   title: BewlyCat 已更新
   current_version: 当前版本 v{version}
   description: 查看本版本的更新记录与最新动态。确认后，本版本将不再显示提醒。
+  usage_guide: 使用帮助
+  usage_guide_desc: 观看 BewlyCat 功能讲解视频合集，了解各项功能的用法
   github_releases: GitHub Releases
   github_releases_desc: 查看完整版本记录与下载信息
   bilibili_dynamic: Bilibili 动态
@@ -1586,14 +1703,29 @@ moment_card:
   comments_retry: 重试
   load_comment_replies: 加载更多回复
   comments_empty: 暂无评论
+  comment_placeholder: 发一条友善的评论
+  comment_login: 登录后才能发表评论
+  comment_send: 发布
+  comment_send_shortcut: Ctrl / ⌘ + Enter 发送
+  comment_reply: 回复
+  comment_reply_to: "回复 {'@'}{name}"
+  comment_send_failed: 评论发送失败，请稍后重试
+  comment_delete_confirm: 确认删除
+  comment_delete_failed: 评论删除失败，请稍后重试
+  comment_image_add: 添加图片
+  comment_image_remove: 移除第 {index} 张图片
+  comment_sync_repost: 同时转发到我的动态
+  comment_image_limit: 最多可以添加 {count} 张图片
+  comment_image_invalid: 仅支持 PNG、JPG、GIF 或 WebP 图片
+  comment_image_too_large: 单张图片不能超过 {size}MB
+  comment_image_upload_failed: 图片上传失败，请稍后重试
+  editor_load_failed: 加载失败，请重试
   video_post: 投稿了视频
   cancel_reservation: 取消预约
   reserve: 预约
   open_space: 打开 {name} 的空间
   just_now: 刚刚
   charging_exclusive: 充电专属
-  added_watch_later: 已添加稍后再看
-  add_watch_later: 添加至稍后再看
   live_post: 直播动态
   open_original_video: '打开原视频：{title}'
   author_images: '{name} 的动态图片'
@@ -1617,6 +1749,30 @@ moment_card:
   like_unsupported: 该动态暂不支持点赞
   unlike: 取消点赞
   like: 点赞
+  copy_link: 复制动态链接
+  report: 举报
+  delete: 删除动态
+  delete_title: 删除动态
+  delete_confirm: 确定要删除此条动态吗？
+  delete_success: 删除成功
+  delete_failed: 动态删除失败，请稍后重试
+  report_title: 举报动态
+  report_select_reason: 请选择举报理由
+  report_remark_placeholder: 请补充问题类型和出现位置等详细信息
+  report_remark_required: 选择「其他」时请填写举报说明
+  report_success: 举报成功
+  report_failed: 举报失败，请稍后重试
+  report_reasons:
+    spam: 垃圾广告
+    inciting_conflict: 引战
+    pornography: 色情
+    personal_attack: 人身攻击
+    illegal_content: 违法信息
+    political_rumors: 涉政谣言
+    social_event_rumor: 涉社会事件谣言
+    false_information: 虚假不实信息
+    illegal_link: 违法信息外链
+    other: 其他
 user_card:
   followed: 已关注
   follow: 关注

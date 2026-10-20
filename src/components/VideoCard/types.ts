@@ -3,9 +3,7 @@ import type { ThreePointV2 } from '~/models/video/appForYou'
 /** Data-only interaction state survives offscreen card recycling. */
 export interface VideoCardState {
   removed: boolean
-  selectedDislikeOpt?: { reasonId?: number, feedbackId?: number }
   videoCurrentTime: number | null
-  resolvedWatchLaterAid?: number
 }
 
 export function createVideoCardState(): VideoCardState {
@@ -57,7 +55,7 @@ export interface Video {
   tag?: string | string[]
   /** Real content tags exposed on search-result pages; clicking these starts a search. */
   searchableTags?: string[]
-  /** Searchable video partition name from APIs, such as `typename` in search results. */
+  /** Searchable video partition name from APIs, such as `tname`, `typename` or history `tag_name`. */
   category?: string
   rank?: number
   type?: 'horizontal' | 'vertical' | 'bangumi' | 'ketang'
