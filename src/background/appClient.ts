@@ -135,28 +135,38 @@ export function isAppClientRequestUrl(url: string): boolean {
 }
 
 export function buildAppClientHeaderRules(isSafariBuild: boolean): browser.DeclarativeNetRequest.Rule[] {
-  return APP_CLIENT_HEADER_RULES.map(rule => ({
-    id: rule.id,
-    // 高于 assets/rules.json 中为 passport POST 设置 Origin 的静态规则
-    priority: 3,
-    action: {
-      type: 'modifyHeaders',
-      requestHeaders: [
-        { header: 'user-agent', operation: 'set', value: rule.userAgent },
-        { header: 'referer', operation: 'set', value: APP_CLIENT_REFERER },
-        { header: 'origin', operation: 'remove' },
+  return APP_CLIENT_HEADER_RULES.map((rule) => {
+    const requestHeaders: browser.DeclarativeNetRequest.RuleActionRequestHeadersItemType[] = [
+      { header: 'user-agent', operation: 'set', value: rule.userAgent },
+      { header: 'referer', operation: 'set', value: APP_CLIENT_REFERER },
+      { header: 'origin', operation: 'remove' },
+    ]
+
+    // WebKit 的 DNR 请求头白名单不接受 sec-ch-ua*，Safari 也不会发送这些客户端提示。
+    if (!isSafariBuild) {
+      requestHeaders.push(
         { header: 'sec-ch-ua', operation: 'remove' },
         { header: 'sec-ch-ua-mobile', operation: 'remove' },
         { header: 'sec-ch-ua-platform', operation: 'remove' },
-      ],
-    },
-    condition: {
-      regexFilter: rule.regexFilter,
-      resourceTypes: ['xmlhttprequest'],
-      // Safari 不支持 tabIds，只能依靠下方固定接口的正则限制作用范围。
-      ...(isSafariBuild ? {} : { tabIds: [-1] }),
-    },
-  }))
+      )
+    }
+
+    return {
+      id: rule.id,
+      // 高于 assets/rules.json 中为 passport POST 设置 Origin 的静态规则
+      priority: 3,
+      action: {
+        type: 'modifyHeaders',
+        requestHeaders,
+      },
+      condition: {
+        regexFilter: rule.regexFilter,
+        resourceTypes: ['xmlhttprequest'],
+        // Safari 不支持 tabIds，只能依靠下方固定接口的正则限制作用范围。
+        ...(isSafariBuild ? {} : { tabIds: [-1] }),
+      },
+    }
+  })
 }
 
 async function syncAppClientHeaderRules() {

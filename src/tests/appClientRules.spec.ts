@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { buildAppClientHeaderRules } from '~/background/appClient'
 
 describe('buildAppClientHeaderRules', () => {
-  it('keeps non-tab scoping in Chromium builds', () => {
+  it('keeps client hints and non-tab scoping in Chromium builds', () => {
     const rules = buildAppClientHeaderRules(false)
 
     expect(rules).toHaveLength(3)
@@ -12,10 +12,18 @@ describe('buildAppClientHeaderRules', () => {
         resourceTypes: ['xmlhttprequest'],
         tabIds: [-1],
       })
+      expect(rule.action.requestHeaders?.map(header => header.header)).toEqual([
+        'user-agent',
+        'referer',
+        'origin',
+        'sec-ch-ua',
+        'sec-ch-ua-mobile',
+        'sec-ch-ua-platform',
+      ])
     }
   })
 
-  it('omits the unsupported tabIds condition in Safari builds', () => {
+  it('omits unsupported tabIds and client hint headers in Safari builds', () => {
     const rules = buildAppClientHeaderRules(true)
 
     expect(rules).toHaveLength(3)
@@ -23,11 +31,11 @@ describe('buildAppClientHeaderRules', () => {
       expect(rule.condition).not.toHaveProperty('tabIds')
       expect(rule.condition?.regexFilter).toMatch(/^\^https:\/\/(?:passport|app)\\\.bilibili\\\.com\//)
       expect(rule.condition?.resourceTypes).toEqual(['xmlhttprequest'])
-      expect(rule.action.requestHeaders).toEqual(expect.arrayContaining([
-        expect.objectContaining({ header: 'user-agent', operation: 'set' }),
-        expect.objectContaining({ header: 'referer', operation: 'set' }),
-        expect.objectContaining({ header: 'origin', operation: 'remove' }),
-      ]))
+      expect(rule.action.requestHeaders?.map(header => header.header)).toEqual([
+        'user-agent',
+        'referer',
+        'origin',
+      ])
     }
   })
 })
