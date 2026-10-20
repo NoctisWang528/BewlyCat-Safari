@@ -3,7 +3,7 @@ feature: sync-upstream-v1.8.1
 status: candidate
 updated: 2026-10-20
 branch: codex/sync-upstream-v1.8.1
-commits: f8957dba, b24d7962
+commits: f8957dba, b24d7962, 7d052861
 ---
 
 # 同步 BewlyCat 上游 v1.8.1 并构建 Safari 候选版
@@ -13,18 +13,23 @@ commits: f8957dba, b24d7962
 **What was built** — 将上游正式 tag `v1.8.1` 合入 Safari 仓库，保留 DNR、
 MAIN-world bridge、非持久后台、认证兼容层与 Safari 品牌，生成
 `v1.8.1-safari.1` 候选。上游新增的固定 APP client 使用了 Safari 不支持的
-DNR `tabIds`，已按构建平台裁剪该条件，并用测试固定 Chromium/Safari 两种规则。
+DNR `tabIds`，随后实机又发现 WebKit 不接受 `sec-ch-ua*` 请求头操作；两者均已
+按构建平台裁剪，并用测试固定 Chromium/Safari 两种规则。
 
 **Verification** — `pnpm lint` / `typecheck` / `knip` / `test`（158）/
-`build` / `validate-safari` / `package-safari` 通过；Xcode Release arm64
-构建、严格 codesign、版本/架构检查通过；Xcode 工程与最终 `.appex` 的
-22 个资源文件均与 `extension-safari/` 一致，SHA-256 为
-`fc0a060eba597abab7cf33d227e1cdc26974b676fbbca83be4dd34785a3b782f`。
+`sync-safari-xcode` / Xcode Release arm64 构建、严格 codesign、版本/架构检查
+通过；Xcode 工程与最终 `.appex` 的 22 个资源文件均与 `extension-safari/`
+一致，SHA-256 为
+`4675d8489a01cbd03f846dbee643b4b887f247886b66d7ca3393fdb7d8260fd9`。
+旧版和 DerivedData 副本已删除，`/Applications` 仅保留一个已注册扩展。
 
 **Journey log** — 上游把 APP 推荐从 TV 接口迁移到 HD 接口，并把扫码、刷新与
 不感兴趣收敛到后台固定 endpoint。Chromium 的会话 DNR 用 `tabIds: [-1]`
 排除标签页请求；Safari 不支持该字段，不能整条规则照搬。Safari 候选最终以
-固定接口正则限制作用域，仍需实机确认页面自身请求未受影响。
+固定接口正则限制作用域，仍需实机确认页面自身请求未受影响。首次候选启动时，
+Safari 报错 `Failed to update the APP client header rules`；WebKit 的 DNR
+请求头白名单不接受 `sec-ch-ua*`，只要一条规则含这些头就会拒绝整批更新。
+Safari 不发送这些头，因此 Safari 规则只保留 UA/Referer/Origin 操作。
 
 ## [S1] Problem
 
@@ -42,6 +47,7 @@ DNR `tabIds`，已按构建平台裁剪该条件，并用测试固定 Chromium/S
 - 分支为 `codex/sync-upstream-v1.8.1`。
 - 合并提交：`f8957dba`（`chore: 合并上游 v1.8.1`）。
 - Safari 适配提交：`b24d7962`（`fix(safari): 适配上游 v1.8.1`）。
+- APP client DNR 修复提交：`7d052861`（`fix(safari): 修复 APP client 请求头规则`）。
 - 不修改、推送或向上游仓库创建 PR。
 
 ### 版本号
@@ -58,10 +64,10 @@ DNR `tabIds`，已按构建平台裁剪该条件，并用测试固定 Chromium/S
 ### Safari 适配重点
 
 - `src/background/appClient.ts` 保留固定 APP endpoint 白名单、APP 请求头与
-  后台签名；Safari 构建省略 DNR `tabIds`，保留精确正则和
-  `xmlhttprequest` resource type。
+  后台签名；Safari 构建省略 DNR `tabIds` 和 WebKit 不接受的 `sec-ch-ua*`
+  请求头操作，保留精确正则、`xmlhttprequest` resource type 及 UA/Referer/Origin。
 - `src/tests/appClientRules.spec.ts` 同时断言 Chromium 的 `tabIds: [-1]` 与
-  Safari 的无 `tabIds` 分支。
+  完整 client hint 清理，以及 Safari 的无 `tabIds`、无 client hint 分支。
 - page-world 测试跟上上游的初始化标记、直播上下文隔离和已有状态保护。
 - 动态稍后再看测试改用上游 `.bew-watch-later-cover__btn`，继续覆盖事件阻止、
   请求去重、错误后释放锁和 aid 定位。
@@ -109,7 +115,7 @@ DNR `tabIds`，已按构建平台裁剪该条件，并用测试固定 Chromium/S
 产物：
 
 ```text
-/Users/baixu/Library/Developer/Xcode/DerivedData/BewlyCat_Safari-v1.8.1/Build/Products/Release/BewlyCat Safari.app
+/Applications/BewlyCat Safari.app
 ```
 
 父 App 与扩展的 `CFBundleShortVersionString` 均为 `1.8.1`，
@@ -117,6 +123,9 @@ DNR `tabIds`，已按构建平台裁剪该条件，并用测试固定 Chromium/S
 `W5J4JBH2BR`，使用 Apple Development 签名，未 notarize。
 
 ### 待用户 Safari 实机验收
+
+当前 `/Applications` 只有这一份完整 `.app`，`pluginkit` 只注册一个 1.8.1
+扩展；用户将自行完成实机验收。
 
 - 登录与未登录；APP 扫码授权、token 刷新、HD 推荐与不感兴趣请求。
 - 首页、动态、搜索、视频播放、稍后再看、收藏夹整理与收藏选择。
@@ -138,5 +147,6 @@ DNR `tabIds`，已按构建平台裁剪该条件，并用测试固定 Chromium/S
 - [x] T1: 合并上游 `v1.8.1` 并解决冲突 — acceptance: merge commit 保留全部 Safari 适配
 - [x] T2: 完成 Safari 适配与版本号更新 — acceptance: APP client DNR 按平台裁剪，测试通过
 - [x] T3: 全量自动校验、构建、签名与资源一致性检查 — acceptance: 上列命令全部通过
-- [ ] T4: 用户在 Safari 实机验收候选 `.app` — waiting
-- [ ] T5: 验收后推送本仓库、创建 tag/Release、安装到 Applications 并清理 Xcode 临时文件 — waiting
+- [x] T4: 删除旧版与 DerivedData 副本并安装唯一候选 — acceptance: 仅存一个 `.app` 和一个已注册扩展
+- [ ] T5: 用户在 Safari 实机验收 `/Applications/BewlyCat Safari.app` — waiting
+- [ ] T6: 验收后推送本仓库、创建 tag/Release 并清理 Xcode 临时文件 — waiting
