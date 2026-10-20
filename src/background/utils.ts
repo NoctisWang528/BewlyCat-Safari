@@ -8,7 +8,6 @@ import browser from 'webextension-polyfill'
 import { waitWithSignal } from '~/utils/abort'
 
 import { createApiResponseCache } from './apiResponseCache'
-import { ensureFreshTokensOnDemand } from './appAuthScheduler'
 import { withRequestTimeout } from './requestTimeout'
 import { requestWithSafariCompat } from './requestWithSafariCompat'
 import { addWbiSign, clearWbiKeys, getWbiKeys, initWbiKeys, isBilibiliNavUrl, needsWbiSign, storeWbiKeys } from './wbiSign'
@@ -21,9 +20,6 @@ export class ApiRiskControlError extends Error {
     this.name = 'ApiRiskControlError'
   }
 }
-
-/** APP 接口的鉴权策略。 */
-export type AuthStrategy = 'none' | 'inject' | 'inject+sign'
 
 type FetchAfterHandler = ((data: Response) => Promise<any>) | ((data: any) => any)
 
@@ -89,7 +85,6 @@ interface API {
     [key: string]: any
   }
   afterHandle: FetchAfterHandler[]
-  auth?: AuthStrategy
 }
 // 重载API 可以为函数
 type APIFunction = (message: Message, sender?: any, sendResponse?: (response?: any) => void) => any
@@ -109,21 +104,11 @@ function apiListenerFactory(API_MAP: APIMAP) {
       return (API_MAP[contentScriptQuery] as APIFunction)(typedMessage, sender)
 
     const api = API_MAP[contentScriptQuery] as API
-    const authStrategy: AuthStrategy = api.auth ?? 'none'
-    let appAccessToken: string | undefined
-    if (authStrategy !== 'none') {
-      appAccessToken = await ensureFreshTokensOnDemand()
-      if (!appAccessToken) {
-        const error = new Error('APP access token 不可用，请重新授权')
-        ;(error as any).code = 'ERR_APP_AUTH_REQUIRED'
-        throw error
-      }
-    }
 
     // eslint-disable-next-line node/prefer-global/process
     if (process.env.FIREFOX && sender && sender.tab?.id) {
       if (api._fetch.credentials === 'omit' || typedMessage.bewlyNoCookie === true)
-        return await doCachedRequest(typedMessage, api, sender.tab, undefined, authStrategy, appAccessToken, signal)
+        return await doCachedRequest(typedMessage, api, sender.tab, undefined, signal)
 
       // 获取tab信息以获取正确的cookieStoreId
       const tab = await browser.tabs.get(sender.tab.id)
@@ -131,10 +116,10 @@ function apiListenerFactory(API_MAP: APIMAP) {
       // Only copy cookies that the API target would receive naturally. Filtering
       // by store alone can mix cookies from unrelated permitted Bilibili hosts.
       const cookies = await browser.cookies.getAll({ url: api.url, storeId })
-      return await doCachedRequest(typedMessage, api, tab, cookies, authStrategy, appAccessToken, signal)
+      return await doCachedRequest(typedMessage, api, tab, cookies, signal)
     }
 
-    return await doCachedRequest(typedMessage, api, sender?.tab, undefined, authStrategy, appAccessToken, signal)
+    return await doCachedRequest(typedMessage, api, sender?.tab, undefined, signal)
   }
 }
 
@@ -143,12 +128,10 @@ async function doCachedRequest(
   api: API,
   tab?: Browser.Tabs.Tab,
   cookies?: Browser.Cookies.Cookie[],
-  authStrategy: AuthStrategy = 'none',
-  appAccessToken?: string,
   signal?: AbortSignal,
 ) {
   signal?.throwIfAborted()
-  const request = () => doRequest(message, api, cookies, authStrategy, appAccessToken, signal)
+  const request = () => doRequest(message, api, cookies, signal)
 
   if (!api.cacheMaxAge || api._fetch.method.toLowerCase() !== 'get')
     return request()
@@ -167,65 +150,24 @@ async function doCachedRequest(
   ])
   // 缓存中的网络请求由所有等待者共享；一个页面取消只退出自己的等待。
   signal?.throwIfAborted()
-  return waitWithSignal(cacheApiResponse(key, api.cacheMaxAge, () => doRequest(message, api, cookies, authStrategy, appAccessToken, signal)), signal)
+  return waitWithSignal(cacheApiResponse(key, api.cacheMaxAge, () => doRequest(message, api, cookies, signal)), signal)
 }
 
 function hasRequestValue(value: unknown) {
   return value !== undefined && value !== null && value !== ''
 }
 
-export async function applyAppAuthToParams(
-  params: Record<string, any>,
-  authStrategy: AuthStrategy,
-  accessToken?: string,
-  now: () => number = Date.now,
-): Promise<Record<string, any>> {
-  const authenticatedParams = { ...params }
-  if (authStrategy === 'none')
-    return authenticatedParams
-  if (!accessToken) {
-    const error = new Error('APP access token 不可用，请重新授权')
-    ;(error as any).code = 'ERR_APP_AUTH_REQUIRED'
-    throw error
-  }
-  authenticatedParams.access_key = accessToken
-  if (authStrategy === 'inject')
-    return authenticatedParams
-  delete authenticatedParams.sign
-  const { TVAppKey, getTvSign } = await import('~/utils/authProvider')
-  authenticatedParams.appkey = TVAppKey.appkey
-  authenticatedParams.ts = Math.floor(now() / 1000).toString()
-  authenticatedParams.sign = getTvSign(Object.fromEntries(
-    Object.entries(authenticatedParams).filter(([, value]) => hasRequestValue(value)),
-  ))
-  return authenticatedParams
-}
-
-async function doRequest(
-  message: Message,
-  api: API,
-  cookies?: Browser.Cookies.Cookie[],
-  authStrategy: AuthStrategy = 'none',
-  appAccessToken?: string,
-  signal?: AbortSignal,
-) {
+async function doRequest(message: Message, api: API, cookies?: Browser.Cookies.Cookie[], signal?: AbortSignal) {
   if (api._fetch.method.toLowerCase() === 'get') {
     return withRequestTimeout(
-      requestSignal => performApiRequest(message, api, cookies, authStrategy, appAccessToken, requestSignal),
+      requestSignal => performApiRequest(message, api, cookies, requestSignal),
       signal,
     )
   }
-  return performApiRequest(message, api, cookies, authStrategy, appAccessToken, signal)
+  return performApiRequest(message, api, cookies, signal)
 }
 
-async function performApiRequest(
-  message: Message,
-  api: API,
-  cookies?: Browser.Cookies.Cookie[],
-  authStrategy: AuthStrategy = 'none',
-  appAccessToken?: string,
-  signal?: AbortSignal,
-) {
+async function performApiRequest(message: Message, api: API, cookies?: Browser.Cookies.Cookie[], signal?: AbortSignal) {
   try {
     let { contentScriptQuery, bewlyNoCookie = false, ...rest } = message
     // rest above two part body or params
@@ -236,7 +178,7 @@ async function performApiRequest(
     const credentials: RequestCredentials = bewlyNoCookie ? 'omit' : configuredCredentials
     const isGET = method.toLocaleLowerCase() === 'get'
     // merge params and body
-    let targetParams = Object.assign({}, params)
+    const targetParams = Object.assign({}, params)
     const targetBody = Object.assign({}, body)
     Object.keys(rest).forEach((key) => {
       if (body && Object.prototype.hasOwnProperty.call(body, key))
@@ -247,7 +189,6 @@ async function performApiRequest(
         targetParams[key] = rest[key]
     })
 
-    targetParams = await applyAppAuthToParams(targetParams, authStrategy, appAccessToken)
     const baseUrl = url
     const needsWbi = needsWbiSign(url)
     const wbiKeyOptions = { noCookie: credentials === 'omit' }

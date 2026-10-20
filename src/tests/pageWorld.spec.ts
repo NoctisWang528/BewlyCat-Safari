@@ -36,7 +36,9 @@ describe('page-world lifecycle', () => {
     expect(source).toContain('installPageWatchLaterBridge({')
     expect(source).toContain('pageWorldState.status = \'ready\'')
     expect(source).toContain('sendPageWorldFailed(error, VERSION)')
-    expect(source).not.toContain('__BEWLYCAT_PAGE_SCRIPT_INITIALIZED__')
+    expect(source).toContain('__BEWLYCAT_PAGE_SCRIPT_INITIALIZED__')
+    expect(source).toContain('isInBilibiliLiveContext()')
+    expect(source).toContain('!existingPageWorldState')
   })
 
   it('only reports already-loaded for a ready state', () => {

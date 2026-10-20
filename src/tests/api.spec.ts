@@ -48,7 +48,7 @@ describe('apiClient response validation', () => {
 
   it('passes through normal API responses with code', async () => {
     vi.mocked(browser.runtime.sendMessage).mockResolvedValueOnce({ ok: true, data: { code: 0, data: { items: [] } } })
-    const result = await api.video.getAppRecommendVideos?.({}) ?? await api.user.getUserInfo()
+    const result = await api.video.getRecommendVideos()
     expect(result).toHaveProperty('code', 0)
   })
 

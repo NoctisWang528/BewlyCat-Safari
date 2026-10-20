@@ -134,6 +134,31 @@ export function isAppClientRequestUrl(url: string): boolean {
   return APP_CLIENT_URL_PATTERN.test(url)
 }
 
+export function buildAppClientHeaderRules(isSafariBuild: boolean): browser.DeclarativeNetRequest.Rule[] {
+  return APP_CLIENT_HEADER_RULES.map(rule => ({
+    id: rule.id,
+    // 高于 assets/rules.json 中为 passport POST 设置 Origin 的静态规则
+    priority: 3,
+    action: {
+      type: 'modifyHeaders',
+      requestHeaders: [
+        { header: 'user-agent', operation: 'set', value: rule.userAgent },
+        { header: 'referer', operation: 'set', value: APP_CLIENT_REFERER },
+        { header: 'origin', operation: 'remove' },
+        { header: 'sec-ch-ua', operation: 'remove' },
+        { header: 'sec-ch-ua-mobile', operation: 'remove' },
+        { header: 'sec-ch-ua-platform', operation: 'remove' },
+      ],
+    },
+    condition: {
+      regexFilter: rule.regexFilter,
+      resourceTypes: ['xmlhttprequest'],
+      // Safari 不支持 tabIds，只能依靠下方固定接口的正则限制作用范围。
+      ...(isSafariBuild ? {} : { tabIds: [-1] }),
+    },
+  }))
+}
+
 async function syncAppClientHeaderRules() {
   // eslint-disable-next-line node/prefer-global/process
   if (process.env.FIREFOX)
@@ -142,27 +167,8 @@ async function syncAppClientHeaderRules() {
   try {
     await browser.declarativeNetRequest.updateSessionRules({
       removeRuleIds: APP_CLIENT_HEADER_RULES.map(rule => rule.id),
-      addRules: APP_CLIENT_HEADER_RULES.map(rule => ({
-        id: rule.id,
-        // 高于 assets/rules.json 中为 passport POST 设置 Origin 的静态规则
-        priority: 3,
-        action: {
-          type: 'modifyHeaders',
-          requestHeaders: [
-            { header: 'user-agent', operation: 'set', value: rule.userAgent },
-            { header: 'referer', operation: 'set', value: APP_CLIENT_REFERER },
-            { header: 'origin', operation: 'remove' },
-            { header: 'sec-ch-ua', operation: 'remove' },
-            { header: 'sec-ch-ua-mobile', operation: 'remove' },
-            { header: 'sec-ch-ua-platform', operation: 'remove' },
-          ],
-        },
-        condition: {
-          regexFilter: rule.regexFilter,
-          resourceTypes: ['xmlhttprequest'],
-          tabIds: [-1],
-        },
-      })),
+      // eslint-disable-next-line node/prefer-global/process
+      addRules: buildAppClientHeaderRules(Boolean(process.env.SAFARI)),
     })
   }
   catch (error) {

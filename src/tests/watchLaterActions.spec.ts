@@ -1,27 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createApp, defineComponent, h } from 'vue'
-import { createI18n } from 'vue-i18n'
 
-import { useVideoCardLogic } from '~/components/VideoCard/composables/useVideoCardLogic'
+import { toggleWatchLaterTarget } from '~/utils/watchLaterActions'
 
 const mocks = vi.hoisted(() => ({
   getCSRF: vi.fn(() => 'csrf-token'),
-  syncWatchLaterState: vi.fn(),
-  openIframeDrawer: vi.fn(),
+  getVideoInfo: vi.fn(),
+  markWatchLater: vi.fn(),
   removeFromWatchLater: vi.fn(),
   saveToWatchLater: vi.fn(),
+  syncWatchLaterState: vi.fn(),
   toastError: vi.fn(),
-  toastSuccess: vi.fn(),
-  ensureWatchLaterState: vi.fn(async () => {}),
-  getWatchLaterAid: vi.fn((target?: { aid?: number | string }) => {
-    const aid = Number(target?.aid || 0)
-    return Number.isSafeInteger(aid) && aid > 0 ? aid : undefined
-  }),
-  markWatchLater: vi.fn(),
-  // 由 watchLaterState mock 写入的响应式条目表
+  toastWarning: vi.fn(),
   entries: undefined as Map<string, boolean> | undefined,
   setWatchLater(target: { aid?: number | string, bvid?: string }, added: boolean) {
-    const key = target.bvid || String(target.aid ?? '')
+    const key = target.bvid || `aid:${Number(target.aid || 0)}`
     if (!mocks.entries)
       throw new Error('watchLaterState mock not ready')
     if (added)
@@ -36,12 +28,15 @@ vi.mock('~/logic/watchLaterState', async () => {
   const entries = reactive(new Map<string, boolean>())
   mocks.entries = entries
   const toKey = (target?: { aid?: number | string, bvid?: string }) =>
-    target?.bvid || String(target?.aid ?? '')
+    target?.bvid || `aid:${Number(target?.aid || 0)}`
   return {
-    ensureWatchLaterState: mocks.ensureWatchLaterState,
-    getWatchLaterAid: mocks.getWatchLaterAid,
-    isInWatchLater: (target?: { aid?: number | string, bvid?: string }) => entries.get(toKey(target)) ?? false,
-    markWatchLater: (target?: { aid?: number | string, bvid?: string }, added?: boolean) => {
+    getWatchLaterAid: (target?: { aid?: number | string }) => {
+      const aid = Number(target?.aid || 0)
+      return Number.isSafeInteger(aid) && aid > 0 ? aid : undefined
+    },
+    isInWatchLater: (target?: { aid?: number | string, bvid?: string }) =>
+      entries.get(toKey(target)) ?? false,
+    markWatchLater: (target: { aid?: number, bvid?: string }, added: boolean) => {
       const key = toKey(target)
       if (added)
         entries.set(key, true)
@@ -55,43 +50,20 @@ vi.mock('~/logic/watchLaterState', async () => {
 vi.mock('vue-toastification', () => ({
   useToast: () => ({
     error: mocks.toastError,
-    success: mocks.toastSuccess,
+    warning: mocks.toastWarning,
   }),
-}))
-
-vi.mock('~/composables/useAppProvider', () => ({
-  useBewlyApp: () => ({
-    openIframeDrawer: mocks.openIframeDrawer,
-  }),
-}))
-
-vi.mock('~/logic', () => ({
-  appAuthTokens: { value: { accessToken: '' } },
-  settings: {
-    value: {
-      enableVideoPreview: false,
-      hoverVideoCardDelayed: false,
-      showVideoCardWatchLater: true,
-      videoCardLinkOpenMode: 'default',
-    },
-  },
 }))
 
 vi.mock('~/stores/topBarStore', () => ({
   useTopBarStore: () => ({
     syncWatchLaterState: mocks.syncWatchLaterState,
-    isLogin: true,
   }),
 }))
 
 vi.mock('~/utils/api', () => ({
   default: {
-    live: {
-      getLivePlayUrl: vi.fn(),
-    },
     video: {
-      getVideoInfo: vi.fn(),
-      getVideoPreview: vi.fn(),
+      getVideoInfo: mocks.getVideoInfo,
     },
     watchlater: {
       removeFromWatchLater: mocks.removeFromWatchLater,
@@ -100,143 +72,108 @@ vi.mock('~/utils/api', () => ({
   },
 }))
 
+vi.mock('~/utils/i18n', () => ({
+  i18n: {
+    global: {
+      t: (key: string) => key,
+    },
+  },
+}))
+
 vi.mock('~/utils/main', () => ({
   getCSRF: mocks.getCSRF,
-  removeHttpFromUrl: vi.fn((url: string) => url),
 }))
 
-vi.mock('~/utils/tabs', () => ({
-  openLinkInBackground: vi.fn(),
+vi.mock('~/utils/pgcEpisode', () => ({
+  resolvePgcEpisodeVideoIds: vi.fn(),
 }))
 
-describe('useVideoCardLogic watch later', () => {
-  let app: ReturnType<typeof createApp>
-  let errorSpy: ReturnType<typeof vi.spyOn>
-  let root: HTMLDivElement
-  let logic: ReturnType<typeof useVideoCardLogic>
-
+describe('watchLaterActions', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.clearAllMocks()
     mocks.entries?.clear()
-    mocks.markWatchLater.mockClear()
     mocks.getCSRF.mockReturnValue('csrf-token')
-    errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    root = document.createElement('div')
-    document.body.append(root)
-
-    app = createApp(defineComponent({
-      setup() {
-        logic = useVideoCardLogic(() => ({
-          showWatcherLater: true,
-          video: {
-            id: 123,
-            bvid: 'BV1test',
-            title: 'Test video',
-            cover: 'https://example.com/cover.jpg',
-            threePointV2: [],
-          },
-        }))
-        return () => h('div')
-      },
-    }))
-    app.use(createI18n({
-      legacy: false,
-      locale: 'en',
-      messages: {
-        en: {
-          common: {
-            watch_later_add_failed: 'Failed to add',
-            watch_later_invalid_video_id: 'Invalid video',
-            watch_later_login_required: 'Login required',
-            watch_later_operation_failed: 'Operation failed',
-            watch_later_remove_failed: 'Failed to remove',
-            watch_later_remove_invalid_aid: 'Invalid aid',
-            watch_later_remove_success: 'Removed',
-          },
-        },
-      },
-    }))
-    app.mount(root)
+    mocks.syncWatchLaterState.mockResolvedValue(undefined)
   })
 
   afterEach(() => {
-    errorSpy.mockRestore()
-    app.unmount()
-    root.remove()
     vi.clearAllTimers()
     vi.useRealTimers()
-  })
-
-  it('catches a rejected add request and displays its error', async () => {
-    mocks.saveToWatchLater.mockRejectedValueOnce(new Error('Risk control'))
-
-    await expect(logic.toggleWatchLater()).resolves.toBeUndefined()
-
-    expect(mocks.toastError).not.toHaveBeenCalled()
-    expect(logic.isInWatchLater.value).toBe(false)
   })
 
   it('does not send a request without a CSRF token', async () => {
     mocks.getCSRF.mockReturnValueOnce('')
 
-    await logic.toggleWatchLater()
+    await expect(toggleWatchLaterTarget({ aid: 123, bvid: 'BV1test' })).resolves.toBe(false)
 
     expect(mocks.saveToWatchLater).not.toHaveBeenCalled()
-    expect(mocks.toastError).not.toHaveBeenCalled()
+    expect(mocks.toastWarning).toHaveBeenCalledWith('common.please_log_in_first')
   })
 
-  it('guards against concurrent watch-later requests', async () => {
+  it('adds a video and refreshes the top bar state', async () => {
+    mocks.saveToWatchLater.mockResolvedValueOnce({ code: 0 })
+
+    await expect(toggleWatchLaterTarget({ aid: 123, bvid: 'BV1test' })).resolves.toBe(true)
+
+    expect(mocks.saveToWatchLater).toHaveBeenCalledWith({
+      aid: 123,
+      bvid: 'BV1test',
+      csrf: 'csrf-token',
+    })
+    expect(mocks.markWatchLater).toHaveBeenCalledWith(
+      expect.objectContaining({ aid: 123, bvid: 'BV1test' }),
+      true,
+    )
+    expect(mocks.syncWatchLaterState).toHaveBeenCalledOnce()
+
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(mocks.syncWatchLaterState).toHaveBeenCalledTimes(2)
+  })
+
+  it('deduplicates concurrent requests for the same target', async () => {
     let resolveRequest: (value: unknown) => void = () => {}
     mocks.saveToWatchLater.mockImplementationOnce(() => new Promise((resolve) => {
       resolveRequest = resolve
     }))
 
-    const firstRequest = logic.toggleWatchLater()
-    const secondRequest = logic.toggleWatchLater()
+    const firstRequest = toggleWatchLaterTarget({ aid: 123 })
+    const secondRequest = toggleWatchLaterTarget({ aid: 123 })
 
     expect(mocks.saveToWatchLater).toHaveBeenCalledOnce()
-    await expect(secondRequest).resolves.toBeUndefined()
+    await expect(secondRequest).resolves.toBe(false)
 
-    resolveRequest({ code: -1, message: 'Rejected' })
-    await firstRequest
-    expect(mocks.toastError).toHaveBeenCalledWith('Rejected')
+    resolveRequest({ code: 0 })
+    await expect(firstRequest).resolves.toBe(true)
   })
 
-  it('updates state and refreshes the list after a successful add', async () => {
-    mocks.saveToWatchLater.mockResolvedValueOnce({ code: 0 })
+  it('resolves aid before removing a bvid-only target', async () => {
+    mocks.setWatchLater({ bvid: 'BV1bvid000' }, true)
+    mocks.getVideoInfo.mockResolvedValueOnce({ code: 0, data: { aid: 789 } })
+    mocks.removeFromWatchLater.mockResolvedValueOnce({ code: 0 })
 
-    await logic.toggleWatchLater()
+    await expect(toggleWatchLaterTarget({ bvid: 'BV1bvid000' })).resolves.toBe(true)
 
-    expect(mocks.saveToWatchLater).toHaveBeenCalledWith({
-      bvid: 'BV1test',
+    expect(mocks.getVideoInfo).toHaveBeenCalledWith({ bvid: 'BV1bvid000' })
+    expect(mocks.removeFromWatchLater).toHaveBeenCalledWith({
+      aid: 789,
       csrf: 'csrf-token',
     })
     expect(mocks.markWatchLater).toHaveBeenCalledWith(
-      expect.objectContaining({ bvid: 'BV1test' }),
-      true,
+      expect.objectContaining({ aid: 789, bvid: 'BV1bvid000' }),
+      false,
     )
-    expect(logic.isInWatchLater.value).toBe(true)
-    expect(mocks.toastSuccess).not.toHaveBeenCalled()
-
-    await vi.advanceTimersByTimeAsync(1000)
-    expect(mocks.syncWatchLaterState).toHaveBeenCalledOnce()
-    expect(mocks.syncWatchLaterState).toHaveBeenCalledWith(true)
   })
 
-  it('catches a rejected remove request and releases the loading guard', async () => {
-    mocks.setWatchLater({ aid: 123, bvid: 'BV1test' }, true)
-    mocks.removeFromWatchLater
-      .mockRejectedValueOnce(new Error('Remove failed'))
+  it('reports a rejected mutation and releases the loading guard', async () => {
+    mocks.saveToWatchLater
+      .mockRejectedValueOnce(new Error('Bridge failed'))
       .mockResolvedValueOnce({ code: 0 })
 
-    await logic.toggleWatchLater()
-    await logic.toggleWatchLater()
+    await expect(toggleWatchLaterTarget({ aid: 123 })).resolves.toBe(false)
+    expect(mocks.toastError).toHaveBeenCalledWith('Bridge failed')
 
-    expect(mocks.removeFromWatchLater).toHaveBeenCalledTimes(2)
-    expect(mocks.toastError).not.toHaveBeenCalled()
-    expect(logic.isInWatchLater.value).toBe(false)
-    expect(mocks.toastSuccess).not.toHaveBeenCalled()
+    await expect(toggleWatchLaterTarget({ aid: 123 })).resolves.toBe(true)
+    expect(mocks.saveToWatchLater).toHaveBeenCalledTimes(2)
   })
 })

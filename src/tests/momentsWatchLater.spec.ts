@@ -6,7 +6,6 @@ import MomentsPop from '~/components/TopBar/components/pops/MomentsPop.vue'
 
 const mocks = vi.hoisted(() => ({
   getCSRF: vi.fn(() => 'csrf-token'),
-  getVideoInfo: vi.fn(),
   removeFromWatchLater: vi.fn(),
   saveToWatchLater: vi.fn(),
   toastError: vi.fn(),
@@ -63,6 +62,7 @@ vi.mock('~/logic', () => ({
   settings: {
     value: {
       filterArticlesInMoments: true,
+      showVideoCardWatchLater: true,
     },
   },
 }))
@@ -73,9 +73,6 @@ vi.mock('~/stores/topBarStore', () => ({
 
 vi.mock('~/utils/api', () => ({
   default: {
-    video: {
-      getVideoInfo: mocks.getVideoInfo,
-    },
     watchlater: {
       removeFromWatchLater: mocks.removeFromWatchLater,
       saveToWatchLater: mocks.saveToWatchLater,
@@ -100,11 +97,11 @@ function makeVideoMoment(overrides: Record<string, unknown> = {}) {
     authorFace: 'https://example.com/avatar.jpg',
     authorJumpUrl: 'https://space.bilibili.com/1',
     cover: 'https://example.com/cover.jpg',
+    id_str: 'moment-123',
+    itemType: 8,
     link: 'https://www.bilibili.com/video/BV1abcdefg',
     pubTime: 'now',
     rid: 123,
-    aid: 123,
-    bvid: 'BV1abcdefg',
     isVideo: true,
     title: 'Test video',
     type: 'video',
@@ -137,16 +134,9 @@ function mountWithMoments(momentList: any[]): {
     messages: {
       en: {
         common: {
-          added: 'Added',
-          save_to_watch_later: 'Save',
+          added_to_watch_later: 'Added to watch later',
+          add_to_watch_later: 'Add to watch later',
           view_all: 'View all',
-          watch_later_add_failed: 'Add failed',
-          watch_later_invalid_video_id: 'Invalid video',
-          watch_later_login_required: 'Login required',
-          watch_later_operation_failed: 'Operation failed',
-          watch_later_remove_failed: 'Remove failed',
-          watch_later_remove_invalid_aid: 'Invalid aid',
-          watch_later_remove_success: 'Removed',
         },
         topbar: {
           moments_dropdown: {
@@ -166,16 +156,24 @@ function mountWithMoments(momentList: any[]): {
   return { root, app, errorSpy }
 }
 
+function findToggle(root: HTMLElement) {
+  return root.querySelector<HTMLElement>('.bew-watch-later-cover__btn')
+}
+
 describe('moments watch-later toggle', () => {
-  describe('aid-based', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.watchLaterEntries.clear()
+    mocks.getCSRF.mockReturnValue('csrf-token')
+    mocks.store.syncWatchLaterState.mockResolvedValue(undefined)
+  })
+
+  describe('aid-based video moments', () => {
     let app: ReturnType<typeof createApp>
     let errorSpy: ReturnType<typeof vi.spyOn>
     let root: HTMLDivElement
 
     beforeEach(() => {
-      vi.clearAllMocks()
-      mocks.watchLaterEntries.clear()
-      mocks.getCSRF.mockReturnValue('csrf-token')
       const ctx = mountWithMoments([makeVideoMoment()])
       root = ctx.root
       app = ctx.app
@@ -188,14 +186,14 @@ describe('moments watch-later toggle', () => {
       root.remove()
     })
 
-    it('stops link bubbling and guards concurrent add requests', async () => {
+    it('stops link bubbling and adds the moment aid', async () => {
       let resolveRequest: (value: unknown) => void = () => {}
       mocks.saveToWatchLater.mockImplementationOnce(() => new Promise((resolve) => {
         resolveRequest = resolve
       }))
       const parentClick = vi.fn()
       root.addEventListener('click', parentClick)
-      const toggle = root.querySelector('.moment-watch-later-toggle') as HTMLElement
+      const toggle = findToggle(root)!
 
       toggle.click()
       toggle.click()
@@ -208,29 +206,28 @@ describe('moments watch-later toggle', () => {
 
       expect(mocks.saveToWatchLater).toHaveBeenCalledWith({
         aid: 123,
-        bvid: 'BV1abcdefg',
+        bvid: undefined,
         csrf: 'csrf-token',
       })
-      expect(mocks.isInWatchLater({ aid: 123, bvid: 'BV1abcdefg' })).toBe(true)
+      expect(mocks.isInWatchLater({ aid: 123 })).toBe(true)
       expect(mocks.toastSuccess).not.toHaveBeenCalled()
     })
 
     it('removes only the selected aid', async () => {
-      mocks.watchLaterEntries.set('BV1abcdefg', true)
-      mocks.watchLaterEntries.set('BV1other', true)
+      mocks.watchLaterEntries.set('123', true)
+      mocks.watchLaterEntries.set('456', true)
       mocks.removeFromWatchLater.mockResolvedValueOnce({ code: 0 })
       await nextTick()
 
-      const toggle = root.querySelector('.moment-watch-later-toggle') as HTMLElement
-      toggle.click()
+      findToggle(root)!.click()
       await flushAsyncAction()
 
       expect(mocks.removeFromWatchLater).toHaveBeenCalledWith({
         aid: 123,
         csrf: 'csrf-token',
       })
-      expect(mocks.isInWatchLater({ aid: 123, bvid: 'BV1abcdefg' })).toBe(false)
-      expect(mocks.isInWatchLater({ bvid: 'BV1other' })).toBe(true)
+      expect(mocks.isInWatchLater({ aid: 123 })).toBe(false)
+      expect(mocks.isInWatchLater({ aid: 456 })).toBe(true)
       expect(mocks.toastSuccess).not.toHaveBeenCalled()
     })
 
@@ -238,7 +235,7 @@ describe('moments watch-later toggle', () => {
       mocks.saveToWatchLater
         .mockRejectedValueOnce(new Error('Bridge failed'))
         .mockResolvedValueOnce({ code: 0 })
-      const toggle = root.querySelector('.moment-watch-later-toggle') as HTMLElement
+      const toggle = findToggle(root)!
 
       toggle.click()
       await flushAsyncAction()
@@ -246,108 +243,8 @@ describe('moments watch-later toggle', () => {
       await flushAsyncAction()
 
       expect(mocks.saveToWatchLater).toHaveBeenCalledTimes(2)
-      expect(mocks.toastError).not.toHaveBeenCalled()
-      expect(mocks.isInWatchLater({ aid: 123, bvid: 'BV1abcdefg' })).toBe(true)
-    })
-  })
-
-  describe('bvid-only', () => {
-    let app: ReturnType<typeof createApp>
-    let errorSpy: ReturnType<typeof vi.spyOn>
-    let root: HTMLDivElement
-
-    beforeEach(() => {
-      vi.clearAllMocks()
-      mocks.watchLaterEntries.clear()
-      mocks.getCSRF.mockReturnValue('csrf-token')
-      const ctx = mountWithMoments([
-        makeVideoMoment({ aid: undefined, rid: undefined, bvid: 'BV1bvid000' }),
-      ])
-      root = ctx.root
-      app = ctx.app
-      errorSpy = ctx.errorSpy
-    })
-
-    afterEach(() => {
-      errorSpy.mockRestore()
-      app.unmount()
-      root.remove()
-    })
-
-    it('adds a bvid-only moment without aid', async () => {
-      mocks.saveToWatchLater.mockResolvedValueOnce({ code: 0 })
-
-      const toggle = root.querySelector('.moment-watch-later-toggle') as HTMLElement
-      expect(toggle).not.toBeNull()
-
-      toggle.click()
-      await flushAsyncAction()
-
-      expect(mocks.saveToWatchLater).toHaveBeenCalledWith({
-        bvid: 'BV1bvid000',
-        csrf: 'csrf-token',
-      })
-      const callArgs = mocks.saveToWatchLater.mock.calls[0][0]
-      expect(callArgs.aid).toBeUndefined()
-      expect(mocks.isInWatchLater({ bvid: 'BV1bvid000' })).toBe(true)
-      expect(mocks.toastSuccess).not.toHaveBeenCalled()
-    })
-
-    it('removes a bvid-only moment by resolving aid from getVideoInfo', async () => {
-      mocks.watchLaterEntries.set('BV1bvid000', true)
-      mocks.getVideoInfo.mockResolvedValueOnce({ code: 0, data: { aid: 789 } })
-      mocks.removeFromWatchLater.mockResolvedValueOnce({ code: 0 })
-
-      const toggle = root.querySelector('.moment-watch-later-toggle') as HTMLElement
-      toggle.click()
-      await flushAsyncAction()
-
-      expect(mocks.getVideoInfo).toHaveBeenCalledWith({ bvid: 'BV1bvid000' })
-      expect(mocks.removeFromWatchLater).toHaveBeenCalledWith({
-        aid: 789,
-        csrf: 'csrf-token',
-      })
-      expect(mocks.isInWatchLater({ bvid: 'BV1bvid000' })).toBe(false)
-      expect(mocks.toastSuccess).not.toHaveBeenCalled()
-    })
-
-    it('keeps the bvid lock after resolving aid while removal is pending', async () => {
-      let resolveRemove: (value: unknown) => void = () => {}
-      mocks.watchLaterEntries.set('BV1bvid000', true)
-      mocks.getVideoInfo.mockResolvedValueOnce({ code: 0, data: { aid: 789 } })
-      mocks.removeFromWatchLater.mockImplementationOnce(() => new Promise((resolve) => {
-        resolveRemove = resolve
-      }))
-
-      const toggle = root.querySelector('.moment-watch-later-toggle') as HTMLElement
-      toggle.click()
-      await flushAsyncAction()
-
-      expect(mocks.removeFromWatchLater).toHaveBeenCalledOnce()
-      expect(mocks.store.moments[0].aid).toBe(789)
-
-      toggle.click()
-      await flushAsyncAction()
-
-      expect(mocks.getVideoInfo).toHaveBeenCalledOnce()
-      expect(mocks.removeFromWatchLater).toHaveBeenCalledOnce()
-
-      resolveRemove({ code: 0 })
-      await flushAsyncAction()
-      expect(mocks.isInWatchLater({ bvid: 'BV1bvid000' })).toBe(false)
-    })
-
-    it('shows error when getVideoInfo fails for bvid-only removal', async () => {
-      mocks.watchLaterEntries.set('BV1bvid000', true)
-      mocks.getVideoInfo.mockResolvedValueOnce({ code: -1, data: null })
-      const toggle = root.querySelector('.moment-watch-later-toggle') as HTMLElement
-
-      toggle.click()
-      await flushAsyncAction()
-
-      expect(mocks.getVideoInfo).toHaveBeenCalledWith({ bvid: 'BV1bvid000' })
-      expect(mocks.removeFromWatchLater).not.toHaveBeenCalled()
-      expect(mocks.toastError).not.toHaveBeenCalled()
+      expect(mocks.toastError).toHaveBeenCalledWith('Bridge failed')
+      expect(mocks.isInWatchLater({ aid: 123 })).toBe(true)
     })
   })
 
@@ -362,57 +259,45 @@ describe('moments watch-later toggle', () => {
       root.remove()
     })
 
-    it('does not show watch-later button on article items', async () => {
-      vi.clearAllMocks()
-      const ctx = mountWithMoments([{
-        type: 'video',
-        title: 'An article',
-        author: 'Writer',
-        authorFace: 'https://example.com/avatar.jpg',
-        cover: 'https://example.com/cover.jpg',
+    it('does not show watch-later button on article items', () => {
+      const ctx = mountWithMoments([makeVideoMoment({
+        id_str: 'moment-article',
+        itemType: 64,
         link: 'https://www.bilibili.com/read/cv123',
         isVideo: false,
-        isCollaborative: false,
-      }])
+        type: 'article',
+      })])
       root = ctx.root
       app = ctx.app
       errorSpy = ctx.errorSpy
 
-      const toggle = root.querySelector('.moment-watch-later-toggle') as HTMLElement
-      expect(toggle).toBeNull()
+      expect(findToggle(root)).toBeNull()
     })
 
-    it('does not show watch-later button on live items', async () => {
-      vi.clearAllMocks()
-      const ctx = mountWithMoments([{
-        type: 'live',
-        title: 'A stream',
-        author: 'Streamer',
-        authorFace: 'https://example.com/avatar.jpg',
-        cover: 'https://example.com/cover.jpg',
+    it('does not show watch-later button on live items', () => {
+      const ctx = mountWithMoments([makeVideoMoment({
+        id_str: 'moment-live',
+        itemType: undefined,
         link: 'https://live.bilibili.com/123',
         isVideo: false,
-      }])
+        type: 'live',
+      })])
       root = ctx.root
       app = ctx.app
       errorSpy = ctx.errorSpy
 
-      const toggle = root.querySelector('.moment-watch-later-toggle') as HTMLElement
-      expect(toggle).toBeNull()
+      expect(findToggle(root)).toBeNull()
     })
 
-    it('hides button when neither aid nor bvid is present on a "video" item', async () => {
-      vi.clearAllMocks()
+    it('hides button when a video moment has no valid rid', () => {
       const ctx = mountWithMoments([
-        makeVideoMoment({ aid: undefined, rid: undefined, bvid: undefined }),
+        makeVideoMoment({ rid: undefined }),
       ])
       root = ctx.root
       app = ctx.app
       errorSpy = ctx.errorSpy
 
-      const toggle = root.querySelector('.moment-watch-later-toggle') as HTMLElement
-      // Button hidden because getMomentWatchLaterKey returns ''
-      expect(toggle).toBeNull()
+      expect(findToggle(root)).toBeNull()
     })
   })
 })

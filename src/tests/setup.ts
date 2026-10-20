@@ -28,7 +28,9 @@ vi.mock('webextension-polyfill', () => ({
       clear: vi.fn().mockResolvedValue(true),
       onAlarm: { addListener: vi.fn() },
     },
-    declarativeNetRequest: {},
+    declarativeNetRequest: {
+      updateSessionRules: vi.fn().mockResolvedValue(undefined),
+    },
     tabs: {
       create: vi.fn(),
       query: vi.fn().mockResolvedValue([]),
