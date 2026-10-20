@@ -13,31 +13,29 @@ commits: f8957dba, b24d7962, 7d052861
 **What was built** — 将上游正式 tag `v1.8.1` 合入 Safari 仓库，保留 DNR、
 MAIN-world bridge、非持久后台、认证兼容层与 Safari 品牌，生成
 `v1.8.1-safari.1` 候选。上游新增的固定 APP client 使用了 Safari 不支持的
-DNR `tabIds`，随后实机又发现 WebKit 不接受 `sec-ch-ua*` 请求头操作；两者均已
-按构建平台裁剪，并用测试固定 Chromium/Safari 两种规则。
+DNR `tabIds`，已按平台裁剪。后续规则拒绝曾误归因于 `sec-ch-ua*`，
+实际根因是旧 `1002` 的 alternation 正则；本次拆为扫码和刷新两条无分支规则。
+听视频入口也从 Safari IIFE 中拆出为独立 ESM，保留动态导入所需的命名导出。
 
-**Verification** — `pnpm lint` / `typecheck` / `knip` / `test`（158）/
-`sync-safari-xcode` / Xcode Release arm64 构建、严格 codesign、版本/架构检查
-通过；Xcode 工程与最终 `.appex` 的 22 个资源文件均与 `extension-safari/`
-一致，SHA-256 为
-`4675d8489a01cbd03f846dbee643b4b887f247886b66d7ca3393fdb7d8260fd9`。
-旧版和 DerivedData 副本已删除，`/Applications` 仅保留一个已注册扩展。
+**Verification** — 本次全量检查、重建与唯一候选安装结果见 S3。历史候选的
+`4675d8489a01cbd03f846dbee643b4b887f247886b66d7ca3393fdb7d8260fd9`
+资源摘要已失效，不能用于核对本次修复。仍未经过用户实机验收，尚未发布。
 
-**Journey log** — 上游把 APP 推荐从 TV 接口迁移到 HD 接口，并把扫码、刷新与
-不感兴趣收敛到后台固定 endpoint。Chromium 的会话 DNR 用 `tabIds: [-1]`
-排除标签页请求；Safari 不支持该字段，不能整条规则照搬。Safari 候选最终以
-固定接口正则限制作用域，仍需实机确认页面自身请求未受影响。首次候选启动时，
-Safari 报错 `Failed to update the APP client header rules`；WebKit 的 DNR
-请求头白名单不接受 `sec-ch-ua*`，只要一条规则含这些头就会拒绝整批更新。
-Safari 不发送这些头，因此 Safari 规则只保留 UA/Referer/Origin 操作。
+**Journey log** — 上游将 APP 推荐、扫码、刷新和不感兴趣收敛到后台固定 endpoint。
+Safari 不支持 `tabIds`，因此 APP DNR 依靠精确主机/路径范围限定作用域。
+移除 client hints 后仍报 `Failed to update the APP client header rules`；
+已确认被拒绝的是旧规则 `1002` 中的 `|` 分支，不能再把请求头白名单推测写为根因。
+新规则保留扫码路径前缀，刷新限定 v2/v3 endpoint 与结尾/可选 query，未扩大权限。
+听视频原本要求 ESM，但 Safari tsup 将所有入口输出 IIFE，导致动态导入拿不到
+`initListenVideoControl`；现在仅该入口输出 ESM，后台和 pageLoading 继续 IIFE。
 
 ## [S1] Problem
 
 上游 [`keleus/BewlyCat`](https://github.com/keleus/BewlyCat) 已发布正式 Release
 `v1.8.1`（tag 提交 `321c09a4`）。本仓库需要从 `origin/main`（`810cb868`）
 合并该正式 tag，完成 Safari 适配并交付可验收的签名 `.app`。用户确认前不得
-推送、创建 tag 或 Release，也不得清理 Xcode 临时文件或把应用移入
-`/Applications`。
+推送、创建 tag 或 Release。本次用户明确要求修复后安装至 `/Applications`，
+并删除旧应用与 DerivedData 完整应用副本；普通 Xcode 中间缓存留到发布后清理。
 
 ## [S2] Design
 
@@ -47,7 +45,8 @@ Safari 不发送这些头，因此 Safari 规则只保留 UA/Referer/Origin 操�
 - 分支为 `codex/sync-upstream-v1.8.1`。
 - 合并提交：`f8957dba`（`chore: 合并上游 v1.8.1`）。
 - Safari 适配提交：`b24d7962`（`fix(safari): 适配上游 v1.8.1`）。
-- APP client DNR 修复提交：`7d052861`（`fix(safari): 修复 APP client 请求头规则`）。
+- 早期 APP client DNR 请求头裁剪：`7d052861`（未解决后续正则拒绝）。
+- 本次修复提交：`fix(safari): 修复 APP client 与听视频加载`（本次源码提交，SHA 在安装复核后记录）。
 - 不修改、推送或向上游仓库创建 PR。
 
 ### 版本号
@@ -64,10 +63,14 @@ Safari 不发送这些头，因此 Safari 规则只保留 UA/Referer/Origin 操�
 ### Safari 适配重点
 
 - `src/background/appClient.ts` 保留固定 APP endpoint 白名单、APP 请求头与
-  后台签名；Safari 构建省略 DNR `tabIds` 和 WebKit 不接受的 `sec-ch-ua*`
-  请求头操作，保留精确正则、`xmlhttprequest` resource type 及 UA/Referer/Origin。
+  后台签名；Safari 构建继续省略 DNR `tabIds` 和 `sec-ch-ua*`，保留
+  `xmlhttprequest` resource type 及 UA/Referer/Origin。扫码 `1002`、刷新 `1005`、
+  feed `1003`、dislike `1004` 均不含 alternation；移除列表覆盖旧/新规则并避开 `1001`。
 - `src/tests/appClientRules.spec.ts` 同时断言 Chromium 的 `tabIds: [-1]` 与
-  完整 client hint 清理，以及 Safari 的无 `tabIds`、无 client hint 分支。
+  完整 client hint 清理，以及 Safari 的四条纯字符串无分支规则；两个构建分支
+  覆盖扫码、poll、v2/v3 refresh、feed、dislike/cancel 与错误主机/路径/缺 query。
+- `tsup.config.ts` 单独输出听视频 ESM，两个构建任务关闭自身 clean；validator
+  检查资源可访问并实际导入 `initListenVideoControl`，继续拒绝后台裸 import/export。
 - page-world 测试跟上上游的初始化标记、直播上下文隔离和已有状态保护。
 - 动态稍后再看测试改用上游 `.bew-watch-later-cover__btn`，继续覆盖事件阻止、
   请求去重、错误后释放锁和 aid 定位。
@@ -104,10 +107,11 @@ Safari 不发送这些头，因此 Safari 规则只保留 UA/Referer/Origin 操�
 - `pnpm lint`
 - `pnpm typecheck`
 - `pnpm knip`
-- `pnpm test`：26 个测试文件、158 个测试通过
+- `pnpm test`：26 个测试文件、205 个测试通过（APP 规则 49 项）
 - `pnpm build`
-- `pnpm validate-safari`
-- `pnpm package-safari`
+- `pnpm validate-safari`；附加故障注入检查确认缺文件、IIFE 无命名导出、
+  缺 web-accessible resource 均被拒绝
+- `pnpm sync-safari-xcode`（保留现有工程配置，不运行 package-safari）
 - Xcode Release arm64 构建成功
 - `codesign --verify --deep --strict --verbose=2`
 - `pnpm check-safari-xcode-sync`
@@ -124,8 +128,11 @@ Safari 不发送这些头，因此 Safari 规则只保留 UA/Referer/Origin 操�
 
 ### 待用户 Safari 实机验收
 
-当前 `/Applications` 只有这一份完整 `.app`，`pluginkit` 只注册一个 1.8.1
-扩展；用户将自行完成实机验收。
+本次重建与唯一安装结果待复核记录；用户自行完成实机验收。
+
+优先检查本次修复：启动时无 APP DNR 更新报错；首页和视频页控制台无听视频
+模块加载错误；扩展后台 `getSessionRules()` 中 APP 规则为 `1002`–`1005`，
+不含 `tabIds` / `sec-ch-ua*`（独立的 `1001` 规则继续保留）。
 
 - 登录与未登录；APP 扫码授权、token 刷新、HD 推荐与不感兴趣请求。
 - 首页、动态、搜索、视频播放、稍后再看、收藏夹整理与收藏选择。
@@ -146,7 +153,7 @@ Safari 不发送这些头，因此 Safari 规则只保留 UA/Referer/Origin 操�
 
 - [x] T1: 合并上游 `v1.8.1` 并解决冲突 — acceptance: merge commit 保留全部 Safari 适配
 - [x] T2: 完成 Safari 适配与版本号更新 — acceptance: APP client DNR 按平台裁剪，测试通过
-- [x] T3: 全量自动校验、构建、签名与资源一致性检查 — acceptance: 上列命令全部通过
-- [x] T4: 删除旧版与 DerivedData 副本并安装唯一候选 — acceptance: 仅存一个 `.app` 和一个已注册扩展
+- [ ] T3: 全量自动校验、构建、签名与资源一致性检查 — acceptance: 上列命令全部通过
+- [ ] T4: 删除旧版与 DerivedData 副本并安装唯一候选 — acceptance: 仅存一个 `.app` 和一个已注册扩展
 - [ ] T5: 用户在 Safari 实机验收 `/Applications/BewlyCat Safari.app` — waiting
 - [ ] T6: 验收后推送本仓库、创建 tag/Release 并清理 Xcode 临时文件 — waiting

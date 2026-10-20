@@ -113,7 +113,13 @@ async function getRequestHeaders(profile: AppClientProfile, mid?: number | null)
 const APP_CLIENT_HEADER_RULES: { id: number, regexFilter: string, userAgent: string }[] = [
   {
     id: 1002,
-    regexFilter: '^https://passport\\.bilibili\\.com/(x/passport-tv-login/qrcode/|api/v[23]/oauth2/refresh_token)',
+    regexFilter: '^https://passport\\.bilibili\\.com/x/passport-tv-login/qrcode/',
+    userAgent: DART_USER_AGENT,
+  },
+  {
+    id: 1005,
+    // WebKit 拒绝旧 1002 中的分支正则；扫码与刷新必须使用独立的无分支规则。
+    regexFilter: '^https://passport\\.bilibili\\.com/api/v[23]/oauth2/refresh_token(\\?.*)?$',
     userAgent: DART_USER_AGENT,
   },
   {
@@ -142,7 +148,7 @@ export function buildAppClientHeaderRules(isSafariBuild: boolean): browser.Decla
       { header: 'origin', operation: 'remove' },
     ]
 
-    // WebKit 的 DNR 请求头白名单不接受 sec-ch-ua*，Safari 也不会发送这些客户端提示。
+    // Safari 不发送这些客户端提示，继续省略；本次规则拒绝的根因是旧 1002 的分支正则。
     if (!isSafariBuild) {
       requestHeaders.push(
         { header: 'sec-ch-ua', operation: 'remove' },
@@ -176,6 +182,7 @@ async function syncAppClientHeaderRules() {
 
   try {
     await browser.declarativeNetRequest.updateSessionRules({
+      // 保留旧 1002 的清理，同时移除新增 1005；不触碰移动端跳转规则 1001。
       removeRuleIds: APP_CLIENT_HEADER_RULES.map(rule => rule.id),
       // eslint-disable-next-line node/prefer-global/process
       addRules: buildAppClientHeaderRules(Boolean(process.env.SAFARI)),

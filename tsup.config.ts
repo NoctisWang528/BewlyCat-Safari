@@ -1,6 +1,4 @@
-// import path from 'node:path'
-
-// import fs from 'fs-extra'
+import type { Options } from 'tsup'
 import { defineConfig } from 'tsup'
 
 import packageJson from './package.json'
@@ -8,18 +6,11 @@ import { buildCommit, isDev, isFirefox, isSafari } from './scripts/utils'
 
 const outDir = isFirefox ? 'extension-firefox/dist' : isSafari ? 'extension-safari/dist' : 'extension/dist'
 
-export default defineConfig(() => ({
-  entry: {
-    'contentScripts/listenVideoControl': './src/contentScripts/listenVideoControl.ts',
-    'background/index': './src/background/index.ts',
-    'contentScripts/pageLoading': './src/contentScripts/pageLoading.ts',
-  },
-  async onSuccess() {
-    // fs.copySync(path.resolve(__dirname, './src/inject/index.js'), path.resolve(__dirname, `./${outDir}/inject/index.js`))
-  },
+const shared: Options = {
   outDir,
-  format: isSafari ? ['iife'] : ['esm'],
-  outExtension: isSafari ? () => ({ js: '.js' }) : undefined,
+  // 统一由 clear-safari 清理，避免两个任务互删产物或删除 Vite 产物。
+  clean: false,
+  outExtension: () => ({ js: '.js' }),
   target: 'esnext',
   ignoreWatch: ['**/extension/**', '**/extension-firefox/**', '**/extension-safari/**'],
   splitting: false,
@@ -45,4 +36,21 @@ export default defineConfig(() => ({
   platform: 'browser',
   minifyWhitespace: !isDev,
   minifySyntax: !isDev,
-}))
+}
+
+export default defineConfig((): Options[] => [
+  {
+    ...shared,
+    entry: {
+      'background/index': './src/background/index.ts',
+      'contentScripts/pageLoading': './src/contentScripts/pageLoading.ts',
+    },
+    format: isSafari ? ['iife'] : ['esm'],
+  },
+  {
+    ...shared,
+    entry: { 'contentScripts/listenVideoControl': './src/contentScripts/listenVideoControl.ts' },
+    // 动态 import() 需要命名导出；听视频入口不能随 Safari 后台一起转为 IIFE。
+    format: ['esm'],
+  },
+])

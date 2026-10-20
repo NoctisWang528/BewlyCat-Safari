@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -110,6 +111,28 @@ assert(
   !warText.includes('volume-normalization.js'),
   'removed volume-normalization.js should not remain in web_accessible_resources',
 )
+
+// 听视频由 isolated 入口动态导入，必须是可访问且保留命名导出的独立 ESM。
+const listenVideoResource = 'dist/contentScripts/listenVideoControl.js'
+const listenVideoPath = path.join(extDir, listenVideoResource)
+assert(fileExists(listenVideoPath), `${listenVideoResource} missing`)
+assert(
+  war.some(entry => entry.resources?.includes(listenVideoResource)),
+  'listenVideoControl.js should be in web_accessible_resources',
+)
+if (fileExists(listenVideoPath)) {
+  try {
+    const code = fs.readFileSync(listenVideoPath, 'utf8')
+    const module = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
+    assert(
+      typeof module.initListenVideoControl === 'function',
+      'listenVideoControl.js must export an importable initListenVideoControl function',
+    )
+  }
+  catch (error) {
+    assert(false, `listenVideoControl.js cannot be imported as ESM: ${error.message}`)
+  }
+}
 
 // 13. Safari manifest should have required permissions
 const permissions = manifest.permissions || []

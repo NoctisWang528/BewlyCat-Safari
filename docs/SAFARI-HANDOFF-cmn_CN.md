@@ -5,7 +5,8 @@
 [上游同步与维护手册](./UPSTREAM-MAINTENANCE-cmn_CN.md)，构建细节见
 [SAFARI.md](./SAFARI.md)，仓库约束见 [AGENTS.md](../AGENTS.md)。
 
-核对日期：2026-10-20；核对源码基线：`7d052861`，`package.json` 为
+核对日期：2026-10-20；核对源码基线：本次 APP DNR / 听视频修复
+（提交见最近候选记录），`package.json` 为
 `1.8.1` / `safariRevision: 1`。最近候选记录为
 [v1.8.1-safari.1](./compose/spec/sync-upstream-v1.8.1.md)，截至本文更新时
 已完成构建、自动校验与单副本安装，仍等待用户 Safari 实机验收。接手时应
@@ -75,6 +76,11 @@ LTS 要求，包管理器固定 `pnpm@10.21.0`；历史记录里出现过的具�
   `document_start` 执行；MAIN-world bundle 通过可访问资源单独加载。
 - 当前 Vite shared config 与 tsup 都定义了 `process.env.SAFARI`；新增构建
   入口要确认继承对应 define，不能在页面世界导入 Node 侧 `scripts/utils.ts`。
+- `listenVideoControl.js` 由 `listenVideoFeature.ts` 动态 `import()` 并读取
+  `initListenVideoControl`，必须单独输出 ESM；不能将 Safari 的所有 tsup 入口
+  一律设为 IIFE。后台与 `pageLoading.js` 仍为 IIFE。两个任务均 `clean: false`，
+  由 `clear-safari` 统一清理，避免互删产物。validator 实际导入听视频产物并
+  断言导出函数，同时检查它在 web-accessible resources 中。
 - 后台依赖可能间接引入 Vue；tsup 的 Vue 编译期 feature flags 也需保留。
   仅给 Vite 配置 flag 不覆盖后台 bundle，需检查最终产物没有未替换的常量。
 
@@ -174,8 +180,12 @@ Safari 的添加/移除由 `APIClient` 统一分流到页面桥，使用页面�
 - `appClient.ts` 用会话 DNR 改写 APP 请求的 UA/Referer 并移除 Origin 与
   client hints。Chromium 用 `tabIds: [-1]` 限定为非标签页请求；Safari 不支持
   该字段，构建分支会省略它，仅保留固定接口的精确正则与 `xmlhttprequest`
-  resource type。WebKit 的 DNR 请求头白名单也不接受 `sec-ch-ua*`，且 Safari
-  不发送这些客户端提示，因此 Safari 规则只设置 UA/Referer 并移除 Origin。
+  resource type。此前将后续拒绝误判为 `sec-ch-ua*` 请求头问题；本次确认
+  根因是旧规则 `1002` 的 alternation（`|`）正则。现在拆为扫码前缀 `1002`
+  和 v2/v3 token refresh `1005`，加上 feed `1003`、dislike `1004` 共四条
+  无分支正则规则。移除列表含旧 `1002` 与新 `1005`，不触碰 `1001`。
+  Safari 继续只设置 UA/Referer 并移除 Origin，不添加 `tabIds`/`sec-ch-ua*`；
+  Chromium 仍带 `tabIds: [-1]` 和六项请求头操作。
   因此 Safari 的作用域是 URL 而非标签页，实机必须确认 B 站页面自己发出的
   同名接口请求没有被意外改写。
 - `requestWithSafariCompat` 与静态 DNR 配合：api/passport 的 POST 覆盖
@@ -266,7 +276,8 @@ bundle ID、Release 版本与签名配置。不能为每个 CSS 修改反复重�
 | `a9531408`、`84afbc6e`（v1.7.8–v1.7.9） | 版本化 ping/构建标识、刷新提示、早期 pageLoading 与单一恢复生命周期 | 完整 manifest 版本与上游版本不同；旧脚本应提示刷新而非重复 mount |
 | `e743b983`（v1.7.10） | 接收打开标签页批量加入稍后再看；保留 querySerializer 与空 query 不附加问号 | 上游请求组装扩展不能覆盖 Safari 认证兼容层 |
 | `0ca3465f`、`aa3d2f70`（v1.8.0） | 上游超时/取消、共享状态及 Safari 验收中的 storage Disk I/O 修复 | 单个存储 ref 队列不能覆盖整个上下文，更不等于跨上下文锁 |
-| `f8957dba`、`b24d7962`、`7d052861`（v1.8.1） | 合并 HD 推荐与固定 APP client；收窄 page-world 钩子并隔离补丁；Safari 会话 DNR 移除 `tabIds`，随后移除 WebKit 不接受的 `sec-ch-ua*` 请求头操作 | APP 鉴权不能再回退到通用 API 参数注入；Safari URL 级 DNR 需单独手测作用范围；DNR 头名受 WebKit 白名单限制 |
+| `f8957dba`、`b24d7962`、`7d052861`（v1.8.1） | 合并 HD 推荐与固定 APP client；收窄 page-world 钩子并隔离补丁；Safari 会话 DNR 移除 `tabIds`，随后尝试移除 `sec-ch-ua*`，但后者未解决规则拒绝 | 已更正根因：旧 `1002` 的分支正则被 WebKit 拒绝，不能把请求头推测当成已验证结论 |
+| 本次 v1.8.1 候选修复 | 拆分扫码/刷新 DNR 为无分支规则；听视频独立 ESM，后台/pageLoading 保持 IIFE | 不恢复旧 `1002` 的 alternation；动态 import 的命名导出必须检查实际产物；Safari 手测仍由用户完成 |
 | `98ed387c` 交付记录 | 记录 macOS 同步产生的 `* 2` 副本干扰 knip / Git refs | 先辨认重复文件与来源；不要批量删除名字含空格/数字的正常文件或手改 Git refs |
 
 按文件追查即可，不需要重新依赖旧聊天：
@@ -286,6 +297,8 @@ git show aa3d2f70 -- src/utils/storageWriteQueue.ts src/tests/storageWriteQueue.
 | 深色评论正文黑、输入框白 | `html.dark.bewly-design`、根内联原生变量、Lit theme、原生/Shadow 两类评论、旧补丁残留 |
 | 会话恢复后空白或重复 UI | PONG 身份、两层幂等标记、pageLoading 顺序、READY/FAILED、重复 `#bewly` |
 | 稍后再看首页可用但动态失败 | aid/bvid 归一化、原始页面 fetch、CSRF 是否存在、pending/失败回滚、是否误走后台 POST |
+| APP client 会话规则更新失败 | 旧 `1002` 是否仍含 `\|`、四条规则及清理 ID、Safari 无 `tabIds`/`sec-ch-ua*`、实际安装资源 |
+| 听视频模块加载失败 / 缺少初始化函数 | `listenVideoControl.js` 是否为 ESM、命名导出与 web-accessible resources、最终 app 三方资源一致性 |
 | 休眠后授权失败 | alarms、按需刷新、共享 promise、请求最终签名；只看设置页 token 存在不够 |
 | 设置不持久、壁纸替换失败 | 配额 vs Disk I/O、入口是否导入守卫、local-only 协调器、原子提交成功后再更新内存 |
 | 包签名通过但版本错误 | 父 App 与 Extension 的 Info.plist、最终 zip 内 app、资源一致性、实际 arm64 架构 |
@@ -301,7 +314,10 @@ git show aa3d2f70 -- src/utils/storageWriteQueue.ts src/tests/storageWriteQueue.
 
 清理必须最后做。先安全保留最终 app 并复核，再将已列明的 BewlyCat DerivedData
 和本次临时解压目录移入废纸篓；不要先清掉仍作为安装源的 app。保留生成 Xcode
-工程、最终 zip/校验和和 Applications 应用。旧 app 以唯一名称移入废纸篓后再替换。
+工程、最终 zip/校验和和 Applications 应用。通常旧 app 移入废纸篓后再替换；
+本次用户明确要求仅保留一个完整应用，
+因此在新候选通过签名/资源校验后删除旧应用与 DerivedData 中完整 `.app`，
+不保留旧应用副本。普通 Xcode 中间缓存待发布成功后清理。
 
 后续新增 Safari 修复时，将“症状 → 根因证据 → 当前方案 → 不应恢复的旧方案 →
 源码/测试 → Safari 验收结果”追加到对应条目；每次交付记录具体版本和提交。
