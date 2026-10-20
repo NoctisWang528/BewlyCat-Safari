@@ -8,7 +8,8 @@
 核对日期：2026-10-20；核对源码基线：`c6f24500`（APP DNR / 听视频修复），`package.json` 为
 `1.8.1` / `safariRevision: 1`。最近候选记录为
 [v1.8.1-safari.1](./compose/spec/sync-upstream-v1.8.1.md)，截至本文更新时
-已完成构建、自动校验与单副本安装，仍等待用户 Safari 实机验收。接手时应
+已完成构建、自动校验与单副本安装，用户已确认 APP DNR 与听视频验收通过，
+并已[正式发布 v1.8.1-safari.1](https://github.com/NoctisWang528/BewlyCat-Safari/releases/tag/v1.8.1-safari.1)、核对资产与清理临时文件。接手时应
 重新读取当前 Git 状态和版本；本文不代表已重新检查远端 Release、本机证书
 或 Applications 中应用的现状。
 
@@ -322,9 +323,12 @@ git show aa3d2f70 -- src/utils/storageWriteQueue.ts src/tests/storageWriteQueue.
 validator（含听视频 ESM 实际导入与三个故障反例）、现有工程资源同步、Xcode
 Release arm64、严格签名与最终资源检查。唯一候选在
 `/Applications/BewlyCat Safari.app`，版本 `1.8.1 (1)`、Apple Development
-Team `W5J4JBH2BR`，未 notarize、未发布；22 个资源的摘要与单副本注册证据见
+Team `W5J4JBH2BR`，未 notarize，已发布；22 个资源的摘要与单副本注册证据见
 [本次交付记录](./compose/spec/sync-upstream-v1.8.1.md)。macOS `27.2 (26B118)`、
-Safari `27.2`、Xcode `27.0 (27A5209h)`，用户尚未完成本次 Safari 手测。
+Safari `27.2`、Xcode `27.0 (27A5209h)`；用户已明确验收通过，确认 APP DNR
+与听视频正常。发布 zip 与安装应用逐文件一致，GitHub 两个附件 digest 已回读核对。
+BewlyCat DerivedData 与本次临时校验目录/日志已清理，保留已安装应用、Xcode 工程
+与 `release/` 发布资产；具体清理路径见交付记录的阶段二。
 
 后续新增 Safari 修复时，将“症状 → 根因证据 → 当前方案 → 不应恢复的旧方案 →
 源码/测试 → Safari 验收结果”追加到对应条目；每次交付记录具体版本和提交。

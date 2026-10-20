@@ -1,12 +1,12 @@
 ---
 feature: sync-upstream-v1.8.1
-status: candidate
+status: released
 updated: 2026-10-20
 branch: codex/sync-upstream-v1.8.1
 commits: f8957dba, b24d7962, 7d052861, c6f24500
 ---
 
-# 同步 BewlyCat 上游 v1.8.1 并构建 Safari 候选版
+# 同步 BewlyCat 上游 v1.8.1 并发布 Safari 版本
 
 ## Report
 
@@ -19,7 +19,8 @@ DNR `tabIds`，已按平台裁剪。后续规则拒绝曾误归因于 `sec-ch-ua
 
 **Verification** — 本次全量检查、重建与唯一候选安装均通过，详见 S3。历史候选的
 `4675d8489a01cbd03f846dbee643b4b887f247886b66d7ca3393fdb7d8260fd9`
-资源摘要已失效，不能用于核对本次修复。仍未经过用户实机验收，尚未发布。
+资源摘要已失效，不能用于核对本次修复。用户已明确验收通过，确认 APP DNR 与
+听视频正常；本次已完成正式发布与临时文件清理，详见下方阶段二记录。
 
 **Journey log** — 上游将 APP 推荐、扫码、刷新和不感兴趣收敛到后台固定 endpoint。
 Safari 不支持 `tabIds`，因此 APP DNR 依靠精确主机/路径范围限定作用域。
@@ -126,7 +127,7 @@ Safari 不支持 `tabIds`，因此 APP DNR 依靠精确主机/路径范围限定
 `CFBundleVersion` 均为 `1`，可执行文件均为 arm64；签名团队为
 `W5J4JBH2BR`，使用 Apple Development 签名，未 notarize。
 
-### 待用户 Safari 实机验收
+### 已安装应用与用户验收
 
 本次从源码提交 `c6f245003e8ea7500ba1a8746de447e767a9236f` 构建，安装后
 已从内嵌 content bundle 回读核对该完整 SHA。后续交付记录提交只修改文档，
@@ -144,14 +145,14 @@ arm64/签名团队检查与 `BEWLYCAT_APP_PATH` 资源检查。随后注销并�
 最终只发现 `/Applications/BewlyCat Safari.app`，`pluginkit -m -A -D -v`
 仅返回该路径的一个已注册扩展；未保留旧应用副本。
 
-保留 Xcode 工程、普通 DerivedData 中间缓存与本次验证日志，等待发布后再清理。
+阶段一保留了 Xcode 工程、普通 DerivedData 中间缓存与验证日志；发布后已按下述记录清理。
 故障注入目录为
 `/var/folders/pd/ljm0mlqj58dggfr9037xqn5m0000gn/T/BewlyCat-validator-2qqv7394`；
 日志为 `/tmp/BewlyCat-safari-181-fix-{tests,build,sync,xcode}.log`。
-未自动登录、扫码或进行 Safari 用户验收；未推送、打 tag、生成发布资产或创建
-Release。用户自行完成实机验收。
+阶段一未自动登录、扫码或代替用户验收。2026-10-20 用户明确回复验收通过，
+确认 APP DNR 和听视频均正常，并授权推送自有仓库、创建 tag/Release 与清理。
 
-优先检查本次修复：启动时无 APP DNR 更新报错；首页和视频页控制台无听视频
+本次验收重点：启动时无 APP DNR 更新报错；首页和视频页控制台无听视频
 模块加载错误；扩展后台 `getSessionRules()` 中 APP 规则为 `1002`–`1005`，
 不含 `tabIds` / `sec-ch-ua*`（独立的 `1001` 规则继续保留）。
 
@@ -176,5 +177,35 @@ Release。用户自行完成实机验收。
 - [x] T2: 完成 Safari 适配与版本号更新 — acceptance: APP client DNR 按平台裁剪，测试通过
 - [x] T3: 全量自动校验、构建、签名与资源一致性检查 — acceptance: 上列命令全部通过
 - [x] T4: 删除旧版与 DerivedData 副本并安装唯一候选 — acceptance: 仅存一个 `.app` 和一个已注册扩展
-- [ ] T5: 用户在 Safari 实机验收 `/Applications/BewlyCat Safari.app` — waiting
-- [ ] T6: 验收后推送本仓库、创建 tag/Release 并清理 Xcode 临时文件 — waiting
+- [x] T5: 用户在 Safari 实机验收 `/Applications/BewlyCat Safari.app` — 已明确验收通过，APP DNR 与听视频正常
+- [x] T6: 验收后推送本仓库、创建 tag/Release 并清理 Xcode 临时文件 — 已发布并核对附件摘要、完成清理
+
+## 阶段二：发布与清理（2026-10-20）
+
+- `origin/main` 从 `810cb868` 快进至 `2c5ca69b` 后推送，仅操作自有仓库
+  `NoctisWang528/BewlyCat-Safari`；未修改或推送上游，也未向上游创建 PR。
+- [GitHub CI](https://github.com/NoctisWang528/BewlyCat-Safari/actions/runs/39415820898)
+  在 `2c5ca69b` 上全部通过；本地提交/推送钩子照常执行。
+- 注释 tag `v1.8.1-safari.1` 指向 `2c5ca69b61d4bfb577aa23e29bfbe771af87a664`。
+  已验收应用的构建 SHA 仍为 `c6f245003e8ea7500ba1a8746de447e767a9236f`，
+  两者之间只修改文档。为保留已验收产物身份，打包脚本临时在该构建提交执行，
+  完成后返回 `main`；未重建或替换已验收原生应用。
+- [正式 Release](https://github.com/NoctisWang528/BewlyCat-Safari/releases/tag/v1.8.1-safari.1) 已发布并设为 latest，非 draft、非 prerelease。
+  Release notes 基于上游 v1.8.1，补充 DNR/听视频修复、arm64、Apple Development
+  与未 notarize 状态。
+- zip 为 `BewlyCat-Safari-v1.8.1-safari.1-macOS.zip`，大小 `2407175` bytes，
+  SHA-256 为 `046e26ce0a8282311ae987e6bf81be4c068a1c8e6910d01fb74d21eee508da7d`。
+- `SHA256SUMS.txt` 大小 `108` bytes，其自身 SHA-256 为
+  `e9770822e0438a4ddbbbf5325dcf8cbef9c47bcb4a95c307048519ee79b5365d`。
+  GitHub API 回读的两个附件名、大小与 digest 均与本地一致，tag 对象指向也已核对。
+- zip 解压后的完整应用与 `/Applications` 已验收应用逐文件一致；严格 codesign、
+  两个 bundle 的 `1.8.1 (1)`、arm64、Team `W5J4JBH2BR` 和 22 文件资源一致性
+  均通过。保留安装应用，未再次安装其他副本。
+- 发布与最终应用复核通过后，将两个 BewlyCat DerivedData、故障注入目录、
+  解压校验目录与六份本次日志共 10 个路径移入
+  `/Users/baixu/.Trash/BewlyCat-post-v1.8.1-safari.1-20261020/`。
+  解压校验的完整 `.app` 在清理前删除，避免留下另一份可运行应用。
+- 保留 `/Applications/BewlyCat Safari.app`、`extension-safari-macos/`、`release/`
+  全部发布资产、Release notes 与校验/清理 JSON；原 v1.8.0 清单另存
+  `release/SHA256SUMS-v1.8.0-safari.1.txt`，未删除历史 zip。
+- 后续发布记录提交仅修改文档，不改变 tag 与已验收应用的构建身份。
