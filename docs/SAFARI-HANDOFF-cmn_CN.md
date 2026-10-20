@@ -5,8 +5,7 @@
 [上游同步与维护手册](./UPSTREAM-MAINTENANCE-cmn_CN.md)，构建细节见
 [SAFARI.md](./SAFARI.md)，仓库约束见 [AGENTS.md](../AGENTS.md)。
 
-核对日期：2026-10-20；核对源码基线：本次 APP DNR / 听视频修复
-（提交见最近候选记录），`package.json` 为
+核对日期：2026-10-20；核对源码基线：`c6f24500`（APP DNR / 听视频修复），`package.json` 为
 `1.8.1` / `safariRevision: 1`。最近候选记录为
 [v1.8.1-safari.1](./compose/spec/sync-upstream-v1.8.1.md)，截至本文更新时
 已完成构建、自动校验与单副本安装，仍等待用户 Safari 实机验收。接手时应
@@ -277,7 +276,7 @@ bundle ID、Release 版本与签名配置。不能为每个 CSS 修改反复重�
 | `e743b983`（v1.7.10） | 接收打开标签页批量加入稍后再看；保留 querySerializer 与空 query 不附加问号 | 上游请求组装扩展不能覆盖 Safari 认证兼容层 |
 | `0ca3465f`、`aa3d2f70`（v1.8.0） | 上游超时/取消、共享状态及 Safari 验收中的 storage Disk I/O 修复 | 单个存储 ref 队列不能覆盖整个上下文，更不等于跨上下文锁 |
 | `f8957dba`、`b24d7962`、`7d052861`（v1.8.1） | 合并 HD 推荐与固定 APP client；收窄 page-world 钩子并隔离补丁；Safari 会话 DNR 移除 `tabIds`，随后尝试移除 `sec-ch-ua*`，但后者未解决规则拒绝 | 已更正根因：旧 `1002` 的分支正则被 WebKit 拒绝，不能把请求头推测当成已验证结论 |
-| 本次 v1.8.1 候选修复 | 拆分扫码/刷新 DNR 为无分支规则；听视频独立 ESM，后台/pageLoading 保持 IIFE | 不恢复旧 `1002` 的 alternation；动态 import 的命名导出必须检查实际产物；Safari 手测仍由用户完成 |
+| `c6f24500`（v1.8.1 候选修复） | 拆分扫码/刷新 DNR 为无分支规则；听视频独立 ESM，后台/pageLoading 保持 IIFE | 不恢复旧 `1002` 的 alternation；动态 import 的命名导出必须检查实际产物；Safari 手测仍由用户完成 |
 | `98ed387c` 交付记录 | 记录 macOS 同步产生的 `* 2` 副本干扰 knip / Git refs | 先辨认重复文件与来源；不要批量删除名字含空格/数字的正常文件或手改 Git refs |
 
 按文件追查即可，不需要重新依赖旧聊天：
@@ -318,6 +317,14 @@ git show aa3d2f70 -- src/utils/storageWriteQueue.ts src/tests/storageWriteQueue.
 本次用户明确要求仅保留一个完整应用，
 因此在新候选通过签名/资源校验后删除旧应用与 DerivedData 中完整 `.app`，
 不保留旧应用副本。普通 Xcode 中间缓存待发布成功后清理。
+
+本次 `c6f24500` 已通过 lint、typecheck、knip、26 文件 / 205 项测试、build、
+validator（含听视频 ESM 实际导入与三个故障反例）、现有工程资源同步、Xcode
+Release arm64、严格签名与最终资源检查。唯一候选在
+`/Applications/BewlyCat Safari.app`，版本 `1.8.1 (1)`、Apple Development
+Team `W5J4JBH2BR`，未 notarize、未发布；22 个资源的摘要与单副本注册证据见
+[本次交付记录](./compose/spec/sync-upstream-v1.8.1.md)。macOS `27.2 (26B118)`、
+Safari `27.2`、Xcode `27.0 (27A5209h)`，用户尚未完成本次 Safari 手测。
 
 后续新增 Safari 修复时，将“症状 → 根因证据 → 当前方案 → 不应恢复的旧方案 →
 源码/测试 → Safari 验收结果”追加到对应条目；每次交付记录具体版本和提交。

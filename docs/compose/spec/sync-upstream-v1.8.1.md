@@ -3,7 +3,7 @@ feature: sync-upstream-v1.8.1
 status: candidate
 updated: 2026-10-20
 branch: codex/sync-upstream-v1.8.1
-commits: f8957dba, b24d7962, 7d052861
+commits: f8957dba, b24d7962, 7d052861, c6f24500
 ---
 
 # 同步 BewlyCat 上游 v1.8.1 并构建 Safari 候选版
@@ -17,7 +17,7 @@ DNR `tabIds`，已按平台裁剪。后续规则拒绝曾误归因于 `sec-ch-ua
 实际根因是旧 `1002` 的 alternation 正则；本次拆为扫码和刷新两条无分支规则。
 听视频入口也从 Safari IIFE 中拆出为独立 ESM，保留动态导入所需的命名导出。
 
-**Verification** — 本次全量检查、重建与唯一候选安装结果见 S3。历史候选的
+**Verification** — 本次全量检查、重建与唯一候选安装均通过，详见 S3。历史候选的
 `4675d8489a01cbd03f846dbee643b4b887f247886b66d7ca3393fdb7d8260fd9`
 资源摘要已失效，不能用于核对本次修复。仍未经过用户实机验收，尚未发布。
 
@@ -46,7 +46,7 @@ Safari 不支持 `tabIds`，因此 APP DNR 依靠精确主机/路径范围限定
 - 合并提交：`f8957dba`（`chore: 合并上游 v1.8.1`）。
 - Safari 适配提交：`b24d7962`（`fix(safari): 适配上游 v1.8.1`）。
 - 早期 APP client DNR 请求头裁剪：`7d052861`（未解决后续正则拒绝）。
-- 本次修复提交：`fix(safari): 修复 APP client 与听视频加载`（本次源码提交，SHA 在安装复核后记录）。
+- 本次修复提交：`c6f24500`（`fix(safari): 修复 APP client 与听视频加载`）。
 - 不修改、推送或向上游仓库创建 PR。
 
 ### 版本号
@@ -128,7 +128,28 @@ Safari 不支持 `tabIds`，因此 APP DNR 依靠精确主机/路径范围限定
 
 ### 待用户 Safari 实机验收
 
-本次重建与唯一安装结果待复核记录；用户自行完成实机验收。
+本次从源码提交 `c6f245003e8ea7500ba1a8746de447e767a9236f` 构建，安装后
+已从内嵌 content bundle 回读核对该完整 SHA。后续交付记录提交只修改文档，
+不会改变已安装候选的源码身份。
+
+22 个资源文件在 `extension-safari/`、现有 Xcode Resources 与最终 `.appex`
+中完全一致，聚合 SHA-256：
+`8abaa94df383d9b4d58da1f1a1a23e4018111257dd4e07cef9e3c25a60d74396`。
+
+安装前退出 Safari 和 BewlyCat，删除旧 `/Applications/BewlyCat Safari.app`，
+用通过校验的新构建替换；安装后再次通过严格 codesign、两个 bundle 的版本/
+arm64/签名团队检查与 `BEWLYCAT_APP_PATH` 资源检查。随后注销并删除
+`/Users/baixu/Library/Developer/Xcode/DerivedData/BewlyCat_Safari-v1.8.1/Build/Products/Release/BewlyCat Safari.app`，
+重新注册 Applications 扩展。`find /Applications`、DerivedData 扫描与 `mdfind`
+最终只发现 `/Applications/BewlyCat Safari.app`，`pluginkit -m -A -D -v`
+仅返回该路径的一个已注册扩展；未保留旧应用副本。
+
+保留 Xcode 工程、普通 DerivedData 中间缓存与本次验证日志，等待发布后再清理。
+故障注入目录为
+`/var/folders/pd/ljm0mlqj58dggfr9037xqn5m0000gn/T/BewlyCat-validator-2qqv7394`；
+日志为 `/tmp/BewlyCat-safari-181-fix-{tests,build,sync,xcode}.log`。
+未自动登录、扫码或进行 Safari 用户验收；未推送、打 tag、生成发布资产或创建
+Release。用户自行完成实机验收。
 
 优先检查本次修复：启动时无 APP DNR 更新报错；首页和视频页控制台无听视频
 模块加载错误；扩展后台 `getSessionRules()` 中 APP 规则为 `1002`–`1005`，
@@ -153,7 +174,7 @@ Safari 不支持 `tabIds`，因此 APP DNR 依靠精确主机/路径范围限定
 
 - [x] T1: 合并上游 `v1.8.1` 并解决冲突 — acceptance: merge commit 保留全部 Safari 适配
 - [x] T2: 完成 Safari 适配与版本号更新 — acceptance: APP client DNR 按平台裁剪，测试通过
-- [ ] T3: 全量自动校验、构建、签名与资源一致性检查 — acceptance: 上列命令全部通过
-- [ ] T4: 删除旧版与 DerivedData 副本并安装唯一候选 — acceptance: 仅存一个 `.app` 和一个已注册扩展
+- [x] T3: 全量自动校验、构建、签名与资源一致性检查 — acceptance: 上列命令全部通过
+- [x] T4: 删除旧版与 DerivedData 副本并安装唯一候选 — acceptance: 仅存一个 `.app` 和一个已注册扩展
 - [ ] T5: 用户在 Safari 实机验收 `/Applications/BewlyCat Safari.app` — waiting
 - [ ] T6: 验收后推送本仓库、创建 tag/Release 并清理 Xcode 临时文件 — waiting
