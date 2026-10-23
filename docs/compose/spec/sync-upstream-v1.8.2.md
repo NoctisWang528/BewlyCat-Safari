@@ -20,7 +20,8 @@ Safari 构建继续排除 `persistent`、`world`、`match_about_blank`，听视�
 **Verification** — 合并后全量 lint、typecheck、knip、test（26 文件 / 205 项）、
 build、validate-safari 均通过；`pnpm package-safari` 重建 Xcode 工程，
 Xcode Beta Release arm64 构建成功，严格 codesign 与 25 文件资源一致性检查通过。
-候选位于 DerivedData，等待用户 Safari 实机验收；尚未推送、打 tag 或发布 Release。
+候选已单副本安装到 `/Applications/BewlyCat Safari.app`，等待用户 Safari 实机验收；
+尚未推送、打 tag 或发布 Release。
 
 **Journey log** — 合并冲突集中在 `package.json`、`tsup.config.ts`、
 `src/background/{index,utils}.ts`、`src/contentScripts/index.ts`、
@@ -124,7 +125,7 @@ Safari 的 `hasOwnProperty` 键归属判断。另发现基线 `background/index.
 产物：
 
 ```text
-/Users/baixu/Library/Developer/Xcode/DerivedData/BewlyCat_Safari-v1.8.2/Build/Products/Release/BewlyCat Safari.app
+/Applications/BewlyCat Safari.app
 ```
 
 父 App 与扩展的 `CFBundleShortVersionString` 均为 `1.8.2`，
@@ -142,9 +143,14 @@ Xcode 工程、最终 `.appex` 与 `extension-safari/` 的 25 个资源文件一
 - `exclude_matches` 含 match/game、toy 与两条 nav 框架路径
 - `web_accessible_resources` 含 `assets/*` 与 `dist/contentScripts/listenVideoControl.js`
 
-### 待用户验收
+### 已安装候选与待用户验收
 
-候选尚未安装到 `/Applications`，也未在 Safari 中启用。验收重点：
+安装前已退出 Safari，将旧 `1.8.1` 应用移入
+`/Users/baixu/.Trash/BewlyCat Safari-1.8.1-20261023.app`，用通过严格
+codesign 的新构建替换；DerivedData 中的完整应用副本已删除，仅保留
+`/Applications` 一份。`pluginkit` 中只注册
+`/Applications/BewlyCat Safari.app/Contents/PlugIns/BewlyCat Safari Extension.appex`
+（1.8.2）。验收重点：
 
 - 启动无 DNR/权限/后台消息错误；登录与未登录首页、视频播放、搜索、稍后再看。
 - 环境光在普通/网页全屏/剧场模式的表现与关闭后清理。

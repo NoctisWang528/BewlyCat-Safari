@@ -8,8 +8,8 @@
 核对日期：2026-10-23；核对源码基线：`a0e63ff7`（Safari 适配上游 v1.8.2），
 `package.json` 为 `1.8.2` / `safariRevision: 1`。最近候选记录为
 [v1.8.2](./compose/spec/sync-upstream-v1.8.2.md)，截至本文更新时已完成合并、
-全量自动校验与签名构建，等待用户在 Safari 实机验收，尚未推送、打 tag 或发布
-Release。接手时应重新读取当前 Git 状态和版本；本文不代表已重新检查远端
+全量自动校验、签名构建与单副本安装（`/Applications/BewlyCat Safari.app`），
+等待用户在 Safari 实机验收，尚未推送、打 tag 或发布 Release。接手时应重新读取当前 Git 状态和版本；本文不代表已重新检查远端
 Release、本机证书或 Applications 中应用的现状。
 
 ## 新会话先做什么
