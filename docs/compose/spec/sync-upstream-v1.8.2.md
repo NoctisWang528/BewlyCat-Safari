@@ -3,7 +3,7 @@ feature: sync-upstream-v1.8.2
 status: candidate
 updated: 2026-10-23
 branch: codex/sync-upstream-v1.8.2
-commits: 9d840cd1, a0e63ff7
+commits: 9d840cd1, a0e63ff7, f37c8241
 ---
 
 # 同步 BewlyCat 上游 v1.8.2 并交付 Safari 候选
@@ -20,7 +20,7 @@ Safari 构建继续排除 `persistent`、`world`、`match_about_blank`，听视�
 **Verification** — 合并后全量 lint、typecheck、knip、test（26 文件 / 205 项）、
 build、validate-safari 均通过；`pnpm package-safari` 重建 Xcode 工程，
 Xcode Beta Release arm64 构建成功，严格 codesign 与 25 文件资源一致性检查通过。
-候选已单副本安装到 `/Applications/BewlyCat Safari.app`，等待用户 Safari 实机验收；
+候选已单副本安装到 `/Applications/BewlyCat Safari.app`（构建提交 `f37c8241`），等待用户 Safari 实机验收；
 尚未推送、打 tag 或发布 Release。
 
 **Journey log** — 合并冲突集中在 `package.json`、`tsup.config.ts`、
@@ -133,7 +133,7 @@ Safari 的 `hasOwnProperty` 键归属判断。另发现基线 `background/index.
 `W5J4JBH2BR`，使用 Apple Development 签名，未 notarize。
 Xcode 工程、最终 `.appex` 与 `extension-safari/` 的 25 个资源文件一致，
 聚合 SHA-256 为
-`276bf40518bdbecb6752e57f0d629db9e2c5829d4ffda5ab395e2ddbfc4421a8`。
+`e870fa404ec80124c27b3f46e369f86039c72f3c32175cdff4ee1f030188ad8d`。
 
 生成的 Safari manifest 关键值：
 
@@ -146,9 +146,12 @@ Xcode 工程、最终 `.appex` 与 `extension-safari/` 的 25 个资源文件一
 ### 已安装候选与待用户验收
 
 安装前已退出 Safari，将旧 `1.8.1` 应用移入
-`/Users/baixu/.Trash/BewlyCat Safari-1.8.1-20261023.app`，用通过严格
-codesign 的新构建替换；DerivedData 中的完整应用副本已删除，仅保留
-`/Applications` 一份。`pluginkit` 中只注册
+`/Users/baixu/.Trash/BewlyCat Safari-1.8.1-20261023.app`。首次 1.8.2 构建的
+content bundle 内嵌提交为 `a0e63ff7`；文档提交后重新构建会改变
+`__BUILD_COMMIT__`，因此又按 `f37c8241` 重同步资源并重建，旧候选移入
+`/Users/baixu/.Trash/BewlyCat Safari-1.8.2-a0e63ff7.app`。DerivedData 中的
+完整应用副本已删除，仅保留 `/Applications` 一份，内嵌 content bundle 回读
+确认为 `f37c8241`。`pluginkit` 中只注册
 `/Applications/BewlyCat Safari.app/Contents/PlugIns/BewlyCat Safari Extension.appex`
 （1.8.2）。验收重点：
 

@@ -5,7 +5,7 @@
 [上游同步与维护手册](./UPSTREAM-MAINTENANCE-cmn_CN.md)，构建细节见
 [SAFARI.md](./SAFARI.md)，仓库约束见 [AGENTS.md](../AGENTS.md)。
 
-核对日期：2026-10-23；核对源码基线：`a0e63ff7`（Safari 适配上游 v1.8.2），
+核对日期：2026-10-23；核对源码基线：`f37c8241`（Safari 适配上游 v1.8.2 后重建候选），
 `package.json` 为 `1.8.2` / `safariRevision: 1`。最近候选记录为
 [v1.8.2](./compose/spec/sync-upstream-v1.8.2.md)，截至本文更新时已完成合并、
 全量自动校验、签名构建与单副本安装（`/Applications/BewlyCat Safari.app`），
