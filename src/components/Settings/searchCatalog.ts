@@ -112,6 +112,24 @@ const playerRoute: SearchRoute = {
   secondaryTitleKey: 'settings.bilibili_features.video_playback',
   storageKey: bilibiliStorageKey,
 }
+const listenVideoRoute: SearchRoute = {
+  menu: MenuType.Bilibili,
+  secondaryPage: 'listen-video',
+  secondaryTitleKey: 'settings.bilibili_features.listen_video',
+  storageKey: bilibiliStorageKey,
+}
+const volumeBalanceRoute: SearchRoute = {
+  menu: MenuType.Bilibili,
+  secondaryPage: 'volume-balance',
+  secondaryTitleKey: 'settings.bilibili_features.volume_balance',
+  storageKey: bilibiliStorageKey,
+}
+const ambilightRoute: SearchRoute = {
+  menu: MenuType.Bilibili,
+  secondaryPage: 'ambilight',
+  secondaryTitleKey: 'settings.bilibili_features.ambilight',
+  storageKey: bilibiliStorageKey,
+}
 const autoPlayRoute: SearchRoute = {
   menu: MenuType.Bilibili,
   secondaryPage: 'auto-play',
@@ -161,6 +179,7 @@ const linkOpeningOptionKeys = [
 const videoCardLinkOpeningOptionKeys = [
   'settings.link_opening_behavior_opt.current_tab',
   'settings.link_opening_behavior_opt.drawer',
+  'settings.link_opening_behavior_opt.dialog',
   'settings.link_opening_behavior_opt.background',
   'settings.link_opening_behavior_opt.new_tab',
 ]
@@ -182,7 +201,7 @@ const topBarGlobalTitleKeys = [
   'settings.topbar_style_settings',
   'settings.topbar_visibility',
   'settings.topbar_visibility_desc',
-  'settings.auto_hide_top_bar',
+  'settings.other_page_top_bar_config',
   'settings.video_page_top_bar_config',
   'settings.top_bar_style',
   'settings.top_bar_style_desc',
@@ -236,6 +255,14 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.plugin.home',
     'settings.group_recommendation_mode',
     'settings.show_recommendation_mode_switcher',
+    'settings.recommendation_mode_switcher_options',
+    'settings.group_immersive_mode',
+    'settings.show_immersive_mode_entry',
+    'settings.immersive_wheel_switch',
+    'settings.immersive_keyboard_switch',
+    'settings.immersive_auto_play',
+    'settings.immersive_auto_next',
+    'settings.immersive_preload_next',
     'settings.remember_no_cookie_recommendation_state',
     'settings.authorize_app',
     'settings.auto_switch_recommendation_mode',
@@ -267,8 +294,13 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
   ...createEntries(homeRoute, [
     'settings.recommendation_mode',
   ], {
-    keywordKeys: ['settings.recommendation_mode_web_no_cookie'],
-    keywords: ['Web', 'App'],
+    keywordKeys: [
+      'settings.recommendation_mode_web_no_cookie',
+      'settings.recommendation_mode_app_single',
+      'settings.recommendation_mode_app_double',
+    ],
+    // 保留旧名称「无 Cookie」的检索
+    keywords: ['Web', 'App', 'Cookie'],
   }),
   ...createEntries(momentsRoute, [
     'settings.plugin.moments',
@@ -342,6 +374,8 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.enable_video_ctrl_bar_on_video_card',
     'settings.video_preview_swipe_seek',
     'settings.video_preview_swipe_seek_desc',
+    'settings.resume_from_video_preview',
+    'settings.resume_from_video_preview_desc',
     'settings.hover_video_card_delayed',
     'settings.only_cover_video_preview',
     'settings.group_video_card_content',
@@ -367,6 +401,7 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'video_card.operation.open_in_new_window',
     'video_card.operation.open_in_current_tab',
     'video_card.operation.open_in_drawer',
+    'video_card.operation.open_in_dialog',
     'video_card.operation.favorite',
     'video_card.operation.copy_video_link',
     'video_card.operation.copy_clean_video_link',
@@ -453,6 +488,7 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.dock_content_adjustment',
     'settings.disable_dock_glowing_effect',
     'settings.disable_light_dark_mode_switcher',
+    'settings.disable_back_to_top_button_on_dock',
     'settings.back_to_top_and_refresh_buttons_are_separated',
     'settings.enable_undo_refresh_button',
     'settings.group_sidebar',
@@ -482,17 +518,30 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.group_search_results',
     'settings.use_plugin_search_results_page',
     'settings.depersonalize_search_results',
+    'settings.show_search_identity_switcher',
     'settings.search_results_pagination_mode',
     'settings.individually_set_search_page_wallpaper',
     ...wallpaperTitleKeys,
   ]),
 
-  ...createEntries(playerRoute, [
+  ...createEntries(volumeBalanceRoute, [
     'settings.local_loudness.title',
     'settings.local_loudness.enable',
     'settings.local_loudness.target',
     'settings.local_loudness.strength',
     'settings.local_loudness.show_button',
+  ]),
+  ...createEntries(ambilightRoute, [
+    'settings.ambilight.title',
+    'settings.ambilight.enable',
+    'settings.ambilight.enable_fullscreen',
+    'settings.ambilight.preset',
+    'settings.ambilight.strength',
+    'settings.ambilight.spread',
+    'settings.ambilight.smoothing',
+    'settings.ambilight.blur',
+    'settings.ambilight.saturation',
+    'settings.ambilight.fps',
   ]),
   ...createEntries(playerRoute, [
     'settings.bilibili_features.video_playback',
@@ -518,9 +567,44 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.show_vertical_video_zoom_button',
     'settings.show_bewly_widescreen_button',
     'settings.show_video_screenshot_button',
+  ]),
+  ...createEntries(listenVideoRoute, [
     'settings.enable_listen_video',
     'settings.show_listen_video_button',
   ]),
+  ...createEntries(listenVideoRoute, [
+    'settings.listen_video_cover_shape',
+  ], {
+    keywordKeys: [
+      'settings.listen_video_cover_shape_circle',
+      'settings.listen_video_cover_shape_square',
+      'settings.listen_video_cover_shape_rectangle',
+    ],
+  }),
+  ...createEntries(listenVideoRoute, [
+    'settings.listen_video_glow',
+  ], {
+    keywordKeys: [
+      'settings.listen_video_glow_static',
+      'settings.listen_video_glow_breathe',
+    ],
+  }),
+  ...createEntries(listenVideoRoute, [
+    'settings.listen_video_glow_color',
+  ], {
+    keywordKeys: [
+      'settings.listen_video_glow_color_theme',
+      'settings.listen_video_glow_color_cover',
+    ],
+  }),
+  ...createEntries(listenVideoRoute, [
+    'settings.listen_video_background',
+  ], {
+    keywordKeys: [
+      'settings.listen_video_background_solid',
+      'settings.listen_video_background_blur',
+    ],
+  }),
   ...createEntries(playerRoute, [
     'settings.video_player_scroll_mode.title',
   ], {
@@ -622,6 +706,7 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.group_fonts',
     'settings.customize_font',
     'settings.remove_the_indent_from_chinese_punctuation',
+    'settings.cjk_latin_autospace',
     'settings.override_danmaku_font',
     'settings.customize_css',
     ...wallpaperTitleKeys,
@@ -715,5 +800,7 @@ export const settingsSearchEntries: SettingsSearchEntry[] = [
     'settings.export_settings',
     'settings.maintenance.reset_title',
     'settings.reset_settings',
+    'settings.open_source_license',
+    'settings.third_party_licenses',
   ]),
 ]

@@ -8,13 +8,21 @@ import Input from '~/components/Input.vue'
 import Radio from '~/components/Radio.vue'
 import { HomeSubPage } from '~/contentScripts/views/Home/types'
 import { appAuthTokens, settings } from '~/logic'
-import type { RecommendationMode, Settings, TabsPosition } from '~/logic/storage'
+import type { RecommendationModeOption, Settings, TabsPosition } from '~/logic/storage'
 import { useMainStore } from '~/stores/mainStore'
 import { hasValidAppAuthTokens, revokeAccessKey } from '~/utils/authProvider'
+import {
+  applyRecommendationModeOption,
+  createRecommendationModeOptions,
+  filterRecommendationModeSwitcherOptions,
+  getRecommendationModeOption,
+  MIN_RECOMMENDATION_MODE_SWITCHER_OPTIONS,
+} from '~/utils/recommendationMode'
 
 import SettingsItem from '../../components/SettingsItem.vue'
 import SettingsItemGroup from '../../components/SettingsItemGroup.vue'
 import SettingsSegmentedControl from '../../components/SettingsSegmentedControl.vue'
+import SettingsToggleTag from '../../components/SettingsToggleTag.vue'
 import SearchPage from '../SearchPage/SearchPage.vue'
 import FilterByTitleTable from './components/FilterByTitleTable.vue'
 import FilterByUserTable from './components/FilterByUserTable.vue'
@@ -23,11 +31,32 @@ const mainStore = useMainStore()
 const { t } = useI18n()
 const toast = useToast()
 
-const recommendationModeOptions = computed<{ label: string, value: RecommendationMode }[]>(() => [
-  { label: 'Web', value: 'web' },
-  { label: t('settings.recommendation_mode_web_no_cookie'), value: 'webNoCookie' },
-  { label: 'App', value: 'app' },
-])
+const recommendationModeOptions = computed(() => createRecommendationModeOptions(t))
+const recommendationModeOption = computed({
+  get: () => getRecommendationModeOption(),
+  set: option => applyRecommendationModeOption(option),
+})
+
+const recommendationModeOptionIcons: Record<RecommendationModeOption, string> = {
+  web: 'i-tabler-world',
+  webNoCookie: 'i-tabler-spy',
+  appSingle: 'i-tabler-layout-list',
+  appDouble: 'i-tabler-layout-grid',
+}
+const recommendationModeSwitcherSelection = computed(() =>
+  filterRecommendationModeSwitcherOptions(recommendationModeOptions.value).map(option => option.value),
+)
+
+function handleToggleRecommendationModeSwitcherOption(option: RecommendationModeOption, visible: boolean) {
+  const selection = recommendationModeSwitcherSelection.value
+  if (!visible && selection.length <= MIN_RECOMMENDATION_MODE_SWITCHER_OPTIONS)
+    return
+  const next = visible ? [...selection, option] : selection.filter(value => value !== option)
+  // 按固定顺序存储，避免切换顺序影响按钮组排列
+  settings.value.recommendationModeSwitcherOptions = recommendationModeOptions.value
+    .map(item => item.value)
+    .filter(value => next.includes(value))
+}
 
 const followingUploaderSortOptions = computed<{ label: string, value: Settings['followingUploaderSort'] }[]>(() => [
   { label: t('settings.following_sort_updated'), value: 'updated' },
@@ -48,8 +77,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 const appAccessToken = computed(() => appAuthTokens.value.accessToken)
 
-function handleRecommendationModeChange(mode: RecommendationMode) {
-  if (mode === 'app' && !hasValidAppAuthTokens())
+function handleRecommendationModeChange(option: RecommendationModeOption) {
+  if ((option === 'appSingle' || option === 'appDouble') && !hasValidAppAuthTokens())
     handleAuthorize()
 }
 
@@ -165,7 +194,7 @@ function handleToggleHomeTab(tab: any) {
           <p>{{ $t('settings.recommendation_mode_desc') }}</p>
         </template>
         <SettingsSegmentedControl
-          v-model="settings.recommendationMode"
+          v-model="recommendationModeOption"
           :label="$t('settings.recommendation_mode')"
           :options="recommendationModeOptions"
           @change="handleRecommendationModeChange"
@@ -178,6 +207,25 @@ function handleToggleHomeTab(tab: any) {
         right-width="auto"
       >
         <Radio v-model="settings.showRecommendationModeSwitcher" />
+      </SettingsItem>
+
+      <SettingsItem
+        v-if="settings.showRecommendationModeSwitcher"
+        :title="$t('settings.recommendation_mode_switcher_options')"
+        :desc="$t('settings.recommendation_mode_switcher_options_desc')"
+      >
+        <template #bottom>
+          <div class="recommendation-mode-switcher-tags" role="group" :aria-label="$t('settings.recommendation_mode_switcher_options')">
+            <SettingsToggleTag
+              v-for="option in recommendationModeOptions"
+              :key="option.value"
+              :model-value="recommendationModeSwitcherSelection.includes(option.value)"
+              :label="option.label"
+              :icon="recommendationModeOptionIcons[option.value]"
+              @update:model-value="handleToggleRecommendationModeSwitcherOption(option.value, $event)"
+            />
+          </div>
+        </template>
       </SettingsItem>
 
       <SettingsItem
@@ -223,6 +271,58 @@ function handleToggleHomeTab(tab: any) {
         v-if="showQRCodeDialog"
         @close="handleCloseQRCodeDialog"
       />
+    </SettingsItemGroup>
+
+    <SettingsItemGroup :title="$t('settings.group_immersive_mode')">
+      <SettingsItem
+        :title="$t('settings.show_immersive_mode_entry')"
+        :desc="$t('settings.show_immersive_mode_entry_desc')"
+        right-width="auto"
+      >
+        <Radio v-model="settings.showImmersiveModeEntry" />
+      </SettingsItem>
+
+      <template v-if="settings.showImmersiveModeEntry">
+        <SettingsItem
+          :title="$t('settings.immersive_wheel_switch')"
+          :desc="$t('settings.immersive_wheel_switch_desc')"
+          right-width="auto"
+        >
+          <Radio v-model="settings.immersiveWheelSwitch" />
+        </SettingsItem>
+
+        <SettingsItem
+          :title="$t('settings.immersive_keyboard_switch')"
+          :desc="$t('settings.immersive_keyboard_switch_desc')"
+          right-width="auto"
+        >
+          <Radio v-model="settings.immersiveKeyboardSwitch" />
+        </SettingsItem>
+
+        <SettingsItem
+          :title="$t('settings.immersive_auto_play')"
+          :desc="$t('settings.immersive_auto_play_desc')"
+          right-width="auto"
+        >
+          <Radio v-model="settings.immersiveAutoPlay" />
+        </SettingsItem>
+
+        <SettingsItem
+          :title="$t('settings.immersive_auto_next')"
+          :desc="$t('settings.immersive_auto_next_desc')"
+          right-width="auto"
+        >
+          <Radio v-model="settings.immersiveAutoNext" />
+        </SettingsItem>
+
+        <SettingsItem
+          :title="$t('settings.immersive_preload_next')"
+          :desc="$t('settings.immersive_preload_next_desc')"
+          right-width="auto"
+        >
+          <Radio v-model="settings.immersivePreloadNext" />
+        </SettingsItem>
+      </template>
     </SettingsItemGroup>
 
     <SettingsItemGroup
@@ -479,6 +579,12 @@ function handleToggleHomeTab(tab: any) {
 </template>
 
 <style lang="scss" scoped>
+.recommendation-mode-switcher-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--bew-space-2);
+}
+
 .unrestricted-width-settings-item {
   :deep(.left-content) {
     --uno: w-full;

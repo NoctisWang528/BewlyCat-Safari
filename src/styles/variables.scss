@@ -96,9 +96,13 @@
   --bew-z-original-top-bar: 1002;
   // 保留原站头像（2）高于下拉面板（1）的内部顺序。
   --bew-z-original-top-bar-popover: 1;
+  // 首页沉浸式模式覆盖顶栏与 Dock，低于设置窗口、对话框和 Toast。
+  --bew-z-immersive-feed: 10002;
   --bew-z-settings-host: 10003;
   --bew-z-settings: 10004;
   --bew-z-settings-popover: 10005;
+  // 设置内的浮动 Tooltip 需高于设置窗口，避免被其背景遮挡。
+  --bew-z-settings-tooltip: 10006;
   --bew-z-dialog: 10010;
   --bew-z-confirm-dialog: 10011;
   --bew-z-image-viewer: 10012;
@@ -497,7 +501,8 @@
 // 页面独立控件共用同一底色；变量在页面容器上计算，跟随当前背景和主题。
 .bew-page-controls {
   --bew-control-surface-opacity: 100%;
-  --bew-control-surface-tint: color-mix(in oklab, var(--bew-content-alt-solid) 94%, var(--bew-theme-color));
+  // 无背景时保持中性底色；主题色染色只用于壁纸上的半透明控件，让其贴合背景。
+  --bew-control-surface-tint: var(--bew-content-solid);
   --bew-control-surface-background: color-mix(
     in oklab,
     var(--bew-control-surface-tint) var(--bew-control-surface-opacity),
@@ -513,6 +518,7 @@
 .bew-page-controls--blend {
   // 壁纸遮罩越强，控件需要额外叠加的底色越少，避免浅背景上出现一整块白色。
   --bew-control-surface-opacity: calc(64% - var(--bew-control-wallpaper-mask, 0%) * 0.4);
+  --bew-control-surface-tint: color-mix(in oklab, var(--bew-content-alt-solid) 94%, var(--bew-theme-color));
   --bew-control-surface-filter: var(--bew-filter-glass-1);
 }
 

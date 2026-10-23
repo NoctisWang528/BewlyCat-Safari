@@ -14,6 +14,7 @@ import { cleanBilibiliUrl, getCSRF, getUserID, openLinkToNewTab } from '~/utils/
 import { openLinkInBackground } from '~/utils/tabs'
 
 import type { Video } from '../types'
+import { isBangumiVideo } from '../utils'
 import BlockUserConfirmDialog from './components/BlockUserConfirmDialog.vue'
 import DislikeDialog from './components/DislikeDialog.vue'
 import FavoriteVideoDialog from './components/FavoriteVideoDialog.vue'
@@ -85,7 +86,7 @@ const showFollowUserDialog = ref<boolean>(false)
 const showUnfollowUserDialog = ref<boolean>(false)
 const showPipWindow = ref<boolean>(false)
 const loadingWebDislike = ref<boolean>(false)
-const { openIframeDrawer } = useBewlyApp()
+const { openIframeDrawer, openVideoDialog } = useBewlyApp()
 
 enum VideoOption {
   OpenInNewTab,
@@ -93,6 +94,7 @@ enum VideoOption {
   OpenInCurrentTab,
   OpenInNewWindow,
   OpenInDrawer,
+  OpenInDialog,
   Favorite,
 
   ViewTheOriginalCover,
@@ -137,6 +139,7 @@ const commonOptions = computed((): OptionItem[][] => {
             { command: VideoOption.OpenInNewWindow, key: 'openInNewWindow' as const, name: t('video_card.operation.open_in_new_window'), icon: 'i-solar:maximize-square-3-bold-duotone' },
             { command: VideoOption.OpenInCurrentTab, key: 'openInCurrentTab' as const, name: t('video_card.operation.open_in_current_tab'), icon: 'i-solar:square-top-down-bold-duotone' },
             { command: VideoOption.OpenInDrawer, key: 'openInDrawer' as const, name: t('video_card.operation.open_in_drawer'), icon: 'i-solar:archive-up-minimlistic-bold-duotone' },
+            { command: VideoOption.OpenInDialog, key: 'openInDialog' as const, name: t('video_card.operation.open_in_dialog'), icon: 'i-solar:window-frame-bold-duotone' },
           ]
         : []),
     ],
@@ -194,7 +197,7 @@ const commonOptions = computed((): OptionItem[][] => {
     ])
   }
 
-  if (getVideoType() === 'bangumi' || getVideoType() === 'live') {
+  if (getVideoType() === 'bangumi' || getVideoType() === 'live' || isBangumiVideo(props.video)) {
     result = result.map((group) => {
       return group.filter((opt) => {
         return opt.command !== VideoOption.CopyBVNumber && opt.command !== VideoOption.CopyAVNumber && opt.command !== VideoOption.CopyCleanVideoLink && opt.command !== VideoOption.ViewThisUserChannel
@@ -301,6 +304,10 @@ function handleCommonCommand(command: VideoOption) {
       break
     case VideoOption.OpenInDrawer:
       openIframeDrawer(props.video.url || '')
+      handleClose()
+      break
+    case VideoOption.OpenInDialog:
+      openVideoDialog(props.video.url || '')
       handleClose()
       break
 

@@ -364,7 +364,7 @@ provide('getVideoType', () => props.type!)
         v-bind="coverSkeleton ? {} : {
           href: logic.videoUrl.value,
           type: 'videoCard',
-          customClickEvent: Boolean(props.customClickHandler) || settings.videoCardLinkOpenMode === 'drawer' || settings.videoCardLinkOpenMode === 'background',
+          customClickEvent: Boolean(props.customClickHandler) || settings.videoCardLinkOpenMode === 'drawer' || settings.videoCardLinkOpenMode === 'dialog' || settings.videoCardLinkOpenMode === 'background',
           customClickEventIncludesModifiers: Boolean(props.customClickHandler),
           disableDragging: shouldDisableLinkDragging,
         }"
@@ -427,6 +427,7 @@ provide('getVideoType', () => props.type!)
           :plugin-computed-tags="pluginComputedTags"
           :hide-author="hideAuthor"
           :hide-watched-badge="hideWatchedBadge"
+          :compact-meta="props.type === 'appRcmd' && settings.appRecommendationColumn === 'double'"
           @more-btn-click="logic.handleMoreBtnClick"
         />
         <!-- Keep the configured cover/info ratio after horizontal cards are removed. -->

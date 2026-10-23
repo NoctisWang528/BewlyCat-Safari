@@ -92,6 +92,15 @@ export function initListenVideoFeature() {
   watch([() => settings.value.showListenVideoButton, () => settings.value.language], () => {
     controller?.refresh()
   })
+  // 外观设置直接作用于现有覆盖层，无需等待元数据刷新
+  watch([
+    () => settings.value.listenVideoCoverShape,
+    () => settings.value.listenVideoGlow,
+    () => settings.value.listenVideoGlowColor,
+    () => settings.value.listenVideoBackground,
+  ], () => {
+    controller?.refreshAppearance()
+  })
 }
 
 export async function toggleListenVideo() {

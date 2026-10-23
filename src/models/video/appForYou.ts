@@ -76,6 +76,23 @@ export interface Item {
   bottom_rcmd_reason?: string
   official_icon?: number
   bottom_rcmd_reason_style?: RcmdReasonStyle
+  /** 单列接口：desc 拆分后的作者与附加信息，extra 如「 · 10月5日」「等2人联合创作 · 3天前」 */
+  multiply_desc?: MultiplyDesc
+  /** 单列接口：点赞按钮，count 为点赞数 */
+  like_button?: LikeButton
+  /** 单列接口：已关注该 UP 主（没有「已关注」推荐理由） */
+  is_atten?: boolean
+}
+
+export interface MultiplyDesc {
+  author_name?: string
+  extra?: string
+}
+
+export interface LikeButton {
+  aid?: number
+  count?: number
+  show_count?: boolean
 }
 
 export interface RcmdReason {
@@ -402,6 +419,10 @@ export interface ThreePoint {
 
 export interface DislikeReason {
   id: number
+  // 同类原因（如多个「频道:xxx」）共用 id，靠下列字段区分具体对象
+  mid?: number
+  rid?: number
+  tag_id?: number
   name: string
   toast: ToastEnum
 }

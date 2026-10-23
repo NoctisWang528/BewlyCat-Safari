@@ -4,6 +4,7 @@ import { useToast } from 'vue-toastification'
 import browser from 'webextension-polyfill'
 
 import Button from '~/components/Button.vue'
+import Dialog from '~/components/Dialog.vue'
 import Radio from '~/components/Radio.vue'
 import {
   SAFARI_LATEST_RELEASE_API_URL,
@@ -14,19 +15,37 @@ import {
   UPSTREAM_REPOSITORY_URL,
 } from '~/constants/release'
 import { settings } from '~/logic'
-import { getBrowserInfo, parseBrowserInfo } from '~/utils/browserInfo'
+import type { BrowserInfo } from '~/utils/browserInfo'
+import { GET_BROWSER_INFO_MESSAGE, getBrowserInfo } from '~/utils/browserInfo'
+import { sendMessage } from '~/utils/messaging'
 
+import licenseText from '../../../../LICENSE?raw'
 import Maintenance from '../Advanced/Maintenance.vue'
 import SettingsItem from '../components/SettingsItem.vue'
 import SettingsItemGroup from '../components/SettingsItemGroup.vue'
 import SettingsSectionHeading from '../components/SettingsSectionHeading.vue'
 
+interface ThirdPartyLicense {
+  name: string
+  version: string
+  license: string
+  homepage?: string
+  licenseText?: string
+}
+
+// 由 scripts/thirdPartyLicenses.ts 在各构建产物中分别生成。
+const THIRD_PARTY_LICENSE_BUILDS = ['content', 'inject', 'background']
+
 const hasNewVersion = ref<boolean>(false)
 const contributorsImageFailed = ref(false)
 const contributorsImageUsingCloud = ref(false)
 const contributorsImageSrc = ref(browser.runtime.getURL('/assets/contributors.svg'))
-const browserInfo = ref(parseBrowserInfo())
+const browserInfo = ref<BrowserInfo>({ name: null, version: null })
 const isCopyingEnvironmentInfo = ref(false)
+const showLicenseDialog = ref(false)
+const showThirdPartyLicenseDialog = ref(false)
+const thirdPartyLicenses = ref<ThirdPartyLicense[] | null>(null)
+const thirdPartyLicensesFailed = ref(false)
 const { t } = useI18n()
 const toast = useToast()
 
@@ -34,7 +53,9 @@ const isDev = computed((): boolean => import.meta.env.DEV)
 
 onMounted(async () => {
   checkGitHubRelease()
-  browserInfo.value = await getBrowserInfo()
+  // 页面上下文的 UA 可能被防移动端跳转改写，由 background 读取真实浏览器信息
+  browserInfo.value = await sendMessage<undefined, BrowserInfo>(GET_BROWSER_INFO_MESSAGE)
+    .catch(() => getBrowserInfo())
 })
 
 async function checkGitHubRelease() {
@@ -59,6 +80,32 @@ function handleContributorImageError() {
     return
   }
   contributorsImageFailed.value = true
+}
+
+async function loadThirdPartyLicenses() {
+  const results = await Promise.allSettled(THIRD_PARTY_LICENSE_BUILDS.map(async (build) => {
+    const response = await fetch(browser.runtime.getURL(`/assets/third-party-licenses.${build}.json`))
+    if (!response.ok)
+      throw new Error(`Failed to load third-party licenses: ${build}`)
+    return (await response.json()).packages as ThirdPartyLicense[]
+  }))
+
+  const licenses = new Map<string, ThirdPartyLicense>()
+  for (const result of results) {
+    if (result.status !== 'fulfilled')
+      continue
+    for (const item of result.value)
+      licenses.set(`${item.name}@${item.version}`, item)
+  }
+
+  thirdPartyLicensesFailed.value = licenses.size === 0
+  thirdPartyLicenses.value = [...licenses.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function openThirdPartyLicenseDialog() {
+  showThirdPartyLicenseDialog.value = true
+  if (!thirdPartyLicenses.value)
+    void loadThirdPartyLicenses()
 }
 
 async function handleCopyEnvironmentInfo() {
@@ -228,8 +275,85 @@ async function handleCopyEnvironmentInfo() {
             >
           </a>
         </section>
+        <section w-full>
+          <h3 class="title">
+            {{ $t('settings.open_source_license') }}
+          </h3>
+          <p class="license-desc">
+            {{ $t('settings.open_source_license_desc') }}
+          </p>
+          <ul class="license-copyrights">
+            <li>
+              Copyright (c) 2025 Keleus ·
+              <a href="https://github.com/keleus/BewlyCat" target="_blank">BewlyCat</a>
+            </li>
+            <li>
+              Copyright (c) 2021 Hakadao ·
+              <a href="https://github.com/BewlyBewly/BewlyBewly" target="_blank">BewlyBewly</a>
+              ({{ $t('settings.original_project') }})
+            </li>
+          </ul>
+          <Button type="secondary" size="small" @click="showLicenseDialog = true">
+            <template #left>
+              <div i-tabler:license />
+            </template>
+            {{ $t('settings.view_full_license') }}
+          </Button>
+          <Button type="secondary" size="small" ml-2 @click="openThirdPartyLicenseDialog">
+            <template #left>
+              <div i-tabler:packages />
+            </template>
+            {{ $t('settings.view_third_party_licenses') }}
+          </Button>
+        </section>
       </section>
     </div>
+
+    <Dialog
+      v-if="showLicenseDialog"
+      :title="t('settings.open_source_license')"
+      width="640px"
+      content-max-height="60vh"
+      :show-footer="false"
+      append-to-bewly-body
+      @close="showLicenseDialog = false"
+    >
+      <pre class="license-text">{{ licenseText }}</pre>
+    </Dialog>
+
+    <Dialog
+      v-if="showThirdPartyLicenseDialog"
+      :title="t('settings.third_party_licenses')"
+      :desc="t('settings.third_party_licenses_desc')"
+      width="640px"
+      content-max-height="60vh"
+      :show-footer="false"
+      append-to-bewly-body
+      @close="showThirdPartyLicenseDialog = false"
+    >
+      <p v-if="thirdPartyLicensesFailed" class="license-desc">
+        {{ t('settings.third_party_licenses_failed') }}
+      </p>
+      <p v-else-if="!thirdPartyLicenses" class="license-desc">
+        {{ t('common.loading') }}
+      </p>
+      <div v-else class="third-party-license-list">
+        <details
+          v-for="item in thirdPartyLicenses"
+          :key="`${item.name}@${item.version}`"
+          class="third-party-license-item"
+        >
+          <summary>
+            <span class="third-party-license-name">{{ item.name }}</span>
+            <span class="third-party-license-meta">{{ item.version }} · {{ item.license }}</span>
+          </summary>
+          <a v-if="item.homepage" :href="item.homepage" target="_blank" class="third-party-license-link">
+            {{ item.homepage }}
+          </a>
+          <pre v-if="item.licenseText" class="license-text">{{ item.licenseText }}</pre>
+        </details>
+      </div>
+    </Dialog>
   </div>
 </template>
 
@@ -280,6 +404,80 @@ async function handleCopyEnvironmentInfo() {
   text-align: center;
   background: var(--bew-fill-1);
   border-radius: var(--bew-panel-radius);
+}
+
+.license-desc {
+  margin-bottom: var(--bew-space-2);
+  font-size: var(--bew-font-size-control);
+  line-height: var(--bew-line-height-control);
+  color: var(--bew-text-2);
+}
+
+.license-copyrights {
+  margin-bottom: var(--bew-space-3);
+  font-size: var(--bew-font-size-control);
+  line-height: var(--bew-line-height-control);
+  color: var(--bew-text-2);
+
+  a {
+    color: var(--bew-theme-color);
+  }
+}
+
+.license-text {
+  margin: 0;
+  font-family: inherit;
+  font-size: var(--bew-font-size-control);
+  line-height: var(--bew-line-height-control);
+  color: var(--bew-text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.third-party-license-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bew-space-2);
+}
+
+.third-party-license-item {
+  padding: var(--bew-space-2) var(--bew-space-3);
+  background: var(--bew-fill-1);
+  border-radius: var(--bew-radius);
+
+  summary {
+    display: flex;
+    gap: var(--bew-space-2);
+    align-items: baseline;
+    cursor: pointer;
+  }
+
+  &[open] summary {
+    margin-bottom: var(--bew-space-2);
+  }
+
+  .license-text {
+    margin-top: var(--bew-space-2);
+  }
+}
+
+.third-party-license-name {
+  font-size: var(--bew-font-size-control);
+  line-height: var(--bew-line-height-control);
+  color: var(--bew-text-1);
+}
+
+.third-party-license-meta {
+  font-size: var(--bew-font-size-caption);
+  line-height: var(--bew-line-height-caption);
+  color: var(--bew-text-3);
+}
+
+.third-party-license-link {
+  font-size: var(--bew-font-size-caption);
+  line-height: var(--bew-line-height-caption);
+  color: var(--bew-theme-color);
+  overflow-wrap: anywhere;
 }
 
 .link-card {

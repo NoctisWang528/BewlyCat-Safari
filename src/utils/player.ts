@@ -1,9 +1,10 @@
 // 更完善的播放器元素选择器
-import { MOMENTS_VIDEO_DIALOG_IFRAME_NAME } from '~/constants/globalEvents'
+import { VIDEO_DIALOG_IFRAME_NAME } from '~/constants/globalEvents'
 import { settings } from '~/logic'
 import type { AutoPlayMode, DefaultVideoPlayerMode, VideoPlayerModeContext, VideoPlayerModeOverride } from '~/logic/storage'
 import { getBilibiliPathname } from '~/utils/bilibiliLocale'
 import { i18n } from '~/utils/i18n'
+import { isImmersiveFeedFrame } from '~/utils/immersiveFeed'
 import { normalizePlaybackRate, normalizePlaybackRateStep } from '~/utils/playbackRate'
 import { getCachedCurrentVideoPageInfo, getCurrentVideoPageNumber } from '~/utils/videoPageInfo'
 
@@ -623,8 +624,8 @@ function isVideoPlayerModeOverride(value: unknown): value is VideoPlayerModeOver
     || value === 'bewlyWidescreen'
 }
 
-/** 动态视频弹窗的显示模式覆盖；未启用覆盖或选择继承时返回 null，交由视频所属场景决定。 */
-export function resolveMomentsDialogPlayerModeOverride(): DefaultVideoPlayerMode | null {
+/** 视频弹窗（动态页、视频卡片）的显示模式覆盖；未启用覆盖或选择继承时返回 null，交由视频所属场景决定。 */
+export function resolveVideoDialogPlayerModeOverride(): DefaultVideoPlayerMode | null {
   if (!settings.value.enableVideoPlayerModeOverrides)
     return null
 
@@ -633,11 +634,15 @@ export function resolveMomentsDialogPlayerModeOverride(): DefaultVideoPlayerMode
 }
 
 export function resolveDefaultVideoPlayerMode(): DefaultVideoPlayerMode {
+  // 首页沉浸式模式的视频页固定使用 Bewly 宽屏，侧栏显示首页推荐流
+  if (isImmersiveFeedFrame())
+    return 'bewlyWidescreen'
+
   if (!settings.value.enableVideoPlayerModeOverrides)
     return settings.value.defaultVideoPlayerMode
 
-  if (window.name === MOMENTS_VIDEO_DIALOG_IFRAME_NAME) {
-    const dialogMode = resolveMomentsDialogPlayerModeOverride()
+  if (window.name === VIDEO_DIALOG_IFRAME_NAME) {
+    const dialogMode = resolveVideoDialogPlayerModeOverride()
     if (dialogMode)
       return dialogMode
   }
