@@ -5,13 +5,12 @@
 [上游同步与维护手册](./UPSTREAM-MAINTENANCE-cmn_CN.md)，构建细节见
 [SAFARI.md](./SAFARI.md)，仓库约束见 [AGENTS.md](../AGENTS.md)。
 
-核对日期：2026-10-20；核对源码基线：`c6f24500`（APP DNR / 听视频修复），`package.json` 为
-`1.8.1` / `safariRevision: 1`。最近候选记录为
-[v1.8.1-safari.1](./compose/spec/sync-upstream-v1.8.1.md)，截至本文更新时
-已完成构建、自动校验与单副本安装，用户已确认 APP DNR 与听视频验收通过，
-并已[正式发布 v1.8.1-safari.1](https://github.com/NoctisWang528/BewlyCat-Safari/releases/tag/v1.8.1-safari.1)、核对资产与清理临时文件。接手时应
-重新读取当前 Git 状态和版本；本文不代表已重新检查远端 Release、本机证书
-或 Applications 中应用的现状。
+核对日期：2026-10-23；核对源码基线：`a0e63ff7`（Safari 适配上游 v1.8.2），
+`package.json` 为 `1.8.2` / `safariRevision: 1`。最近候选记录为
+[v1.8.2](./compose/spec/sync-upstream-v1.8.2.md)，截至本文更新时已完成合并、
+全量自动校验与签名构建，等待用户在 Safari 实机验收，尚未推送、打 tag 或发布
+Release。接手时应重新读取当前 Git 状态和版本；本文不代表已重新检查远端
+Release、本机证书或 Applications 中应用的现状。
 
 ## 新会话先做什么
 
@@ -71,7 +70,9 @@ LTS 要求，包管理器固定 `pnpm@10.21.0`；历史记录里出现过的具�
   `declarativeNetRequestWithHostAccess`；host permissions 限定 Bilibili / hdslb。
   `assets/rules.json` 仍须注册。不要因 packager 警告直接删掉功能或扩大域名。
 - 不生成 `persistent`、`world`、`match_about_blank`。保留 `all_frames` 与现有
-  URL 排除规则，iframe drawer 另做 Safari 验收。
+  URL 排除规则，包括 `match/game`、`toy` 和 B 站隐藏顶栏框架的
+  `*://message.bilibili.com/pages/nav/*`、`*://t.bilibili.com/pages/nav/*`（避免每个
+  标签页多一套存储监听与后台请求）；iframe drawer 与沉浸式 iframe 另做 Safari 验收。
 - content scripts 顺序是 `pageLoading.js` → `index.global.js`，在
   `document_start` 执行；MAIN-world bundle 通过可访问资源单独加载。
 - 当前 Vite shared config 与 tsup 都定义了 `process.env.SAFARI`；新增构建
@@ -83,6 +84,10 @@ LTS 要求，包管理器固定 `pnpm@10.21.0`；历史记录里出现过的具�
   断言导出函数，同时检查它在 web-accessible resources 中。
 - 后台依赖可能间接引入 Vue；tsup 的 Vue 编译期 feature flags 也需保留。
   仅给 Vite 配置 flag 不覆盖后台 bundle，需检查最终产物没有未替换的常量。
+- 第三方依赖许可由 `scripts/thirdPartyLicenses.ts` 在 content/inject/background
+  三处分别生成 `assets/third-party-licenses.*.json`；`assets/*` 已在
+  web-accessible resources 中，Safari 资源数由 22 增至 25。缺文件时 About 只提示
+  加载失败，不应让设置页崩溃，也不要为此放宽 host permissions。
 
 版本由 `package.json#version` + `safariRevision` 生成：展示/tag 为
 `vX.Y.Z-safari.N`，manifest 为 `X.Y.Z.N`，Xcode 两个 target 为
@@ -159,6 +164,13 @@ Safari 的添加/移除由 `APIClient` 统一分流到页面桥，使用页面�
 顶栏弹窗与视频卡片保留 pending、防连点、失败恢复及共享稍后再看状态。
 上游共享状态逻辑可继续演进，但底层 Safari 页面请求路由必须保留。
 
+`src/background/utils.ts` 的 `performApiRequest` 在 v1.8.2 增加了 undefined 守卫，
+但字段归属仍按 body 模板键是否存在判断：Safari 的结构化克隆会保留
+`aid: undefined` 这类占位键。若改成按值是否为 undefined 判断，`bvid`/`aid` 会被
+挪到 query，而 add/del 接口要求 form body。当前保留
+`Object.prototype.hasOwnProperty.call(body, key)` 语义，与上游守卫共存；改请求
+组装时先跑 `backgroundRequestAssembly.spec.ts`。
+
 回归至少检查首页卡片、顶栏动态、动态页、稍后再看列表、合集切集和播放后移除。
 批量添加已打开标签页的 URL 解析另见 `src/utils/openTabsWatchLater.ts`。
 
@@ -195,6 +207,10 @@ Safari 的添加/移除由 `APIClient` 统一分流到页面桥，使用页面�
   已移除的无 Cookie 页面搜索桥，也不能删掉匿名签名只做 credentials omit。
 - 当前缓存只复用标记可缓存的匿名 GET，带凭据请求直接执行，避免跨账号复用；
   session storage 缺失/失败时退化为进程内缓存，不假设其始终可用。
+- About 页的浏览器信息通过 `GET_BROWSER_INFO_MESSAGE` 由后台读取，注册在
+  `src/background/index.ts`。历史上合并曾丢失该注册，消息失败会静默回退页面 UA；
+  Safari 的页面 UA 可能被防移动端逻辑改写，显示结果会错误。调整后台 setup 顺序时
+  保留这条注册，并用 `about.spec.ts` 覆盖消息路径。
 
 响应返回 HTML 可能是风控，不能当普通 JSON。日志和交接证据不得包含 Cookie、
 CSRF、token、完整认证头或带密钥的请求 URL。
@@ -260,6 +276,27 @@ bundle ID、Release 版本与签名配置。不能为每个 CSS 修改反复重�
 尤其避免在源码/构建 commit 变化后压入旧 app。脚本会覆盖公共 `SHA256SUMS.txt`
 及同名 zip，不能把它当多版本资产归档器。
 
+### 9. v1.8.2 新增功能的 Safari 风险面
+
+- 环境光 Ambilight：`src/utils/ambilight/ambilightEngine.ts` 把 `<video>` drawImage
+  到 canvas 取色；跨域媒体可能使 canvas tainted 或抛异常，引擎已用 try/catch 降级为
+  不绘制，不能当成崩溃。验收确认普通/网页全屏/剧场模式下是否出现环境光，关闭后
+  宿主节点是否移除，以及性能与控制台异常。
+- 沉浸式模式：`src/contentScripts/immersiveFeedFrame.ts` 在 iframe 内运行（content
+  script 仍 `all_frames`），用 `window.name` 区分预加载帧、`postMessage` 与首页通信、
+  IntersectionObserver 加载更多，并在原生播放器控制栏插入上一条/下一条。Safari
+  手测覆盖从首页卡片进入、连续切换、预加载帧保持暂停、返回退出、iframe 内控制台
+  无跨域/CSP 错误。
+- 动态页推荐模式（Web / Web 游客 / App 单列 / App 双列）与动态列数：确认布局、
+  滚动与设置持久化；App 模式仍依赖既有 APP endpoint 与 DNR 规则。
+- 关于页开源协议与第三方依赖：按钮拉取 `assets/third-party-licenses.*.json`，缺文件
+  只显示失败提示；`LICENSE?raw` 由 Vite 内联。浏览器信息改由后台读取（见第 5 节）。
+- `src/background/extensionCacheStore.ts` 使用后台 IndexedDB 保存动态推荐缓存
+  （`momentsFeedCache`）；Safari 后台 page 可用 IndexedDB，但重启/清缓存后应能重建，
+  不依赖 `storage.session`。
+- SO 快捷键仅播放器全屏生效、中英文间自动空隙、多标签存储广播合并均属纯前端
+  逻辑，随对应页面一起手测。
+
 ## 历史记录与检索证据
 
 以下 commit 是本地历史中的定位入口；部分修复被并入版本适配提交，未独立提交。
@@ -279,6 +316,7 @@ bundle ID、Release 版本与签名配置。不能为每个 CSS 修改反复重�
 | `f8957dba`、`b24d7962`、`7d052861`（v1.8.1） | 合并 HD 推荐与固定 APP client；收窄 page-world 钩子并隔离补丁；Safari 会话 DNR 移除 `tabIds`，随后尝试移除 `sec-ch-ua*`，但后者未解决规则拒绝 | 已更正根因：旧 `1002` 的分支正则被 WebKit 拒绝，不能把请求头推测当成已验证结论 |
 | `c6f24500`（v1.8.1 候选修复） | 拆分扫码/刷新 DNR 为无分支规则；听视频独立 ESM，后台/pageLoading 保持 IIFE | 不恢复旧 `1002` 的 alternation；动态 import 的命名导出必须检查实际产物；Safari 手测仍由用户完成 |
 | `98ed387c` 交付记录 | 记录 macOS 同步产生的 `* 2` 副本干扰 knip / Git refs | 先辨认重复文件与来源；不要批量删除名字含空格/数字的正常文件或手改 Git refs |
+| `9d840cd1`、`a0e63ff7`（v1.8.2） | 合并环境光、沉浸式 iframe、推荐模式、动态列数、About 许可与 IndexedDB 缓存；恢复后台 browser info 注册；请求组装保留 body 模板键语义 | 上游新增 undefined 守卫不能改变 Safari 的 form body 字段归属；iframe/画布/IndexedDB 需实机手测 |
 
 按文件追查即可，不需要重新依赖旧聊天：
 
@@ -302,6 +340,9 @@ git show aa3d2f70 -- src/utils/storageWriteQueue.ts src/tests/storageWriteQueue.
 | 休眠后授权失败 | alarms、按需刷新、共享 promise、请求最终签名；只看设置页 token 存在不够 |
 | 设置不持久、壁纸替换失败 | 配额 vs Disk I/O、入口是否导入守卫、local-only 协调器、原子提交成功后再更新内存 |
 | 包签名通过但版本错误 | 父 App 与 Extension 的 Info.plist、最终 zip 内 app、资源一致性、实际 arm64 架构 |
+| 环境光不显示 | 设置是否开启、页面是否受支持、video 跨域导致 canvas tainted（引擎已捕获降级）、最终 app 资源 |
+| 沉浸式模式空白或重复 | iframe 是否加载、`window.name` 预加载状态、`postMessage` origin、`all_frames`、控制台 CSP/跨域错误 |
+| 关于页浏览器信息错误或为空 | `GET_BROWSER_INFO_MESSAGE` 是否注册、后台上下文、消息失败后的页面 UA 回退 |
 
 手测以真实 macOS Safari 为准，至少记录准确 macOS/Safari/Xcode 版本、提交和
 未测项。Vitest/mock、Linux CI、Chromium 或自动化 WebKit 都不能代替 Safari
