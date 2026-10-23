@@ -48,6 +48,8 @@ describe('safari manifest', () => {
       exclude_matches: [
         '*://www.bilibili.com/match/game*',
         '*://www.bilibili.com/toy*',
+        '*://message.bilibili.com/pages/nav/*',
+        '*://t.bilibili.com/pages/nav/*',
       ],
       js: ['./dist/contentScripts/pageLoading.js', './dist/contentScripts/index.global.js'],
     })

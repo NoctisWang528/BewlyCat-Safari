@@ -6,6 +6,7 @@ import About from '~/components/Settings/About/About.vue'
 
 const mocks = vi.hoisted(() => ({
   getURL: vi.fn((path: string) => `safari-extension://bewlycat${path}`),
+  sendMessage: vi.fn(),
 }))
 
 vi.mock('webextension-polyfill', () => ({
@@ -14,6 +15,10 @@ vi.mock('webextension-polyfill', () => ({
       getURL: mocks.getURL,
     },
   },
+}))
+
+vi.mock('~/utils/messaging', () => ({
+  sendMessage: mocks.sendMessage,
 }))
 
 vi.mock('~/composables/useConfirmDialog', () => ({
@@ -86,6 +91,16 @@ function mountAbout() {
           reset_settings: 'Reset Settings',
           safari_github: 'Safari GitHub',
           upstream_github: 'Upstream GitHub',
+          environment_browser: 'Browser',
+          environment_browser_version: 'Browser version',
+          environment_bewlycat_version: 'BewlyCat version',
+          open_source_license: 'Open Source License',
+          open_source_license_desc: 'License description',
+          view_full_license: 'View Full License',
+          view_third_party_licenses: 'Third-Party Licenses',
+          third_party_licenses: 'Third-Party Licenses',
+          third_party_licenses_desc: 'Third-party dependencies',
+          third_party_licenses_failed: 'Failed to load third-party licenses',
         },
       },
     },
@@ -98,6 +113,7 @@ function mountAbout() {
 describe('settings about page', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.sendMessage.mockResolvedValue({ name: 'Apple Safari', version: '26.0' })
   })
 
   afterEach(() => {
@@ -106,12 +122,12 @@ describe('settings about page', () => {
   })
 
   it('shows Safari branding and keeps distinct repository links in order', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(successfulReleaseResponse('v1.8.1-safari.1')))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(successfulReleaseResponse('v1.8.2-safari.1')))
     const { app, root } = mountAbout()
     await flushReleaseCheck()
 
     expect(root.querySelector('.product-name')?.textContent).toBe('BewlyCat-Safari')
-    expect(root.querySelector('.version-link')?.textContent?.trim()).toBe('v1.8.1-safari.1')
+    expect(root.querySelector('.version-link')?.textContent?.trim()).toBe('v1.8.2-safari.1')
 
     const links = Array.from(root.querySelectorAll<HTMLAnchorElement>('.link-card'))
     expect(links.map(link => ({
@@ -140,7 +156,7 @@ describe('settings about page', () => {
   })
 
   it('checks Safari releases and shows NEW for a different full tag', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(successfulReleaseResponse('v1.8.1-safari.2'))
+    const fetchMock = vi.fn().mockResolvedValue(successfulReleaseResponse('v1.8.2-safari.2'))
     vi.stubGlobal('fetch', fetchMock)
     const { app, root } = mountAbout()
     await flushReleaseCheck()
@@ -158,7 +174,7 @@ describe('settings about page', () => {
 
   it('hides NEW for the exact current tag and when the release check fails', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(successfulReleaseResponse('v1.8.1-safari.1'))
+      .mockResolvedValueOnce(successfulReleaseResponse('v1.8.2-safari.1'))
       .mockRejectedValueOnce(new Error('offline'))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -180,7 +196,7 @@ describe('settings about page', () => {
       configurable: true,
       value: { writeText },
     })
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(successfulReleaseResponse('v1.8.1-safari.1')))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(successfulReleaseResponse('v1.8.2-safari.1')))
 
     const { app, root } = mountAbout()
     await flushReleaseCheck()
@@ -193,7 +209,7 @@ describe('settings about page', () => {
     copyButton?.click()
     await Promise.resolve()
 
-    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('BewlyCat-Safari 1.8.1-safari.1'))
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('BewlyCat-Safari 1.8.2-safari.1'))
     app.unmount()
   })
 })
