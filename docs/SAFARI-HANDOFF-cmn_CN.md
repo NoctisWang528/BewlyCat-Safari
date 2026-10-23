@@ -5,11 +5,10 @@
 [上游同步与维护手册](./UPSTREAM-MAINTENANCE-cmn_CN.md)，构建细节见
 [SAFARI.md](./SAFARI.md)，仓库约束见 [AGENTS.md](../AGENTS.md)。
 
-核对日期：2026-10-23；核对源码基线：`f37c8241`（Safari 适配上游 v1.8.2 后重建候选），
-`package.json` 为 `1.8.2` / `safariRevision: 1`。最近候选记录为
-[v1.8.2](./compose/spec/sync-upstream-v1.8.2.md)，截至本文更新时已完成合并、
-全量自动校验、签名构建与单副本安装（`/Applications/BewlyCat Safari.app`），
-等待用户在 Safari 实机验收，尚未推送、打 tag 或发布 Release。接手时应重新读取当前 Git 状态和版本；本文不代表已重新检查远端
+核对日期：2026-10-23；核对源码基线：`236b2b9b`（`v1.8.2-safari.1` 发布提交），
+`package.json` 为 `1.8.2` / `safariRevision: 1`。最近发布记录为
+[v1.8.2](./compose/spec/sync-upstream-v1.8.2.md)，已完成合并、全量自动校验、
+发布构建与 GitHub Release；安装应用与发布 zip 逐文件一致。接手时应重新读取当前 Git 状态和版本；本文不代表已重新检查远端
 Release、本机证书或 Applications 中应用的现状。
 
 ## 新会话先做什么
@@ -317,6 +316,7 @@ bundle ID、Release 版本与签名配置。不能为每个 CSS 修改反复重�
 | `c6f24500`（v1.8.1 候选修复） | 拆分扫码/刷新 DNR 为无分支规则；听视频独立 ESM，后台/pageLoading 保持 IIFE | 不恢复旧 `1002` 的 alternation；动态 import 的命名导出必须检查实际产物；Safari 手测仍由用户完成 |
 | `98ed387c` 交付记录 | 记录 macOS 同步产生的 `* 2` 副本干扰 knip / Git refs | 先辨认重复文件与来源；不要批量删除名字含空格/数字的正常文件或手改 Git refs |
 | `9d840cd1`、`a0e63ff7`（v1.8.2） | 合并环境光、沉浸式 iframe、推荐模式、动态列数、About 许可与 IndexedDB 缓存；恢复后台 browser info 注册；请求组装保留 body 模板键语义 | 上游新增 undefined 守卫不能改变 Safari 的 form body 字段归属；iframe/画布/IndexedDB 需实机手测 |
+| `236b2b9b`（v1.8.2 发布） | 按发布提交重建，tag `v1.8.2-safari.1` 与 GitHub Release 发布；zip 与安装应用逐文件一致 | 发布构建的 commit 必须与 tag 和 `extension-safari/` 一致；文档提交后重建会改变内嵌构建标识 |
 
 按文件追查即可，不需要重新依赖旧聊天：
 
