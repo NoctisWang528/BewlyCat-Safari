@@ -1,6 +1,6 @@
 /**
- * Mirror the custom homepage viewport onto the document so scroll commands
- * targeting document.scrollingElement can reach content inside its shadow root.
+ * 将自定义首页滚动位置映射到文档，兼容以 document.scrollingElement 为目标的快捷键。
+ * 原生滚动输入优先，文档镜像事件不能反向覆盖正在滚动的视口。
  */
 export function installScrollBridge(viewport: HTMLElement): () => void {
   const previousScrollbarWidth = document.documentElement.style.scrollbarWidth
@@ -26,10 +26,7 @@ export function installScrollBridge(viewport: HTMLElement): () => void {
     scrollDriver = driver
     clearTimeout(releaseDriverTimer)
     releaseDriverTimer = setTimeout(() => {
-      if (scrollDriver === 'document')
-        viewport.scrollTo({ top: window.scrollY, behavior: 'instant' })
-      else
-        window.scrollTo({ top: viewport.scrollTop, behavior: 'instant' })
+      // 这里只释放控制权；再次写入位置会打断 Safari 的惯性滚动或拉回旧位置。
       scrollDriver = null
       mirroredDocumentTop = null
     }, 150)
@@ -44,6 +41,12 @@ export function installScrollBridge(viewport: HTMLElement): () => void {
     if (Math.abs(viewport.scrollTop - top) < 1)
       return
 
+    // 原生视口优先；旧镜像回声也必须同步到当前视口，不能留下过期位置。
+    if (scrollDriver === 'viewport') {
+      mirrorViewportToDocument()
+      return
+    }
+
     if (mirroredDocumentTop !== null && Math.abs(mirroredDocumentTop - top) < 1) {
       mirroredDocumentTop = null
       return
@@ -54,16 +57,24 @@ export function installScrollBridge(viewport: HTMLElement): () => void {
     viewport.scrollTo({ top, behavior: 'instant' })
   }
 
-  function handleViewportScroll() {
+  function mirrorViewportToDocument() {
     const top = viewport.scrollTop
     if (Math.abs(window.scrollY - top) < 1)
       return
-    if (scrollDriver === 'document')
-      return
-
-    keepScrollDriver('viewport')
     mirroredDocumentTop = top
     window.scrollTo({ top, behavior: 'instant' })
+  }
+
+  function handleViewportScroll() {
+    if (Math.abs(window.scrollY - viewport.scrollTop) < 1)
+      return
+    keepScrollDriver('viewport')
+    mirrorViewportToDocument()
+  }
+
+  function handleViewportInput() {
+    // 在首个 scroll 事件之前接管，避免旧文档事件抢先覆盖新的滚轮方向。
+    keepScrollDriver('viewport')
   }
 
   const resizeObserver = new ResizeObserver(updateDocumentHeight)
@@ -75,11 +86,15 @@ export function installScrollBridge(viewport: HTMLElement): () => void {
   updateDocumentHeight()
   window.addEventListener('scroll', handleDocumentScroll, { passive: true })
   viewport.addEventListener('scroll', handleViewportScroll, { passive: true })
+  viewport.addEventListener('wheel', handleViewportInput, { passive: true })
+  viewport.addEventListener('touchstart', handleViewportInput, { passive: true })
 
   return () => {
     resizeObserver.disconnect()
     window.removeEventListener('scroll', handleDocumentScroll)
     viewport.removeEventListener('scroll', handleViewportScroll)
+    viewport.removeEventListener('wheel', handleViewportInput)
+    viewport.removeEventListener('touchstart', handleViewportInput)
     clearTimeout(releaseDriverTimer)
     spacer.remove()
     document.documentElement.style.scrollbarWidth = previousScrollbarWidth
