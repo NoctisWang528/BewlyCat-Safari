@@ -1,6 +1,6 @@
 ---
 feature: fix-safari-home-scroll
-status: candidate-preparation
+status: candidate-installed-awaiting-acceptance
 updated: 2026-10-30
 branch: codex/fix-safari-home-scroll
 ---
@@ -25,11 +25,20 @@ Xcode Beta 27.0 (27A5209h)。
 
 ## 构建与安装
 
-待冻结源码提交后填写实测结果。复用现有 Xcode 工程，通过 sync-safari-xcode
+源码/构建提交为 `69cae920d2e71c32bdf5110628524637fcc507c8`。复用现有 Xcode 工程，通过 sync-safari-xcode
 同步资源，Xcode Beta Release arm64、Team W5J4JBH2BR、Apple Development 签名。
-安装前检查严格签名、版本、架构与三方资源一致性，失败即停止。
-唯一候选安装到 /Applications/BewlyCat Safari.app；按用户明确要求删除旧完整
-应用与构建目录中的完整应用副本，保留中间缓存、Xcode 工程与历史 release 资产。
+Release arm64 构建成功，安装前后父 App 与扩展的严格 codesign、版本 1.8.2 (2)、
+arm64 架构均通过；签名团队 W5J4JBH2BR，Apple Development，未 notarize。
+25 个资源在 extension-safari、Xcode Resources 与安装应用中一致，聚合 SHA-256：
+`5ac7ccc3271820e7ff73c5a06e1bf7e455e8bb06c0b6ef1a39826fbd08cfae6e`。
+候选在上述源码提交冻结后构建；后续交付记录提交仅修改文档，不重建或更换候选。
+唯一候选已安装到 `/Applications/BewlyCat Safari.app`。安装前正常退出 Safari 和
+BewlyCat，删除旧安装应用；新应用复核通过后注销并删除
+`~/Library/Developer/Xcode/DerivedData/BewlyCat_Safari-v182-scroll/Build/Products/Release/BewlyCat Safari.app`。
+保留该 DerivedData 的中间缓存、现有 Xcode 工程及历史 release 资产。
+工程两 target 的 CURRENT_PROJECT_VERSION 同步为 2，签名和 bundle ID 不变。
+mdfind、find /Applications 与 DerivedData、pluginkit 复核仅余安装路径的完整应用
+和一个注册扩展副本。未启动 Safari 执行用户验收流程。
 
 ## 验收与发布边界
 
