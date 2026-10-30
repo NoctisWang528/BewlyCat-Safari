@@ -1,6 +1,6 @@
 ---
 feature: fix-safari-home-scroll
-status: candidate-installed-awaiting-acceptance
+status: released
 updated: 2026-10-30
 branch: codex/fix-safari-home-scroll
 ---
@@ -40,8 +40,17 @@ BewlyCat，删除旧安装应用；新应用复核通过后注销并删除
 mdfind、find /Applications 与 DerivedData、pluginkit 复核仅余安装路径的完整应用
 和一个注册扩展副本。未启动 Safari 执行用户验收流程。
 
-## 验收与发布边界
+## 验收与发布
 
-待用户在自适应、单列和双列首页验证连续滚轮、反向滚动、触控板惯性、停顿后
-文档快捷键、到底加载及回到顶部，并确认控制台无错误。
-本次仅本地提交、构建与安装，不推送、不打 tag、不创建 Release、不发 GitHub 评论。
+2026-10-30 用户明确确认自适应、单列、双列首页滚动均正常，并授权发布及回复关闭 Issue #1。
+
+- main 已快进到 cc9a5a74 并推送 origin；CI run 41016671866 全部通过。
+- 注释 tag `v1.8.2-safari.2` 指向已验收的源码/构建提交 `69cae920`，main 额外保留文档记录。
+- [GitHub Release](https://github.com/NoctisWang528/BewlyCat-Safari/releases/tag/v1.8.2-safari.2) 已发布。
+- zip 直接封装已验收安装应用，解压后逐文件一致，严格签名、版本、arm64 复检通过。
+- zip 大小 2,481,732 字节，SHA-256：`d8b893f33238e99ff0869d3926bb85ab498fa21640a355fc0991dfe12abfdf80`。
+- GitHub zip 与 SHA256SUMS.txt 的大小和 digest 已回读，与本地一致。
+- Release notes、README 的 Safari 贡献者列表明确感谢 GuZhengSVT 的问题报告、排查与 PR #2 修复思路和测试。
+- 发布成功后将 BewlyCat_Safari-v182-scroll DerivedData 移至废纸篓的
+  `BewlyCat-post-v1.8.2-safari.2-20261030`，删除本次解压校验与 PR 检查临时目录。
+- 保留 `/Applications/BewlyCat Safari.app`、`extension-safari-macos/` 和 `release/` 资产；未替换用户已验收应用。

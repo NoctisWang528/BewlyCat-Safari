@@ -172,6 +172,12 @@ DNR、后台生命周期和 Xcode 打包逻辑。
 提交问题时请附上 macOS、Safari、Xcode 和 BewlyCat-Safari 的准确版本，以及
 能够复现问题的步骤。请勿公开 Cookie、CSRF、access token 或其他登录凭据。
 
+### Safari 贡献者
+
+- [GuZhengSVT](https://github.com/GuZhengSVT)：发现并排查首页三种布局的滚轮卡顿与回滚问题，
+  提交 [Issue #1](https://github.com/NoctisWang528/BewlyCat-Safari/issues/1)
+  和 [PR #2](https://github.com/NoctisWang528/BewlyCat-Safari/pull/2)，提供原生滚动优先的修复思路与回归测试。
+
 ## 致谢
 
 - [keleus/BewlyCat](https://github.com/keleus/BewlyCat)：本项目的上游基础
