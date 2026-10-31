@@ -1,6 +1,6 @@
 ---
 feature: sync-upstream-v1.8.3
-status: candidate-preparation
+status: candidate-installed-awaiting-acceptance
 updated: 2026-10-31
 branch: codex/sync-upstream-v1.8.3
 ---
@@ -37,4 +37,17 @@ branch: codex/sync-upstream-v1.8.3
 冻结依赖安装、lint、typecheck、knip、test（27 文件 / 215 项）、build 和
 validate-safari 均通过。生成 manifest 为 1.8.3.1，无新增 host 权限。
 Node 24.19.0、pnpm 10.21.0、macOS 27.2 (26B123)、Safari 27.2、
-Xcode Beta 27.0 (27A5209h)。待记录最终签名构建身份和安装结果。实机验收尚未进行。
+Xcode Beta 27.0 (27A5209h)。实机验收尚未进行。
+
+## 签名候选交付
+
+源码/构建提交：5829ba91f325e5c01a4b447c365490f700b38dc7；后续仅补交付文档。
+pnpm package-safari 重建工程，Xcode Release arm64 构建成功。父 App 与扩展均为
+1.8.3 (1)，Apple Development / Team W5J4JBH2BR，未 notarize；严格 codesign 通过。
+27 个资源三方一致，聚合 SHA-256 为
+`080d9c40c3afa8bf462b0e1e165e5e424069877c035b8daf080afc66e8b7dcc3`。
+
+已退出 Safari/BewlyCat 并安装到 `/Applications/BewlyCat Safari.app`，安装后版本、
+架构、签名与资源复检通过。延续用户唯一候选要求，移除旧完整应用及 DerivedData
+中的完整 app，保留中间缓存、Xcode 工程和已校验的 v1.8.2-safari.2 发布 zip。
+仅注册安装路径中的扩展。尚未推送、创建 Safari tag 或 Release，等待用户验收。
