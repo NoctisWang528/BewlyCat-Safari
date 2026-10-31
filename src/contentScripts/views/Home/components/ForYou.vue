@@ -2056,6 +2056,14 @@ defineExpose({
     return false
   },
 })
+
+function getItemDisplayData(item: VideoElement | AppVideoElement) {
+  return item.displayData
+}
+
+function getItemKey(item: VideoElement | AppVideoElement) {
+  return item.uniqueId
+}
 </script>
 
 <template>
@@ -2068,8 +2076,8 @@ defineExpose({
       :no-more-content="noMoreContent"
       :need-to-login-first="needToLoginFirst"
       :request-failed="requestFailed"
-      :transform-item="(item: VideoElement | AppVideoElement) => item.displayData"
-      :get-item-key="(item: VideoElement | AppVideoElement, index?: number) => `${item.uniqueId}-${index ?? 0}`"
+      :transform-item="getItemDisplayData"
+      :get-item-key="getItemKey"
       :video-type="isWebRecommendationMode ? 'rcmd' : 'appRcmd'"
       :card-exposure-handler="markWebRecommendationExposed"
       :card-click-observer="recordWebRecommendationClick"

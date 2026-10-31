@@ -95,17 +95,20 @@ function resetAmbilightEffects() {
 
 <template>
   <SettingsItemGroup :title="t('settings.ambilight.title')">
-    <SettingsItem :title="t('settings.ambilight.enable')" :desc="t('settings.ambilight.enable_desc')" right-width="auto">
+    <SettingsItem
+      :title="t('settings.ambilight.enable')"
+      :badge="t('settings.badge_performance_impact')"
+      right-width="auto"
+    >
+      <template #desc>
+        <span>{{ t('settings.ambilight.enable_desc') }}</span>
+        <span block class="bew-warning-text">{{ t('common.performance_impact_warn') }}</span>
+      </template>
+
       <Radio v-model="settings.ambilightEnabled" />
     </SettingsItem>
 
     <template v-if="settings.ambilightEnabled">
-      <SettingsItemSubgroup :title="t('settings.ambilight.subgroup_scenes')">
-        <SettingsItem :title="t('settings.ambilight.enable_fullscreen')" :desc="t('settings.ambilight.enable_fullscreen_desc')" right-width="auto">
-          <Radio v-model="settings.ambilightEnableFullscreen" />
-        </SettingsItem>
-      </SettingsItemSubgroup>
-
       <SettingsItemSubgroup
         :title="t('settings.ambilight.subgroup_effects')"
         :desc="t('settings.ambilight.subgroup_effects_desc')"
@@ -128,23 +131,40 @@ function resetAmbilightEffects() {
         </SettingsItem>
 
         <SettingsItem :title="t('settings.ambilight.strength')">
-          <Slider v-model="settings.ambilightStrength" :min="0" :max="150" :label="`${settings.ambilightStrength}%`" />
+          <div class="slider-control">
+            <Slider v-model="settings.ambilightStrength" :min="0" :max="150" :label="`${settings.ambilightStrength}%`" />
+          </div>
         </SettingsItem>
 
         <SettingsItem :title="t('settings.ambilight.spread')">
-          <Slider v-model="settings.ambilightSpread" :min="30" :max="400" :label="`${settings.ambilightSpread}%`" />
+          <div class="slider-control">
+            <Slider
+              v-model="settings.ambilightSpread"
+              :min="30"
+              :max="400"
+              editable
+              unit="%"
+              :aria-label="t('settings.ambilight.spread')"
+            />
+          </div>
         </SettingsItem>
 
         <SettingsItem :title="t('settings.ambilight.smoothing')">
-          <Slider v-model="settings.ambilightSmoothing" :min="0" :max="95" :label="`${settings.ambilightSmoothing}%`" />
+          <div class="slider-control">
+            <Slider v-model="settings.ambilightSmoothing" :min="0" :max="95" :label="`${settings.ambilightSmoothing}%`" />
+          </div>
         </SettingsItem>
 
         <SettingsItem :title="t('settings.ambilight.blur')">
-          <Slider v-model="settings.ambilightBlur" :min="20" :max="140" :label="`${settings.ambilightBlur}px`" />
+          <div class="slider-control">
+            <Slider v-model="settings.ambilightBlur" :min="20" :max="140" :label="`${settings.ambilightBlur}px`" />
+          </div>
         </SettingsItem>
 
         <SettingsItem :title="t('settings.ambilight.saturation')">
-          <Slider v-model="settings.ambilightSaturation" :min="50" :max="200" :label="`${settings.ambilightSaturation}%`" />
+          <div class="slider-control">
+            <Slider v-model="settings.ambilightSaturation" :min="50" :max="200" :label="`${settings.ambilightSaturation}%`" />
+          </div>
         </SettingsItem>
       </SettingsItemSubgroup>
 
@@ -159,3 +179,14 @@ function resetAmbilightEffects() {
     </template>
   </SettingsItemGroup>
 </template>
+
+<style lang="scss" scoped>
+.slider-control {
+  width: 260px;
+
+  // 扩散为输入模式；其余只读数值区与输入框等宽，使同组滑块轨道两端对齐。
+  :deep(.b-slider) {
+    --b-slider-label-width: var(--b-slider-input-width);
+  }
+}
+</style>

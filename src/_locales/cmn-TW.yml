@@ -46,6 +46,7 @@ common:
     delete: 刪除
     confirm: 確定
     cancel: 取消
+    close: 關閉
     enable: 啟用
     disable: 停用
     refresh: 重新整理
@@ -123,9 +124,7 @@ settings:
   ambilight:
     title: 影片環境光
     enable: 啟用影片環境光
-    enable_desc: 在影片播放頁四周投射隨畫面變化的柔和環境光，增強觀影沉浸感。
-    enable_fullscreen: 全螢幕與網頁全螢幕時啟用
-    enable_fullscreen_desc: 進入全螢幕或網頁全螢幕時保持環境光；關閉後全螢幕時暫停環境光。
+    enable_desc: 在影片播放頁四周投射隨畫面變化的柔和環境光，增強觀影沉浸感。僅在預設與寬螢幕播放器下生效，全螢幕、網頁全螢幕與 Bewly 寬螢幕時自動關閉。
     preset: 光效預設
     preset_soft: 柔和
     preset_cinema: 影院
@@ -135,7 +134,6 @@ settings:
     smoothing: 過渡平滑
     blur: 柔化程度
     saturation: 色彩飽和度
-    subgroup_scenes: 適用場景
     subgroup_effects: 光效調節
     subgroup_effects_desc: 調整光線發光強度、擴散範圍與色彩過渡質感。
     subgroup_performance: 渲染性能
@@ -146,8 +144,6 @@ settings:
     fps_30: 30 fps · 流暢
   local_loudness:
     gain_history: 均衡增益變化 · 近 60 秒
-    show_button: 顯示播放器音量均衡按鈕
-    show_button_desc: 在影片控制列顯示按鈕，懸停可調整均衡參數並查看目前影片的執行狀態。隱藏按鈕不會關閉均衡。
     summary: 平衡不同影片之間的音量，減少切換影片時的大小聲差異。
     title: 音量均衡
     enable: 啟用局部音量均衡
@@ -164,6 +160,23 @@ settings:
       error: 音訊處理失敗，已回復原聲。重新整理頁面後可重試。
       native-unavailable: 無法確認原生均衡已關閉，暫不處理。請檢查播放器的更多播放設定。
       unsupported: 目前音源無法安全接入，保持原聲。
+  player_adjustment:
+    title: 畫面與聲音調整
+    show_button: 顯示播放器畫面與聲音調整按鈕
+    show_button_desc: 在影片控制列顯示按鈕，懸停可旋轉、鏡像畫面，調整音畫同步；開啟音量均衡後也可在此調整均衡參數。旋轉、鏡像和音畫同步只對目前影片生效；隱藏按鈕會重設這些調整，但不會關閉音量均衡。
+    picture: 畫面
+    rotate_left: 向左旋轉
+    rotate_right: 向右旋轉
+    flip_horizontal: 水平鏡像
+    flip_vertical: 垂直鏡像
+    reset: 重設
+    audio_sync: 音畫同步
+    audio_delay: 聲音延後
+    audio_delay_desc: 聲音比畫面早時使用，最多延後 1000 ms。僅對目前影片生效。
+    audio_delay_states:
+      waiting: 等待影片播放後生效。
+      unsupported: 目前音源無法安全接入，保持原聲。
+      error: 音訊處理失敗，已回退到原聲。重新整理頁面後可重試。
   following_sort: 新版關注列表排序
   following_sort_updated: 按更新時間
   following_sort_group: 按分組
@@ -288,6 +301,8 @@ settings:
   group_player_components: 播放器組件
   group_player_display_mode: 播放模式
   group_player_display_mode_desc: 設定基礎顯示模式，並依需要覆寫特定播放情境。
+  group_bewly_widescreen: Bewly 寬螢幕
+  group_bewly_widescreen_desc: 調整 Bewly 寬螢幕模式下的側欄與影片版面，可透過播放器按鈕或快捷鍵隨時切換。
   group_playback_memory: 播放狀態記憶
   group_playback_memory_desc: 選擇是否記住倍速、畫質和影片比例。
   group_video_page_actions: 影片頁功能
@@ -363,6 +378,10 @@ settings:
   original_moments_show_up_list: 顯示動態 UP 橫幅
   original_moments_use_bewly_filters: 過濾原版動態流
   original_moments_use_bewly_filters_desc: 啟用後，以上動態類型與關鍵詞過濾設定也會套用至 Bilibili 原版動態頁。
+  original_moments_show_fold_comments_button: 顯示收起留言按鈕
+  original_moments_show_fold_comments_button_desc: 在 Bilibili 原版動態頁的評論區底部顯示「收起留言」按鈕。
+  original_moments_click_blank_to_fold_comments: 點擊空白處收起留言
+  original_moments_click_blank_to_fold_comments_desc: 啟用後，在原版動態頁展開評論，點擊動態卡片兩側的空白區域即可收起留言。
   moments_show_user_card: 顯示使用者卡片
   moments_show_publish: 顯示發布動態元件
   moments_show_live: 顯示正在直播元件
@@ -379,6 +398,8 @@ settings:
   moments_enable_video_preview_desc: 滑鼠懸停影片動態或轉發影片時播放預覽，可設定觸發範圍、延遲和播放互動。
   moments_grid_columns: 動態欄數
   moments_tabs_position: 動態標籤列位置
+  moments_start_from_last_seen: 從上次看到的位置開始載入
+  moments_start_from_last_seen_desc: 開啟外掛動態頁和頂欄動態下拉時直接定位到上次看到的位置，可向上繼續載入更新的動態。關閉後從最新開始載入，仍可點擊按鈕跳轉到上次看到的位置。
   moments_grid_columns_desc: 設定 Bewly 動態頁的欄數，視窗空間不足時會自動減少。
   moments_grid_columns_option: '{count} 欄'
   moments_grid_columns_more: 更多
@@ -727,7 +748,7 @@ settings:
   show_recommendation_mode_switcher: 顯示推薦模式快速切換按鈕組
   show_recommendation_mode_switcher_desc: 選取首頁「為你推薦」時，在頂部分頁列右側顯示膠囊按鈕組，可直接選擇 Web、Web 訪客、App 單列或 App 雙列。
   recommendation_mode_switcher_options: 顯示的推薦模式
-  recommendation_mode_switcher_options_desc: 選擇快速切換按鈕組中顯示的選項，至少保留 2 個。
+  recommendation_mode_switcher_options_desc: 選擇快速切換按鈕組中顯示的選項，拖動可調整順序；至少保留 2 個。
   show_immersive_mode_entry: 啟用沉浸式模式
   show_immersive_mode_entry_desc: 選取首頁「為你推薦」時，在頂部分頁列右側顯示入口：以 Bewly 寬螢幕開啟 B 站影片頁連續播放推薦影片，側欄顯示首頁推薦流。
   immersive_wheel_switch: 滾輪切換影片
@@ -915,6 +936,8 @@ settings:
   disable_background_desc: 徹底關閉擴充功能頁面的純色背景、漸層背景與桌布（含搜尋頁桌布），顯示 B 站原頁面背景。
   prevent_mobile_redirect: 防止跳轉至行動版
   prevent_mobile_redirect_desc: 啟用後，避免造訪 www.bilibili.com 時被跳轉至行動版頁面。
+  enable_firefox_scrollbar_repaint: Firefox 捲軸重繪
+  enable_firefox_scrollbar_repaint_desc: Firefox 原生捲軸只能調整粗細與顏色。啟用後，外掛頁面改用與 Chromium 版一致的重繪捲軸。
   follow_bilibili_evolved_color: 使用 Bilibili Evolved 主題色
   follow_bilibili_evolved_color_desc: 每次變更 Bilibili Evolved 主題色後，記得重新選取此選項以更新配置。
   links: 連結
@@ -960,6 +983,10 @@ settings:
   custom_playback_rate_no_video: 目前頁面沒有可控制的影片，請在影片播放頁開啟此設定。
   playback_rate_step: 倍速快捷鍵調整幅度
   playback_rate_step_desc: 每次增減 0.01–1 倍；預設 0.25。快捷鍵可在「快捷鍵」設定中修改。
+  fullscreen_wheel_volume: 全螢幕滾輪調整音量
+  fullscreen_wheel_volume_desc: 全螢幕播放時由擴充功能接管滾輪調整音量，每滾一格按固定幅度調整，取代 B 站原生不規律的調整幅度。
+  fullscreen_wheel_volume_step: 滾輪音量調整幅度
+  fullscreen_wheel_volume_step_desc: 每格增減 1–50；預設 5。
   remember_video_quality: 記住畫質
   remember_video_quality_desc: 啟用後自動恢復上次選擇的畫質，無法使用時沿用目前畫質。
   remember_video_quality_confirm_title: 確認開啟記住畫質？
@@ -1176,6 +1203,8 @@ settings:
   show_bewly_widescreen_button_desc: 啟用後，在影片播放器控制列中顯示 Bewly 寬螢幕按鈕。
   show_video_screenshot_button: 顯示播放器截圖按鈕
   show_video_screenshot_button_desc: 在播放器控制列顯示截圖按鈕。關閉後仍可使用快捷鍵截圖。
+  show_video_pip_button: 顯示播放器子母畫面按鈕
+  show_video_pip_button_desc: 在播放器控制列顯示子母畫面按鈕。關閉後仍可使用快捷鍵切換。
   enable_listen_video: 啟用聽影片功能
   enable_listen_video_desc: 開啟後可透過播放器按鈕或快捷鍵進入聽影片。僅隱藏畫面，影片串流仍會正常載入。
   show_listen_video_button: 顯示播放器「聽影片」按鈕
@@ -1350,6 +1379,8 @@ topbar:
     uploaded: 上傳了：
     now_streaming: 正在直播：
     live_status: 直播中
+    last_seen: 上次看到這裡
+    jump_to_last_seen: 跳到上次看到的位置
   upload_dropdown:
     article: 上傳文章
     music: 上傳音訊
@@ -1531,9 +1562,8 @@ favorites:
   article_count: 圖文數：{count}
   article_load_failed: 圖文收藏載入失敗，請稍後再試
   unfavorite: 取消收藏
-  unfavorite_confirm: |-
-    要取消收藏選中的影片嗎？
-    此操作無法撤消，你確定要取消收藏選中的影片嗎？
+  unfavorited: 已取消收藏
+  unfavorite_item_confirm: 確定取消收藏？
   batch_manage: 批次管理
   batch_select_all: 全選本頁
   batch_unselect_all: 取消全選
@@ -1612,6 +1642,8 @@ watch_later:
   play_video: 移除並進入影片頁
   play_in_watch_later: 清單播放
   remove_from_watch_later: 移除
+  removed: 已移出稍後再看
+  remove_confirm: 確定移出稍後再看？
   layout_list: 清單檢視
   layout_grid: 網格檢視
 search_bar:
@@ -1698,6 +1730,10 @@ moments:
   filter_video: 影片投稿
   filter_pgc: 追番追劇
   filter_article: 專欄
+  last_seen: 上次看到這裡
+  newer_above: 上方還有更新的動態
+  jump_to_latest: 回到最新
+  jump_to_last_seen: 跳到上次看到的位置
   emoji: 表情
   view: 查看
   charged_unlock: 充電解鎖
@@ -1786,6 +1822,7 @@ moments:
   zoom_out: 縮小
   zoom_in: 放大
   fit_window: 適應視窗
+  zoom_input: 縮放比例，輸入百分比後按 Enter 或移開焦點套用
   rotate_clockwise: 順時針旋轉
 moment_card:
   repost_pending: 這則動態正在轉發，請稍候
@@ -1827,6 +1864,7 @@ moment_card:
   comment_login: 登入後才能發表留言
   comment_send: 發佈
   comment_send_shortcut: Ctrl / ⌘ + Enter 送出
+  comment_send_keys: Ctrl / ⌘ + Enter
   comment_reply: 回覆
   comment_reply_to: "回覆 {'@'}{name}"
   comment_send_failed: 留言送出失敗，請稍後重試
@@ -1850,6 +1888,8 @@ moment_card:
   open_original_video: '開啟原影片：{title}'
   author_images: '{name} 的動態圖片'
   view_author_images: 檢視 {name} 的動態圖片
+  gallery_region: '{images}，可橫向滑動檢視'
+  view_image: 檢視 {images} 第 {index} 張
   open_origin_moment: 查看 {name} 的原動態
   view_details: 查看詳情
   view_original_post: 查看原動態

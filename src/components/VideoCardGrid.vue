@@ -1,7 +1,7 @@
 <script setup lang="ts" generic="T = any">
 import { useDebounceFn } from '@vueuse/core'
 
-import type { Video, VideoCardState } from '~/components/VideoCard/types'
+import type { Video, VideoCardRemovedState, VideoCardState } from '~/components/VideoCard/types'
 import { createVideoCardState } from '~/components/VideoCard/types'
 import { isBangumiVideo } from '~/components/VideoCard/utils'
 import type { BewlyAppProvider } from '~/composables/useAppProvider'
@@ -93,6 +93,7 @@ interface VideoCardGridProps<T = any> {
 
   /**
    * 数据转换函数：将原始数据转换为 VideoCard 所需的格式
+   * 请传入稳定的函数引用；模板内联箭头函数会在父组件每次渲染时清空转换缓存。
    */
   transformItem: (item: T) => Video | undefined
 
@@ -107,6 +108,11 @@ interface VideoCardGridProps<T = any> {
   cardClickObserver?: (item: T, event: MouseEvent) => void
 
   /**
+   * 页面持有的卡片移除状态（如取消稍后再看/取消收藏的确认与还原遮罩）
+   */
+  getRemovedState?: (item: T) => VideoCardRemovedState | undefined
+
+  /**
    * 卡片首次进入滚动视口时触发。
    */
   cardExposureHandler?: (item: T) => void
@@ -119,6 +125,7 @@ interface VideoCardGridProps<T = any> {
 
   /**
    * 生成唯一ID的函数（可选接收 index 参数以确保唯一性）
+   * 请传入稳定的函数引用；内联箭头函数会让 key 索引和卡片行高表在父组件每次渲染时重建。
    */
   getItemKey: (item: T, index?: number) => string | number
 
@@ -268,15 +275,21 @@ const showInitialSkeleton = computed(() => {
   return props.items.length === 0
 })
 
+// Skeletons are keyed by their absolute position in the list. When a page is
+// appended while loading is still true, real cards take over the positions
+// the skeletons held and later skeletons keep their DOM nodes in place;
+// position-independent keys made Vue move every skeleton down, which counted
+// as a large layout shift.
+function createSkeletonItem(index: number) {
+  return { _isSkeleton: true, _skeletonId: `skeleton-${index}` } as T
+}
+
 // 生成首屏骨架屏数据
 const initialSkeletonItems = computed(() => {
   if (!showInitialSkeleton.value)
     return []
 
-  return Array.from({ length: dynamicSkeletonCount.value }, (_, i) => ({
-    _isSkeleton: true,
-    _skeletonId: `skeleton-initial-${i}`,
-  })) as T[]
+  return Array.from({ length: dynamicSkeletonCount.value }, (_, i) => createSkeletonItem(i))
 })
 
 // 有真实数据时，用与视频卡片相同结构的骨架卡片表示下一批数据正在加载。
@@ -295,10 +308,8 @@ const loadingMoreSkeletonItems = computed(() => {
   const columns = getRenderedColumnCount()
   const remainder = (props.items.length + minimumSkeletonCount) % columns
   const skeletonCount = minimumSkeletonCount + (remainder === 0 ? 0 : columns - remainder)
-  return Array.from({ length: skeletonCount }, (_, i) => ({
-    _isSkeleton: true,
-    _skeletonId: `skeleton-more-${i}`,
-  })) as T[]
+  const firstIndex = props.items.length
+  return Array.from({ length: skeletonCount }, (_, i) => createSkeletonItem(firstIndex + i))
 })
 
 // 合并实际数据和骨架屏
@@ -310,6 +321,19 @@ const displayItems = computed(() => {
     return [...props.items, ...loadingMoreSkeletonItems.value]
 
   return props.items
+})
+
+// Only the key index spans the feed. Scrolling never rebuilds it.
+const cardKeys = computed(() => {
+  // Repeated item keys get an occurrence suffix instead of making every key
+  // index-based, so removing an earlier item does not remount later cards.
+  const seen = new Map<string | number, number>()
+  return displayItems.value.map((item, index) => {
+    const key = getUniqueKey(item, index)
+    const count = seen.get(key) ?? 0
+    seen.set(key, count + 1)
+    return count ? `${key}#dup${count}` : key
+  })
 })
 
 function isDocumentVisible(): boolean {
@@ -366,6 +390,7 @@ const isFirefox = typeof navigator !== 'undefined' && /\bFirefox\//.test(navigat
 let intersectionObserver: IntersectionObserver | null = null
 let cardExposureObserver: IntersectionObserver | null = null
 let isGridActive = false
+let cachedScrollElement: HTMLElement | null = null
 let scrollListenersActive = false
 const cardExposureElements = new Map<string | number, HTMLElement>()
 const cardExposureItems = new WeakMap<HTMLElement, T>()
@@ -373,6 +398,18 @@ const cardExposureKeys = new WeakMap<HTMLElement, string | number>()
 const exposedCardKeys = new Set<string | number>(restoredGrid?.exposedKeys)
 const mountedCards = new Map<string | number, { canRecycle?: boolean }>()
 const cardStates = new Map<string | number, VideoCardState>(restoredGrid?.cardStates.map(([key, state]) => [key, reactive(state)]))
+
+interface CardBindings {
+  item: T
+  ref: (component: unknown) => void
+  click: (event: MouseEvent) => void
+  observe: (event: MouseEvent) => void
+}
+
+// Per-key functions keep VideoCard props identical across grid patches, so
+// scrolling the window does not re-render mounted cards. They read the
+// current item and page callbacks only when invoked.
+const cardBindings = new Map<string | number, CardBindings>()
 
 function cleanupIntersectionObserver() {
   if (intersectionObserver) {
@@ -424,25 +461,31 @@ function setupCardExposureObserver() {
   })
 }
 
+// Function refs run on every grid patch, so an unchanged element is a no-op.
 function setVideoCardElement(key: string | number, item: T, component: unknown) {
   if (component)
     mountedCards.set(key, component as { canRecycle?: boolean })
   else
     mountedCards.delete(key)
 
+  const rawElement = !props.cardExposureHandler
+    ? undefined
+    : component instanceof Element
+      ? component
+      : (component as { $el?: unknown } | null)?.$el
+  const element = rawElement instanceof HTMLElement ? rawElement : undefined
   const previousElement = cardExposureElements.get(key)
+  if (element && previousElement === element) {
+    cardExposureItems.set(element, item)
+    return
+  }
+
   if (previousElement) {
     cardExposureObserver?.unobserve(previousElement)
     cardExposureElements.delete(key)
   }
 
-  if (!props.cardExposureHandler)
-    return
-
-  const element = component instanceof Element
-    ? component
-    : (component as { $el?: unknown } | null)?.$el
-  if (!(element instanceof HTMLElement))
+  if (!element)
     return
 
   cardExposureElements.set(key, element)
@@ -497,6 +540,39 @@ function setupIntersectionObserver() {
 
 // RAF 标志，用于批量处理 DOM 读取
 let checkPreloadRAF: number | null = null
+
+interface PostFrameTask {
+  frame?: number
+  timer?: number
+}
+
+// Checks that read scroll geometry after a batch renders wait until the
+// browser has laid out that frame. Reading it inside the Vue flush forced an
+// extra full style and layout pass between card insertions.
+const postFrameTasks = new Set<PostFrameTask>()
+
+function afterNextFrame(callback: () => void) {
+  const task: PostFrameTask = {}
+  task.frame = requestAnimationFrame(() => {
+    task.frame = undefined
+    task.timer = window.setTimeout(() => {
+      postFrameTasks.delete(task)
+      if (isGridActive)
+        callback()
+    }, 0)
+  })
+  postFrameTasks.add(task)
+}
+
+function cancelPostFrameTasks() {
+  for (const task of postFrameTasks) {
+    if (task.frame !== undefined)
+      cancelAnimationFrame(task.frame)
+    if (task.timer !== undefined)
+      window.clearTimeout(task.timer)
+  }
+  postFrameTasks.clear()
+}
 
 // 检查是否需要预加载
 function checkShouldPreload() {
@@ -623,8 +699,8 @@ watch(() => props.loading, (newLoading, oldLoading) => {
     const stayedInPreloadArea = reachedLoadMoreDuringLoading.value
     reachedLoadMoreDuringLoading.value = false
 
-    // 加载完成后，延迟检查是否需要继续加载
-    nextTick(() => {
+    // 加载完成后，等新内容完成布局再检查是否需要继续加载
+    afterNextFrame(() => {
       // 用户可能在请求结束前刚好滚到底部。此时 sentinel 没有新的相交变化，
       // 直接按滚动容器几何位置补触发，避免丢掉这次 loadMore。
       if (isScrollAtBottom() && (props.showLoadingMoreSkeleton || isListOverflowing())) {
@@ -677,9 +753,7 @@ watch(() => props.items.length, (newCount, oldCount) => {
   if (props.loading || reachedLoadMoreDuringLoading.value)
     return
 
-  nextTick(() => {
-    checkShouldPreload()
-  })
+  afterNextFrame(checkShouldPreload)
 })
 
 // 监听 noMoreContent 重置（用户切换模式或刷新时）
@@ -707,6 +781,7 @@ function activateGrid() {
     return
 
   isGridActive = true
+  cachedScrollElement = null
   setupScrollListeners()
   setupGridResizeObserver()
   document.addEventListener('visibilitychange', handleDocumentVisibilityChange)
@@ -731,6 +806,7 @@ function deactivateGrid() {
   cleanupIntersectionObserver()
   cleanupCardExposureObserver()
   cleanupGridResizeObserver()
+  cancelPostFrameTasks()
 
   if (checkPreloadRAF !== null) {
     cancelAnimationFrame(checkPreloadRAF)
@@ -760,6 +836,7 @@ onUnmounted(() => {
   exposedCardKeys.clear()
   mountedCards.clear()
   cardStates.clear()
+  cardBindings.clear()
   resetTransformCaches()
 })
 
@@ -840,15 +917,27 @@ function findScrollElement(): HTMLElement | null {
   if (settings.value.useOriginalBilibiliHomepage)
     return document.scrollingElement as HTMLElement | null
 
-  let element = gridContainerRef.value?.parentElement ?? null
+  const container = gridContainerRef.value
+  if (!container)
+    return null
+
+  // getComputedStyle on each ancestor forces a style recalculation when this
+  // runs right after cards are inserted. Reuse the result while the grid stays
+  // inside it, and stop at the App viewport without reading its style.
+  if (cachedScrollElement?.isConnected && cachedScrollElement.contains(container))
+    return cachedScrollElement
+
+  const viewport = bewlyApp?.scrollViewportRef.value
+  let element = container.parentElement
   while (element) {
-    const styles = window.getComputedStyle(element)
-    const canScrollY = /auto|scroll|overlay/.test(styles.overflowY)
-    if (canScrollY)
+    if (element === viewport || /auto|scroll|overlay/.test(window.getComputedStyle(element).overflowY)) {
+      cachedScrollElement = element
       return element
+    }
     element = element.parentElement
   }
 
+  cachedScrollElement = null
   return null
 }
 
@@ -961,7 +1050,7 @@ function inferVideoTypeFromVideo(video: Video | undefined): 'rcmd' | 'appRcmd' |
 }
 
 function createRenderItem(item: T, index: number): VideoCardRenderItem {
-  const key = getUniqueKey(item, index)
+  const key = cardKeys.value[index] ?? getUniqueKey(item, index)
   const fallbackType = props.videoType || 'common'
 
   // 自动生成骨架屏
@@ -1012,8 +1101,6 @@ const cardWindowRoot = computed(() => {
 const recycleCards = computed(() => !!tabState?.enabled || props.items.length > 80)
 const cardColumns = computed(() => getCurrentColumnCount(props.gridLayout, gridContainerWidth.value || 1200))
 const cardGap = computed(() => isHorizontal.value ? 16 : 20)
-// Only the key index spans the feed. Scrolling never rebuilds it.
-const cardKeys = computed(() => displayItems.value.map(getUniqueKey))
 const estimatedCardHeight = computed(() => {
   const width = gridContainerWidth.value || 1200
   const columns = cardColumns.value
@@ -1083,11 +1170,58 @@ function getCardState(key: string | number) {
   return state
 }
 
+function getCardBindings(key: string | number, item: T) {
+  let bindings = cardBindings.get(key)
+  if (!bindings) {
+    const record = { item } as CardBindings
+    record.ref = component => setVideoCardElement(key, record.item, component)
+    record.click = event => props.cardClickHandler?.(record.item, event)
+    record.observe = event => props.cardClickObserver?.(record.item, event)
+    bindings = record
+    cardBindings.set(key, bindings)
+  }
+  bindings.item = item
+  return bindings
+}
+
+function getVideoCardProps(card: VideoCardRenderItem) {
+  const bindings = getCardBindings(card.key, card.item)
+  return {
+    'ref': bindings.ref,
+    'data-index': card.index,
+    'skeleton': card.skeleton,
+    'type': card.type,
+    'video': card.video,
+    'persistentState': getCardState(card.key),
+    'removedState': card.skeleton ? undefined : props.getRemovedState?.(card.item),
+    'showPreview': props.showPreview,
+    'showWatcherLater': props.showWatchLater,
+    'horizontal': isHorizontal.value,
+    'moreBtn': props.moreBtn,
+    'hideAuthor': props.hideAuthor,
+    'hideWatchedBadge': props.hideWatchedBadge,
+    'disableContentVisibility': props.disableContentVisibility || recycleCards.value,
+    'isFollowingPage': props.isFollowingPage,
+    'customClickHandler': props.cardClickHandler ? bindings.click : undefined,
+    'primaryClickObserver': props.cardClickObserver ? bindings.observe : undefined,
+    'coverTopLeftAlwaysVisible': props.coverTopLeftAlwaysVisible,
+  }
+}
+
+// Forwarding slots through v-for compiles to DYNAMIC_SLOTS, which forces every
+// mounted card to re-render on each grid patch. Only pages that pass slots pay that cost.
+const slots = useSlots()
+const hasCardSlots = () => Object.keys(slots).length > 0
+
 watch(cardKeys, (keys) => {
   const validKeys = new Set(keys)
   for (const key of cardStates.keys()) {
     if (!validKeys.has(key))
       cardStates.delete(key)
+  }
+  for (const key of cardBindings.keys()) {
+    if (!validKeys.has(key))
+      cardBindings.delete(key)
   }
   for (const key of exposedCardKeys) {
     if (!validKeys.has(key))
@@ -1251,24 +1385,12 @@ function getUniqueKey(item: T, index: number): string | number {
         :aria-hidden="renderItem.card ? undefined : true"
       >
         <VideoCard
-          v-if="renderItem.card"
-          :ref="(component: unknown) => setVideoCardElement(renderItem.card!.key, renderItem.card!.item, component)"
-          :data-index="renderItem.card.index"
-          :skeleton="renderItem.card.skeleton"
-          :type="renderItem.card.type"
-          :video="renderItem.card.video"
-          :persistent-state="getCardState(renderItem.card.key)"
-          :show-preview="showPreview"
-          :show-watcher-later="showWatchLater"
-          :horizontal="isHorizontal"
-          :more-btn="moreBtn"
-          :hide-author="hideAuthor"
-          :hide-watched-badge="hideWatchedBadge"
-          :disable-content-visibility="props.disableContentVisibility || recycleCards"
-          :is-following-page="props.isFollowingPage"
-          :custom-click-handler="props.cardClickHandler ? (event: MouseEvent) => props.cardClickHandler?.(renderItem.card!.item, event) : undefined"
-          :primary-click-observer="props.cardClickObserver ? (event: MouseEvent) => props.cardClickObserver?.(renderItem.card!.item, event) : undefined"
-          :cover-top-left-always-visible="props.coverTopLeftAlwaysVisible"
+          v-if="renderItem.card && !hasCardSlots()"
+          v-bind="getVideoCardProps(renderItem.card)"
+        />
+        <VideoCard
+          v-else-if="renderItem.card"
+          v-bind="getVideoCardProps(renderItem.card)"
         >
           <template v-for="(_, name) in $slots" #[name]>
             <slot :name="name" :item="renderItem.card.item" />

@@ -12,6 +12,7 @@ import {
   normalizeListLayoutBreakpoint,
 } from '~/utils/gridLayout'
 import { normalizePlaybackRateStep } from '~/utils/playbackRate'
+import { normalizeWheelVolumeStep } from '~/utils/wheelVolume'
 
 export const storageDemo = useStorageLocal('webext-demo', 'Storage Demo')
 
@@ -46,6 +47,13 @@ export const momentsWantedUsers = useStorageLocal<MomentsWantedUser[]>(
 export const momentsPinnedUsers = useStorageLocal<MomentsWantedUser[]>(
   'momentsPinnedUsers',
   [],
+  { writeDefaults: false },
+)
+
+/** 动态卡片评论区上次选择的排序（0 最新，1 最热）；新展开的评论区沿用该排序。 */
+export const momentCommentSort = useStorageLocal<0 | 1>(
+  'momentCommentSort',
+  0,
   { writeDefaults: false },
 )
 
@@ -180,6 +188,9 @@ export type RecommendationMode = 'web' | 'app' | 'webNoCookie'
 export type AppRecommendationColumn = 'single' | 'double'
 /** 推荐模式在界面上的四个选项，App 单列 / 双列对应 recommendationMode 为 app 时的两种列模式 */
 export type RecommendationModeOption = 'web' | 'webNoCookie' | 'appSingle' | 'appDouble'
+export const RECOMMENDATION_MODE_OPTIONS: readonly RecommendationModeOption[] = ['web', 'webNoCookie', 'appSingle', 'appDouble']
+/** 快速切换按钮组至少显示的选项数 */
+export const MIN_RECOMMENDATION_MODE_SWITCHER_OPTIONS = 2
 /**
  * 评论回复树展示模式：
  * - lineCollapseMain：线条，收起时折叠父节点本体
@@ -294,7 +305,6 @@ export type AmbilightPreset = 'soft' | 'cinema' | 'vivid'
 
 export interface Settings {
   ambilightEnabled: boolean
-  ambilightEnableFullscreen: boolean
   ambilightPreset: AmbilightPreset
   ambilightStrength: number
   ambilightSpread: number
@@ -302,7 +312,7 @@ export interface Settings {
   ambilightBlur: number
   ambilightSaturation: number
   ambilightFps: number
-  showLocalLoudnessButton: boolean
+  showPlayerAdjustmentButton: boolean
   localLoudnessEnabled: boolean
   localLoudnessTarget: number
   localLoudnessStrength: number
@@ -421,12 +431,18 @@ export interface Settings {
   originalMomentsShowUpList: boolean
   /** 将 Bewly 动态过滤设置同时应用到 Bilibili 原版动态流 */
   originalMomentsUseBewlyFilters: boolean
+  /** 在原版动态评论区底部显示“收起评论”按钮 */
+  originalMomentsShowFoldCommentsButton: boolean
+  /** 原版动态页展开评论后，点击卡片两侧空白处收起评论 */
+  originalMomentsClickBlankToFoldComments: boolean
   momentsSidebarShowUserCard: boolean
   momentsSidebarShowPublish: boolean
   momentsSidebarShowLive: boolean
   momentsSidebarShowHotSearch: boolean
   momentsShowUpList: boolean
   momentsTabsPosition: TabsPosition
+  /** 插件动态页与顶栏动态下拉从上次看到的位置开始加载 */
+  momentsStartFromLastSeen: boolean
   momentsEnableLivePreview: boolean
   momentsEnableVideoPreview: boolean
   momentsEnableVideoControls: boolean
@@ -523,7 +539,7 @@ export interface Settings {
   recommendationMode: RecommendationMode
   appRecommendationColumn: AppRecommendationColumn
   showRecommendationModeSwitcher: boolean
-  recommendationModeSwitcherOptions: RecommendationModeOption[] // 推荐模式快速切换按钮组中显示的选项，至少 2 个
+  recommendationModeSwitcherOptions: { mode: RecommendationModeOption, visible: boolean }[] // 推荐模式快速切换按钮组的选项顺序与可见性，至少 2 个可见
   showImmersiveModeEntry: boolean // 首页个性推荐标签栏右侧显示沉浸式模式入口（沉浸式模式总开关）
   immersiveWheelSwitch: boolean // 沉浸式模式中在画面上滚动滚轮切换视频
   immersiveKeyboardSwitch: boolean // 沉浸式模式中 ↑↓ / W S / PageUp PageDown 切换视频（关闭后 ↑↓ 恢复播放器音量快捷键）
@@ -587,6 +603,7 @@ export interface Settings {
   useOriginalBilibiliTopBar: boolean
   useOriginalBilibiliHomepage: boolean
   preventMobileRedirect: boolean
+  enableFirefoxScrollbarRepaint: boolean // 仅 Firefox 包生效
 
   // Video Player
   defaultVideoPlayerMode: DefaultVideoPlayerMode
@@ -606,6 +623,7 @@ export interface Settings {
   showVerticalVideoZoomButton: boolean // 显示竖屏视频放大按钮
   showBewlyWidescreenButton: boolean // 显示播放器 Bewly 宽屏按钮
   showVideoScreenshotButton: boolean // 显示播放器截图按钮
+  showVideoPipButton: boolean // 显示播放器画中画按钮
   enableListenVideo: boolean // 听视频功能总开关
   showListenVideoButton: boolean // 显示播放器听视频按钮
   listenVideoCoverShape: ListenVideoCoverShape // 听视频封面形状（圆形唱片旋转，方/矩形静止）
@@ -633,6 +651,8 @@ export interface Settings {
   rememberPlaybackRate: boolean // 启用倍速记忆功能
   savedPlaybackRate: number // 记住的倍速值 (0.25-5)
   playbackRateStep: number // 倍速快捷键每次调节的幅度 (0.01-1)
+  customFullscreenWheelVolume: boolean // 全屏时接管滚轮音量调节
+  fullscreenWheelVolumeStep: number // 全屏滚轮每格调节的音量 (1-50)
 
   // 清晰度记忆设置
   rememberVideoQuality: boolean
@@ -661,7 +681,6 @@ export const originalLocalSettings: LocalSettings = {
 
 export const originalSettings: Settings = {
   ambilightEnabled: false,
-  ambilightEnableFullscreen: true,
   ambilightPreset: 'cinema',
   ambilightStrength: 80,
   ambilightSpread: 100,
@@ -669,7 +688,7 @@ export const originalSettings: Settings = {
   ambilightBlur: 72,
   ambilightSaturation: 130,
   ambilightFps: 24,
-  showLocalLoudnessButton: true,
+  showPlayerAdjustmentButton: true,
   localLoudnessEnabled: false,
   localLoudnessTarget: -18,
   localLoudnessStrength: 75,
@@ -791,12 +810,15 @@ export const originalSettings: Settings = {
   originalMomentsShowHotSearch: true,
   originalMomentsShowUpList: true,
   originalMomentsUseBewlyFilters: false,
+  originalMomentsShowFoldCommentsButton: true,
+  originalMomentsClickBlankToFoldComments: false,
   momentsSidebarShowUserCard: true,
   momentsSidebarShowPublish: true,
   momentsSidebarShowLive: true,
   momentsSidebarShowHotSearch: true,
   momentsShowUpList: true,
   momentsTabsPosition: 'left',
+  momentsStartFromLastSeen: true,
   momentsEnableLivePreview: true,
   momentsEnableVideoPreview: true,
   momentsEnableVideoControls: false,
@@ -883,7 +905,7 @@ export const originalSettings: Settings = {
   recommendationMode: 'web',
   appRecommendationColumn: 'single',
   showRecommendationModeSwitcher: false,
-  recommendationModeSwitcherOptions: ['web', 'webNoCookie', 'appSingle', 'appDouble'],
+  recommendationModeSwitcherOptions: RECOMMENDATION_MODE_OPTIONS.map(mode => ({ mode, visible: true })),
   showImmersiveModeEntry: true,
   immersiveWheelSwitch: true,
   immersiveKeyboardSwitch: true,
@@ -944,6 +966,7 @@ export const originalSettings: Settings = {
   useOriginalBilibiliTopBar: false,
   useOriginalBilibiliHomepage: false,
   preventMobileRedirect: false,
+  enableFirefoxScrollbarRepaint: false,
 
   // Video Player
   defaultVideoPlayerMode: 'default',
@@ -970,6 +993,7 @@ export const originalSettings: Settings = {
   showVerticalVideoZoomButton: true, // 默认显示竖屏视频放大按钮
   showBewlyWidescreenButton: true, // 默认显示播放器 Bewly 宽屏按钮
   showVideoScreenshotButton: true, // 默认显示播放器截图按钮
+  showVideoPipButton: true, // 默认显示播放器画中画按钮
   enableListenVideo: false, // 默认关闭听视频功能，需在设置中手动开启
   showListenVideoButton: true, // 默认显示播放器听视频按钮
   listenVideoCoverShape: 'circle', // 默认圆形唱片并保持旋转
@@ -1026,6 +1050,8 @@ export const originalSettings: Settings = {
   rememberPlaybackRate: false, // 启用倍速记忆功能
   savedPlaybackRate: 1, // 记住的倍速值 (0.25-5)
   playbackRateStep: 0.25,
+  customFullscreenWheelVolume: false,
+  fullscreenWheelVolumeStep: 5,
 
   // 清晰度记忆设置
   rememberVideoQuality: false,
@@ -1093,6 +1119,34 @@ function normalizeFavoriteOrganizerFolders(value: unknown): FavoriteOrganizerFol
   return folders
 }
 
+/**
+ * 补齐推荐模式快速切换选项：旧版存储为可见项的字符串数组（固定顺序），转为带顺序的可见性列表；
+ * 去除重复与非法项，缺失项按可见追加，可见项不足下限时全部显示。
+ */
+export function normalizeRecommendationModeSwitcherOptions(value: unknown): Settings['recommendationModeSwitcherOptions'] {
+  const items = Array.isArray(value) ? value : []
+  const isLegacy = items.length > 0 && items.every(item => typeof item === 'string')
+  const result: Settings['recommendationModeSwitcherOptions'] = []
+  if (isLegacy) {
+    for (const mode of RECOMMENDATION_MODE_OPTIONS)
+      result.push({ mode, visible: items.includes(mode) })
+  }
+  else {
+    for (const item of items) {
+      const mode = item?.mode
+      if (RECOMMENDATION_MODE_OPTIONS.includes(mode) && !result.some(option => option.mode === mode))
+        result.push({ mode, visible: item.visible !== false })
+    }
+    for (const mode of RECOMMENDATION_MODE_OPTIONS) {
+      if (!result.some(option => option.mode === mode))
+        result.push({ mode, visible: true })
+    }
+  }
+  if (result.filter(option => option.visible).length < MIN_RECOMMENDATION_MODE_SWITCHER_OPTIONS)
+    result.forEach(option => option.visible = true)
+  return result
+}
+
 let resolveSettingsReady: (value: Settings) => void = () => {}
 export const settingsReady = new Promise<Settings>((resolve) => {
   resolveSettingsReady = resolve
@@ -1103,6 +1157,7 @@ export const settings = useSettingsStorage(originalSettings, {
   normalize: (value) => {
     const record = value as Record<string, any>
     record.playbackRateStep = normalizePlaybackRateStep(record.playbackRateStep)
+    record.fullscreenWheelVolumeStep = normalizeWheelVolumeStep(record.fullscreenWheelVolumeStep)
 
     // 旧配置也补齐新入口，保持菜单按钮与各项的默认可见状态一致。
     const menuConfig = record.videoCardContextMenuConfig
@@ -1136,6 +1191,7 @@ export const settings = useSettingsStorage(originalSettings, {
     }
 
     record.favoriteOrganizerFolders = normalizeFavoriteOrganizerFolders(record.favoriteOrganizerFolders)
+    record.recommendationModeSwitcherOptions = normalizeRecommendationModeSwitcherOptions(record.recommendationModeSwitcherOptions)
 
     Reflect.deleteProperty(record, 'detectCommentShadowBan')
     Reflect.deleteProperty(record, 'showBewlyOrBiliTopBarSwitcher')
@@ -1150,8 +1206,8 @@ export const settings = useSettingsStorage(originalSettings, {
 
     if (typeof record.ambilightEnabled !== 'boolean')
       record.ambilightEnabled = false
-    if (typeof record.ambilightEnableFullscreen !== 'boolean')
-      record.ambilightEnableFullscreen = true
+    // 环境光固定不在全屏、网页全屏与 Bewly 宽屏下运行，旧的全屏开关不再沿用。
+    Reflect.deleteProperty(record, 'ambilightEnableFullscreen')
 
     const validAmbilightPresets: AmbilightPreset[] = ['soft', 'cinema', 'vivid']
     if (!validAmbilightPresets.includes(record.ambilightPreset))
@@ -1170,8 +1226,10 @@ export const settings = useSettingsStorage(originalSettings, {
     if (![15, 24, 30].includes(record.ambilightFps))
       record.ambilightFps = originalSettings.ambilightFps
 
-    if (typeof record.showLocalLoudnessButton !== 'boolean')
-      record.showLocalLoudnessButton = true
+    // 音量均衡按钮已扩展为画面与声音调整按钮，旧显示开关不再沿用。
+    Reflect.deleteProperty(record, 'showLocalLoudnessButton')
+    if (typeof record.showPlayerAdjustmentButton !== 'boolean')
+      record.showPlayerAdjustmentButton = true
     if (typeof record.localLoudnessEnabled !== 'boolean')
       record.localLoudnessEnabled = false
     for (const [key, min, max, fallback] of [

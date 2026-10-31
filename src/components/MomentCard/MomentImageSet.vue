@@ -14,7 +14,7 @@ import {
   shouldUseMomentImageGrid,
 } from './utils'
 
-// 动态配图：完整行九宫格、横向画廊或单张大图三选一。默认插槽用于叠加角标（如充电专属）。
+// 动态配图：九宫格、横向画廊或单张大图三选一。默认插槽用于叠加角标（如充电专属）。
 const {
   images,
   imageRatios,
@@ -185,8 +185,8 @@ function handleSingleKeydown(event: KeyboardEvent) {
   max-width: 560px;
 }
 
-.moment-card__gallery > img:focus-visible,
-.moment-card__forward-gallery > img:focus-visible {
+.moment-card__gallery:focus-visible,
+.moment-card__forward-gallery:focus-visible {
   @include mixins.focus-ring(-2px);
 }
 </style>

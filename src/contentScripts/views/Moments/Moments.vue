@@ -38,7 +38,14 @@ import api from '~/utils/api'
 import { numFormatter } from '~/utils/dataFormatter'
 import { getCSRF } from '~/utils/main'
 import { MasonryColumnMetrics } from '~/utils/masonryColumnMetrics'
+import {
+  fetchNewerMoments,
+  fetchUnreadMomentIds,
+  getLastSeenStartOffset,
+  isNewerDynamicId,
+} from '~/utils/momentsLastSeen'
 import { resolveVideoDialogPlayerModeOverride } from '~/utils/player'
+import { loadFlvjs, loadHls } from '~/utils/streamPlayers'
 import { openLinkInBackground } from '~/utils/tabs'
 import {
   DIALOG_SAFE_HEIGHT,
@@ -269,6 +276,21 @@ const offset = ref('')
 const updateBaseline = ref('')
 /** 按 UP 主筛选时 feed/all 的 page，从 1 递增 */
 const momentsFeedPage = ref(1)
+/** 上次看到定位：未读视频动态 ID（新到旧），仅全部动态的“全部/视频投稿”使用 */
+const unreadMomentIds = ref<string[]>([])
+/** 本轮从上次看到的位置开始加载，已加载内容之上还有更新的动态 */
+const hasNewerMoments = ref(false)
+const isLoadingNewerMoments = ref(false)
+/** 已加载原始条目中最新的动态 ID，用作向上加载的衔接点 */
+let newestLoadedMomentId = ''
+/** 本轮从中段开始加载，列表不是 feed 头部，不能写入全部动态缓存 */
+let isLastSeenSession = false
+/** “回到最新”后的下一次重置跳过定位，直接从顶部加载 */
+let skipLastSeenOnce = false
+/** 跳到上次看到的位置时复用的未读 ID：首页请求后服务端已读位置已推进，重新请求只会得到空列表 */
+let pendingLastSeenIds: string[] | null = null
+/** 向上插入的卡片按估算高度排布，实测高度变化时据此补偿滚动位置 */
+const prependedCardIds = new Set<string>()
 const { handlePageRefresh, handleReachBottom, mainAppRef, openSettings, scrollViewportRef } = useBewlyApp()
 // Shadow DOM 内的滚动不会传播到 window，直接监听页面实际的滚动容器。
 useEventListener(scrollViewportRef, 'scroll', updateSidebarBounds, { passive: true })
@@ -289,6 +311,12 @@ const FILTERED_MAX_REQUEST_PAGES = 2
 /** 仅限制持久化缓存，不能作为动态浏览或“想看”扫描的上限。 */
 const MOMENTS_CACHE_MAX_ITEMS = 1000
 const MOMENTS_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000
+/** 未读超过该数量时才从上次看到的位置开始加载，否则分界点就在首屏 */
+const MOMENTS_LAST_SEEN_MIN_UNREAD = 8
+/** 定位后保留在分界点上方的未读条数 */
+const MOMENTS_LAST_SEEN_CONTEXT = 2
+/** 每次向上加载跨越的未读视频条数 */
+const MOMENTS_LAST_SEEN_STEP = 10
 /** 虚拟瀑布流需要在全局哨兵进入视口前主动预取，避免高度修正后漏掉相交事件 */
 const LOAD_MORE_AHEAD_PX = 640
 let attachedScrollViewport: HTMLElement | null = null
@@ -675,10 +703,6 @@ const detailDialogWidth = computed(() => {
   return `min(1088px, ${DIALOG_SAFE_WIDTH})`
 })
 
-const detailContentHeight = computed(() => {
-  return detailDialogHeight.value
-})
-
 const detailImageViewerUrl = computed(() => detailImageViewerUrls.value[detailImageViewerIndex.value] || '')
 const detailImageViewerTransform = computed(() => {
   return `translate3d(${detailImageViewerPanX.value}px, ${detailImageViewerPanY.value}px, 0) scale(${detailImageViewerScale.value}) rotate(${detailImageViewerRotation.value}deg)`
@@ -692,10 +716,42 @@ function resetDetailImageViewerTransform() {
 }
 
 function setDetailImageViewerScale(scale: number) {
-  detailImageViewerScale.value = Math.min(4, Math.max(0.25, scale))
+  detailImageViewerScale.value = Math.max(0.25, scale)
   if (detailImageViewerScale.value <= 1) {
     detailImageViewerPanX.value = 0
     detailImageViewerPanY.value = 0
+  }
+}
+
+function formatDetailImageViewerZoom() {
+  return `${Math.round(detailImageViewerScale.value * 100)}%`
+}
+
+// 百分比输入在回车或失焦时应用；无效输入还原，过小的值由 setDetailImageViewerScale 收到 25%
+function applyDetailImageViewerZoomInput(event: Event) {
+  const input = event.currentTarget
+  if (!(input instanceof HTMLInputElement))
+    return
+  const percent = Number.parseFloat(input.value.replace(/[%\s]/g, ''))
+  if (Number.isFinite(percent) && percent > 0)
+    setDetailImageViewerScale(percent / 100)
+  input.value = formatDetailImageViewerZoom()
+}
+
+function handleDetailImageViewerZoomKeydown(event: KeyboardEvent) {
+  const input = event.currentTarget
+  if (!(input instanceof HTMLInputElement))
+    return
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    applyDetailImageViewerZoomInput(event)
+    input.select()
+  }
+  else if (event.key === 'Escape') {
+    event.preventDefault()
+    event.stopPropagation()
+    input.value = formatDetailImageViewerZoom()
+    detailImageViewerRef.value?.focus({ preventScroll: true })
   }
 }
 
@@ -804,7 +860,8 @@ function handleDetailImageViewerDoubleClick() {
 }
 
 function handleDetailImageViewerKeydown(event: KeyboardEvent) {
-  if (!detailImageViewerOpen.value)
+  // 输入缩放比例时不触发查看器快捷键
+  if (!detailImageViewerOpen.value || event.target instanceof HTMLInputElement)
     return
 
   if (event.key === 'Escape') {
@@ -859,10 +916,6 @@ function resolveLinkOpenMode(kind: MomentLinkKind): ResolvedMomentOpenMode {
 
   const mode = settings.value.momentsCardOpenMode
   return mode === 'dialog' ? 'newTab' : mode
-}
-
-function openMomentImagePreview(urls: string[], index: number, trigger: HTMLElement | null) {
-  openDetailImageViewer(urls, index, null, trigger)
 }
 
 function openMomentExternally(moment: DisplayMoment, openMode: Exclude<ResolvedMomentOpenMode, 'dialog'>) {
@@ -1569,11 +1622,7 @@ function cacheRegularMomentPage(
   })
 }
 
-function loadMoreWantedMoments() {
-  void loadMoments(false, 0, true)
-}
-
-function loadMoreFilteredMoments() {
+function loadMoreMoments() {
   void loadMoments(false, 0, true)
 }
 
@@ -1795,11 +1844,7 @@ function updateGridColumnCount() {
     for (let cols = preferredColumns; cols >= 1 && !result; cols--)
       result = tryLayout(cols, wantLeft, false)
   }
-  if (!result && wantLeft) {
-    for (let cols = preferredColumns; cols >= 1 && !result; cols--)
-      result = tryLayout(cols, false, false)
-  }
-  if (!result) {
+  if (!result && (wantLeft || !wantRight)) {
     for (let cols = preferredColumns; cols >= 1 && !result; cols--)
       result = tryLayout(cols, false, false)
   }
@@ -1823,6 +1868,79 @@ function updateGridColumnCount() {
     rebuildColumnMetrics()
     updateVirtualColumns()
   }
+}
+
+/** 上次看到的位置：已加载动态中比最旧未读更旧的第一条 */
+const lastSeenMomentId = computed(() => {
+  const oldestUnreadId = unreadMomentIds.value.at(-1)
+  if (!oldestUnreadId)
+    return ''
+  let lastSeenId = ''
+  for (const moment of moments.value) {
+    if (isNewerDynamicId(oldestUnreadId, moment.id) && (!lastSeenId || isNewerDynamicId(moment.id, lastSeenId)))
+      lastSeenId = moment.id
+  }
+  return lastSeenId
+})
+
+function canLocateLastSeen(filter: MomentFilter, group: MomentGroup, hostMid: string) {
+  return group === 'all' && !hostMid && (filter === 'all' || filter === 'video')
+}
+
+function jumpToLatestMoments() {
+  skipLastSeenOnce = true
+  pendingLastSeenIds = null
+  resetMomentsScroll()
+  void loadMoments(true)
+}
+
+/** 从顶部加载且分界点尚未加载出来时，提供跳到上次看到的位置的入口 */
+const canJumpToLastSeen = computed(() => !hasNewerMoments.value
+  && unreadMomentIds.value.length > MOMENTS_LAST_SEEN_MIN_UNREAD
+  && !lastSeenMomentId.value
+  && canLocateLastSeen(activeMomentFilter.value, activeMomentGroup.value, selectedHostMid.value))
+
+function jumpToLastSeenMoments() {
+  pendingLastSeenIds = [...unreadMomentIds.value]
+  skipLastSeenOnce = false
+  resetMomentsScroll()
+  void loadMoments(true)
+}
+
+/**
+ * 在各列顶部插入更新的动态。各列下移量不同，按最大与最小下移量的中值补偿滚动，
+ * 任一列的偏移都不超过列差的一半。
+ */
+function prependMoments(items: DisplayMoment[]) {
+  const existingIds = new Set(moments.value.map(moment => moment.id))
+  const fresh = items.filter((moment) => {
+    if (existingIds.has(moment.id))
+      return false
+    existingIds.add(moment.id)
+    return true
+  })
+  if (!fresh.length)
+    return
+
+  if (!momentColumns.value.length)
+    momentColumns.value = Array.from({ length: Math.max(1, gridColumnCount.value) }, () => [])
+  const prefixColumns = momentColumns.value.map(() => [] as DisplayMoment[])
+  const prefixHeights = prefixColumns.map(() => 0)
+  fresh.forEach((item) => {
+    const columnIndex = findShortestColumnIndex(prefixColumns, prefixHeights)
+    prefixColumns[columnIndex].push(item)
+    prefixHeights[columnIndex] += (prefixHeights[columnIndex] > 0 ? GRID_ROW_GAP : 0) + getCardHeight(item)
+    prependedCardIds.add(item.id)
+  })
+  const shifts = prefixColumns.map((column, index) => column.length ? prefixHeights[index] + GRID_ROW_GAP : 0)
+
+  moments.value = [...fresh, ...moments.value]
+  momentColumns.value = momentColumns.value.map((column, index) => [...prefixColumns[index], ...column])
+  rebuildColumnMetrics()
+  const viewport = scrollViewportRef.value
+  if (viewport)
+    viewport.scrollTop += (Math.max(...shifts) + Math.min(...shifts)) / 2
+  updateVirtualColumns()
 }
 
 function appendMoments(items: DisplayMoment[]) {
@@ -1912,8 +2030,13 @@ function commitCardHeight(id: string, next: number, options?: { force?: boolean 
 
   cardHeights[id] = next
   const position = cardMetricPositions.get(id)
-  if (position)
-    columnMetrics[position.column]?.set(position.index, next)
+  if (position) {
+    const metrics = columnMetrics[position.column]
+    // 视口上方向上插入的卡片从估算高度变为实测高度时，补偿滚动位置避免内容跳动
+    if (metrics && prependedCardIds.has(id))
+      compensatePrependedCardHeight(metrics.offsetOf(position.index), metrics.heightOf(position.index), next)
+    metrics?.set(position.index, next)
+  }
   // 连续两次接近的高度视为稳定，后续忽略小幅 Resize 抖动
   if (prev > 0 && Math.abs(next - prev) < 24)
     settledHeights.add(id)
@@ -1923,6 +2046,16 @@ function commitCardHeight(id: string, next: number, options?: { force?: boolean 
   return true
 }
 
+function compensatePrependedCardHeight(cardTop: number, previousHeight: number, nextHeight: number) {
+  const viewport = scrollViewportRef.value
+  if (!viewport || previousHeight <= 0)
+    return
+  const viewTop = viewport.scrollTop - getGridOffsetTop()
+  if (cardTop + previousHeight > viewTop)
+    return
+  viewport.scrollTop += (nextHeight - previousHeight) / Math.max(1, momentColumns.value.length)
+}
+
 function scheduleVirtualUpdate() {
   if (isMomentsDisposed || virtualRaf)
     return
@@ -1930,7 +2063,88 @@ function scheduleVirtualUpdate() {
     virtualRaf = 0
     updateVirtualColumns()
     maybeLoadMoreNearBottom()
+    maybeLoadNewerNearTop()
   })
+}
+
+/** 从上次看到的位置开始时，滚动到列表顶部附近向上加载更新的动态。 */
+function maybeLoadNewerNearTop() {
+  const viewport = scrollViewportRef.value
+  if (
+    !viewport
+    || !hasNewerMoments.value
+    || isLoadingNewerMoments.value
+    || isInitialLoading.value
+    || !moments.value.length
+  ) {
+    return
+  }
+
+  const distanceFromGridTop = viewport.scrollTop - getGridOffsetTop()
+  if (distanceFromGridTop <= Math.max(LOAD_MORE_AHEAD_PX, viewport.clientHeight * 0.6))
+    void loadNewerMoments()
+}
+
+async function loadNewerMoments() {
+  if (!hasNewerMoments.value || isLoadingNewerMoments.value || !newestLoadedMomentId)
+    return
+
+  const requestToken = feedRequestToken
+  const requestType = activeMomentFilter.value
+  const requestGroup = activeMomentGroup.value
+  const requestHostMid = selectedHostMid.value
+  const isCurrent = () => isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid)
+  isLoadingNewerMoments.value = true
+  try {
+    // 本地过滤可能把一批全部滤掉；列表停在顶部时无法再触发滚动，因此继续向上直到有内容可插入
+    for (let attempt = 0; attempt < 3 && hasNewerMoments.value; attempt++) {
+      const result = await fetchNewerMoments<DataItem>(
+        async (pageOffset) => {
+          const response = await api.moment.getMoments({
+            type: requestType,
+            offset: pageOffset || undefined,
+            features: MOMENT_FEED_FEATURES,
+          }) as MomentResult
+          if (!isCurrent() || response.code !== 0)
+            return null
+          return {
+            items: response.data?.items || [],
+            offset: response.data?.offset || '',
+            hasMore: Boolean(response.data?.has_more),
+          }
+        },
+        unreadMomentIds.value,
+        newestLoadedMomentId,
+        MOMENTS_LAST_SEEN_STEP,
+      )
+      if (!result || !isCurrent())
+        return
+
+      if (result.items[0]?.id_str)
+        newestLoadedMomentId = result.items[0].id_str
+      if (result.reachedTop)
+        hasNewerMoments.value = false
+
+      const normalizedItems = result.items.map(mapMoment)
+      void recordUploaderLatestVideoTimes(collectVideoPublicationTimes(result.items), 'moments-page')
+      const items = normalizedItems
+        .filter(passesMomentSettings)
+        .sort((a, b) => b.publishedAt - a.publishedAt)
+      filterScanRawCount.value += normalizedItems.length
+      filterScanKeptCount.value += items.length
+      if (items.length) {
+        prependMoments(items)
+        break
+      }
+    }
+  }
+  catch (error) {
+    console.error('加载更新的动态失败:', error)
+  }
+  finally {
+    if (isCurrent())
+      isLoadingNewerMoments.value = false
+  }
 }
 
 /** 全局触底哨兵的本地兜底：滚动到最后一屏附近时直接请求下一页。 */
@@ -2286,8 +2500,7 @@ async function setupStreamPreview(url: string, videoEl: HTMLVideoElement, moment
 
   if (url.includes('.flv')) {
     try {
-      const flvjsModule = await import('flv.js')
-      const flvjs = flvjsModule.default
+      const flvjs = await loadFlvjs()
       if (!flvjs.isSupported() || !isCurrentPreview())
         return
 
@@ -2313,10 +2526,11 @@ async function setupStreamPreview(url: string, videoEl: HTMLVideoElement, moment
 
   if (url.includes('m3u8')) {
     try {
-      const Hls = (await import('hls.js')).default
+      // A player module that fails to load still leaves native HLS (Safari).
+      const Hls = await loadHls().catch(() => undefined)
       if (!isCurrentPreview())
         return
-      if (Hls.isSupported()) {
+      if (Hls?.isSupported()) {
         liveHlsPlayer = new Hls({
           enableWorker: true,
           lowLatencyMode: true,
@@ -2704,6 +2918,12 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
     updateBaseline.value = ''
     momentsFeedPage.value = 1
     noMoreContent.value = false
+    unreadMomentIds.value = []
+    hasNewerMoments.value = false
+    isLoadingNewerMoments.value = false
+    newestLoadedMomentId = ''
+    isLastSeenSession = false
+    prependedCardIds.clear()
   }
 
   try {
@@ -2712,6 +2932,23 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
     let hasMore = false
     let nextOffset = ''
     let nextUpdateBaseline = ''
+
+    if (reset && canLocateLastSeen(requestType, requestGroup, requestHostMid)) {
+      // 先取未读 ID 再请求列表：首页请求会推进服务端已读位置，之后就拿不到分界点了
+      const reusedIds = pendingLastSeenIds
+      const useLastSeen = Boolean(reusedIds) || (settings.value.momentsStartFromLastSeen && !skipLastSeenOnce)
+      skipLastSeenOnce = false
+      pendingLastSeenIds = null
+      const unreadIds = reusedIds ?? await fetchUnreadMomentIds()
+      if (!isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid))
+        return
+      unreadMomentIds.value = unreadIds || []
+      if (useLastSeen && unreadMomentIds.value.length > MOMENTS_LAST_SEEN_MIN_UNREAD) {
+        offset.value = getLastSeenStartOffset(unreadMomentIds.value, MOMENTS_LAST_SEEN_CONTEXT)
+        isLastSeenSession = Boolean(offset.value)
+        hasNewerMoments.value = isLastSeenSession
+      }
+    }
 
     if (requestHostMid) {
       // 按 UP 主筛选：走 feed/all + host_mid，不写入全局全部动态缓存
@@ -2995,6 +3232,8 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
     }
 
     const normalizedItems = cachedBatch ?? rawItems.map(mapMoment)
+    if (reset && rawItems[0]?.id_str)
+      newestLoadedMomentId = rawItems[0].id_str
     void recordUploaderLatestVideoTimes(
       [
         ...collectVideoPublicationTimes(rawItems),
@@ -3007,8 +3246,8 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
       ],
       'moments-page',
     )
-    // 按 UP 主请求不写入全局全部动态缓存
-    if (requestGroup === 'all' && !requestHostMid) {
+    // 按 UP 主请求、从上次看到的位置开始的中段数据都不写入全局全部动态缓存
+    if (requestGroup === 'all' && !requestHostMid && !isLastSeenSession) {
       cacheRegularMomentPage(
         requestType,
         normalizedItems,
@@ -3061,6 +3300,17 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
     const viewport = scrollViewportRef.value
     if (viewport)
       viewport.scrollTop = preservedPaginationScrollTop
+  }
+
+  // 定位到上次看到的位置后先向上预取一批：页面停在顶部时无法再触发向上滚动
+  if (
+    pageApplied
+    && reset
+    && hasNewerMoments.value
+    && isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid)
+  ) {
+    await nextTick()
+    void loadNewerMoments()
   }
 
   // 仅首屏在内容未填满视口时再补 1 页；滚动加载不再连环请求
@@ -3744,6 +3994,27 @@ watch(
           </div>
         </section>
         <div class="moments-feed">
+          <!-- 零高度容器内的悬浮按钮，不参与布局，避免影响向上插入时的滚动补偿 -->
+          <div v-if="!isInitialLoading && (hasNewerMoments || canJumpToLastSeen)" class="moments-newer-bar">
+            <button
+              v-if="hasNewerMoments"
+              type="button"
+              class="moments-newer-bar__button"
+              @click="jumpToLatestMoments"
+            >
+              <span :class="isLoadingNewerMoments ? 'i-svg-spinners:ring-resize' : 'i-tabler-arrow-up'" />
+              {{ t('moments.newer_above') }} · {{ t('moments.jump_to_latest') }}
+            </button>
+            <button
+              v-else
+              type="button"
+              class="moments-newer-bar__button"
+              @click="jumpToLastSeenMoments"
+            >
+              <span i-tabler-arrow-down />
+              {{ t('moments.jump_to_last_seen') }}
+            </button>
+          </div>
           <div v-if="isInitialLoading" class="moments-page__initial-loading">
             <div class="moments-skeleton-grid" :style="momentsGridStyle">
               <div
@@ -3796,10 +4067,11 @@ watch(
                 :preview-url="previewUrls[moment.id]"
                 :is-like-loading="likingMomentIds.has(moment.id)"
                 :is-reservation-loading="reservationLoadingMomentIds.has(moment.id)"
+                :last-seen="moment.id === lastSeenMomentId"
                 @card-element="element => bindCardEl(element, moment)"
                 @open-detail="openMomentDetail"
                 @open-media="openMomentMedia"
-                @open-image-preview="openMomentImagePreview"
+                @open-image-preview="(urls, index, trigger) => openDetailImageViewer(urls, index, null, trigger)"
                 @media-enter="handleMediaEnter"
                 @media-leave="handleMediaLeave"
                 @cover-load="(event, momentId) => handleCoverLoad(event, momentId)"
@@ -3819,7 +4091,7 @@ watch(
               v-if="activeMomentGroup !== 'wanted' || momentsWantedUsers.length"
               type="secondary"
               :disabled="isLoading"
-              @click="requiresManualMomentPaging() && !noMoreContent ? (activeMomentGroup === 'wanted' ? loadMoreWantedMoments() : loadMoreFilteredMoments()) : refresh()"
+              @click="requiresManualMomentPaging() && !noMoreContent ? loadMoreMoments() : refresh()"
             >
               {{ isLoading ? t('common.loading') : requiresManualMomentPaging() ? (!noMoreContent ? t('common.load_more') : (activeMomentGroup === 'wanted' ? t('moments.recheck') : t('moments.reload'))) : t('moments.reload') }}
             </Button>
@@ -3835,7 +4107,7 @@ watch(
             v-if="requiresManualMomentPaging() && moments.length && !isLoading && !noMoreContent"
             type="button"
             class="moments-wanted-load-more"
-            @click="activeMomentGroup === 'wanted' ? loadMoreWantedMoments() : loadMoreFilteredMoments()"
+            @click="loadMoreMoments()"
           >
             <span i-tabler-arrow-down />
             {{ t('common.load_more') }}
@@ -3898,8 +4170,8 @@ watch(
       :desc="selectedMoment.isLive || selectedMoment.isVideo ? selectedMoment.title || selectedMoment.author.name : (selectedMoment.time || t('moments.detail'))"
       :width="detailDialogWidth"
       :height="detailDialogHeight"
-      :content-height="detailContentHeight"
-      :content-max-height="detailContentHeight"
+      :content-height="detailDialogHeight"
+      :content-max-height="detailDialogHeight"
       @close="closeMomentDetail"
     >
       <template #floating-actions>
@@ -4028,7 +4300,17 @@ watch(
           <button type="button" :aria-label="t('moments.zoom_out')" :title="t('moments.zoom_out')" @click="setDetailImageViewerScale(detailImageViewerScale - 0.25)">
             −
           </button>
-          <span class="moment-image-viewer__zoom">{{ Math.round(detailImageViewerScale * 100) }}%</span>
+          <input
+            class="moment-image-viewer__zoom"
+            type="text"
+            inputmode="decimal"
+            :value="formatDetailImageViewerZoom()"
+            :aria-label="t('moments.zoom_input')"
+            :title="t('moments.zoom_input')"
+            @focus="($event.target as HTMLInputElement).select()"
+            @keydown="handleDetailImageViewerZoomKeydown"
+            @change="applyDetailImageViewerZoomInput"
+          >
           <button type="button" :aria-label="t('moments.zoom_in')" :title="t('moments.zoom_in')" @click="setDetailImageViewerScale(detailImageViewerScale + 0.25)">
             +
           </button>
@@ -4089,6 +4371,36 @@ watch(
 }
 .moments-feed {
   min-width: 0;
+}
+/* 零高度粘性容器：按钮悬浮在动态流上方，不占用布局高度 */
+.moments-newer-bar {
+  position: sticky;
+  top: calc(var(--bew-top-bar-height, 64px) + var(--bew-space-3));
+  z-index: 6;
+  display: flex;
+  height: 0;
+  justify-content: center;
+  pointer-events: none;
+}
+.moments-newer-bar__button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--bew-space-1);
+  height: fit-content;
+  padding: var(--bew-space-1) var(--bew-space-3);
+  border: 1px solid var(--bew-border-color);
+  border-radius: var(--bew-badge-radius);
+  background-color: var(--bew-elevated);
+  color: var(--bew-text-1);
+  font-size: var(--bew-font-size-caption);
+  font-weight: var(--bew-font-weight-medium);
+  box-shadow: var(--bew-shadow-2);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background-color var(--bew-duration-fast, 150ms) var(--bew-ease-standard, ease);
+}
+.moments-newer-bar__button:hover {
+  background-color: var(--bew-fill-2);
 }
 .moments-up-list {
   display: flex;
@@ -4507,9 +4819,9 @@ watch(
   line-height: var(--bew-line-height-body);
   text-decoration: none;
   transition:
-    color 0.2s ease,
-    border-color 0.2s ease,
-    background-color 0.2s ease;
+    color var(--bew-duration-fast) var(--bew-ease-standard),
+    border-color var(--bew-duration-fast) var(--bew-ease-standard),
+    background-color var(--bew-duration-fast) var(--bew-ease-standard);
 }
 .moments-publish-link > :last-child {
   margin-left: auto;
@@ -4561,7 +4873,7 @@ watch(
   border-radius: var(--bew-interactive-radius);
   color: inherit;
   text-decoration: none;
-  transition: background-color 0.18s ease;
+  transition: background-color var(--bew-duration-fast) var(--bew-ease-standard);
 }
 .moments-live-card__list > a:hover {
   background: var(--bew-fill-1);
@@ -4905,7 +5217,7 @@ watch(
   visibility: hidden;
   opacity: 0;
   overflow-anchor: none;
-  transition: opacity 0.16s ease;
+  transition: opacity var(--bew-duration-fast) var(--bew-ease-standard);
 }
 .moments-page__loading.is-visible {
   visibility: visible;
@@ -4987,7 +5299,7 @@ watch(
   font-size: var(--bew-font-size-control);
   pointer-events: auto;
   opacity: 1;
-  transition: opacity 0.18s ease;
+  transition: opacity var(--bew-duration-fast) var(--bew-ease-standard);
 }
 .moment-detail-frame__loading-icon {
   width: 36px;
@@ -5064,7 +5376,7 @@ watch(
   font-weight: var(--bew-font-weight-semibold);
   line-height: var(--bew-line-height-control);
   opacity: 0.92;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--bew-duration-fast) var(--bew-ease-standard);
 }
 .moment-detail-actions__open:hover {
   opacity: 1;
@@ -5194,6 +5506,21 @@ watch(
   text-align: center;
   font-size: var(--bew-font-size-control);
   font-variant-numeric: tabular-nums;
+}
+.moment-image-viewer__zoom {
+  width: 64px;
+  height: 30px;
+  padding: 0 var(--bew-space-1);
+  border: 0;
+  border-radius: var(--bew-radius-full);
+  outline: none;
+  color: inherit;
+  background: transparent;
+  transition: background-color var(--bew-duration-fast) var(--bew-ease-standard);
+}
+.moment-image-viewer__zoom:hover,
+.moment-image-viewer__zoom:focus {
+  background: rgb(255 255 255 / 14%);
 }
 .moment-image-viewer__divider {
   width: 1px;

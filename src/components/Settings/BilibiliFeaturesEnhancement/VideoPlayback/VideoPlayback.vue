@@ -1,10 +1,12 @@
 <script lang="ts" setup>
 import { useI18n } from 'vue-i18n'
 
+import Input from '~/components/Input.vue'
 import Radio from '~/components/Radio.vue'
 import Select from '~/components/Select.vue'
 import { settings } from '~/logic'
 import type { PlayerDefaultState, VideoPlayerModeContext, VideoPlayerScrollMode } from '~/logic/storage'
+import { normalizeWheelVolumeStep } from '~/utils/wheelVolume'
 
 import SettingsItem from '../../components/SettingsItem.vue'
 import SettingsItemGroup from '../../components/SettingsItemGroup.vue'
@@ -113,10 +115,6 @@ const videoPlayerScrollModeOptions = computed<{ label: string, value: VideoPlaye
   { label: t('settings.video_player_scroll_mode.player_center'), value: 'playerCenter' },
 ])
 
-const usesBewlyWidescreen = computed(() => settings.value.defaultVideoPlayerMode === 'bewlyWidescreen'
-  || (settings.value.enableVideoPlayerModeOverrides
-    && Object.values(settings.value.videoPlayerModeOverrides).includes('bewlyWidescreen')))
-
 type ToggleSetting
   = | 'rememberPlaybackRate'
     | 'rememberVideoAspectRatio'
@@ -145,6 +143,15 @@ function updatePlaybackMemory(setting: ToggleSetting, enabled: boolean) {
   settings.value[setting] = enabled
 }
 
+const wheelVolumeStep = ref<string | number>(settings.value.fullscreenWheelVolumeStep)
+watch(() => settings.value.fullscreenWheelVolumeStep, value => wheelVolumeStep.value = value)
+
+function saveWheelVolumeStep() {
+  const value = wheelVolumeStep.value === '' ? Number.NaN : Number(wheelVolumeStep.value)
+  settings.value.fullscreenWheelVolumeStep = normalizeWheelVolumeStep(value)
+  wheelVolumeStep.value = settings.value.fullscreenWheelVolumeStep
+}
+
 const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefaultState }[]>(() => [
   { label: t('settings.video_default_state_opt.system'), value: 'system' },
   { label: t('settings.video_default_state_opt.remember'), value: 'remember' },
@@ -161,41 +168,6 @@ const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefault
     >
       <SettingsItem :title="$t('settings.video_default_player_mode')" right-width="auto">
         <Select v-model="settings.defaultVideoPlayerMode" :options="videoPlayerModeOptions" w="160px" />
-      </SettingsItem>
-
-      <SettingsItem
-        v-if="usesBewlyWidescreen"
-        :title="t('settings.video_player_mode.bewly_widescreen_sidebar_position')"
-        right-width="auto"
-      >
-        <Select v-model="settings.bewlyWidescreenSidebarPosition" :options="bewlyWidescreenSidebarPositionOptions" w="160px" />
-      </SettingsItem>
-
-      <SettingsItem
-        v-if="usesBewlyWidescreen"
-        :title="t('settings.video_player_mode.bewly_widescreen_auto_collapse_sidebar')"
-        :desc="t('settings.video_player_mode.bewly_widescreen_auto_collapse_sidebar_desc')"
-        right-width="auto"
-      >
-        <Radio v-model="bewlyWidescreenAutoCollapseSidebar" />
-      </SettingsItem>
-
-      <SettingsItem
-        v-if="usesBewlyWidescreen"
-        :title="t('settings.video_player_mode.bewly_widescreen_video_alignment')"
-        :desc="t('settings.video_player_mode.bewly_widescreen_video_alignment_desc')"
-        right-width="auto"
-      >
-        <Select v-model="bewlyWidescreenVideoAlignment" :options="bewlyWidescreenVideoAlignmentOptions" w="200px" />
-      </SettingsItem>
-
-      <SettingsItem
-        v-if="usesBewlyWidescreen"
-        :title="t('settings.video_player_mode.enable_bewly_widescreen_sidebar_resize')"
-        :desc="t('settings.video_player_mode.enable_bewly_widescreen_sidebar_resize_desc')"
-        right-width="auto"
-      >
-        <Radio v-model="bewlyWidescreenSidebarResize" />
       </SettingsItem>
 
       <SettingsItem
@@ -251,6 +223,50 @@ const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefault
       </SettingsItemSubgroup>
     </SettingsItemGroup>
 
+    <SettingsItemGroup
+      :title="t('settings.group_bewly_widescreen')"
+      :desc="t('settings.group_bewly_widescreen_desc')"
+    >
+      <SettingsItem
+        :title="t('settings.show_bewly_widescreen_button')"
+        :desc="t('settings.show_bewly_widescreen_button_desc')"
+        right-width="auto"
+      >
+        <Radio v-model="settings.showBewlyWidescreenButton" />
+      </SettingsItem>
+
+      <SettingsItem
+        :title="t('settings.video_player_mode.bewly_widescreen_sidebar_position')"
+        right-width="auto"
+      >
+        <Select v-model="settings.bewlyWidescreenSidebarPosition" :options="bewlyWidescreenSidebarPositionOptions" w="160px" />
+      </SettingsItem>
+
+      <SettingsItem
+        :title="t('settings.video_player_mode.bewly_widescreen_auto_collapse_sidebar')"
+        :desc="t('settings.video_player_mode.bewly_widescreen_auto_collapse_sidebar_desc')"
+        right-width="auto"
+      >
+        <Radio v-model="bewlyWidescreenAutoCollapseSidebar" />
+      </SettingsItem>
+
+      <SettingsItem
+        :title="t('settings.video_player_mode.bewly_widescreen_video_alignment')"
+        :desc="t('settings.video_player_mode.bewly_widescreen_video_alignment_desc')"
+        right-width="auto"
+      >
+        <Select v-model="bewlyWidescreenVideoAlignment" :options="bewlyWidescreenVideoAlignmentOptions" w="200px" />
+      </SettingsItem>
+
+      <SettingsItem
+        :title="t('settings.video_player_mode.enable_bewly_widescreen_sidebar_resize')"
+        :desc="t('settings.video_player_mode.enable_bewly_widescreen_sidebar_resize_desc')"
+        right-width="auto"
+      >
+        <Radio v-model="bewlyWidescreenSidebarResize" />
+      </SettingsItem>
+    </SettingsItemGroup>
+
     <SettingsItemGroup :title="t('settings.group_player_components')">
       <SettingsItem
         :title="t('settings.video_danmaku_default_state')"
@@ -283,6 +299,28 @@ const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefault
       </SettingsItem>
 
       <PlaybackRate />
+
+      <SettingsItemSubgroup :title="t('settings.fullscreen_wheel_volume')">
+        <SettingsItem
+          :title="t('settings.fullscreen_wheel_volume')"
+          :desc="t('settings.fullscreen_wheel_volume_desc')"
+          right-width="auto"
+        >
+          <Radio v-model="settings.customFullscreenWheelVolume" />
+        </SettingsItem>
+        <SettingsItem
+          v-if="settings.customFullscreenWheelVolume"
+          :title="t('settings.fullscreen_wheel_volume_step')"
+          :desc="t('settings.fullscreen_wheel_volume_step_desc')"
+          right-width="auto"
+        >
+          <Input
+            v-model="wheelVolumeStep" type="number" :min="1" :max="50" :step="1"
+            w="100px"
+            :aria-label="t('settings.fullscreen_wheel_volume_step')" @blur="saveWheelVolumeStep" @enter="saveWheelVolumeStep"
+          />
+        </SettingsItem>
+      </SettingsItemSubgroup>
 
       <SettingsItemSubgroup
         :title="t('settings.group_playback_memory')"
@@ -343,19 +381,19 @@ const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefault
         </SettingsItem>
 
         <SettingsItem
-          :title="t('settings.show_bewly_widescreen_button')"
-          :desc="t('settings.show_bewly_widescreen_button_desc')"
-          right-width="auto"
-        >
-          <Radio v-model="settings.showBewlyWidescreenButton" />
-        </SettingsItem>
-
-        <SettingsItem
           :title="t('settings.show_video_screenshot_button')"
           :desc="t('settings.show_video_screenshot_button_desc')"
           right-width="auto"
         >
           <Radio v-model="settings.showVideoScreenshotButton" />
+        </SettingsItem>
+
+        <SettingsItem
+          :title="t('settings.show_video_pip_button')"
+          :desc="t('settings.show_video_pip_button_desc')"
+          right-width="auto"
+        >
+          <Radio v-model="settings.showVideoPipButton" />
         </SettingsItem>
       </SettingsItemSubgroup>
     </SettingsItemGroup>

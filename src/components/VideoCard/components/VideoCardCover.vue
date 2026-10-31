@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type flvjs from 'flv.js'
+import type Hls from 'hls.js'
 import type { ErrorData, Events } from 'hls.js'
-import Hls from 'hls.js'
 
 import Button from '~/components/Button.vue'
 import Icon from '~/components/Icon.vue'
@@ -11,6 +11,7 @@ import WatchLaterCoverButton from '~/components/WatchLaterCoverButton.vue'
 import { useVideoPreviewSwipeSeek } from '~/composables/useVideoPreviewSwipeSeek'
 import { settings } from '~/logic'
 import { calcCurrentTime } from '~/utils/dataFormatter'
+import { loadFlvjs, loadHls } from '~/utils/streamPlayers'
 import { getVideoWatchState } from '~/utils/videoVisitHistory'
 import { normalizeWatchLaterTarget } from '~/utils/watchLaterActions'
 
@@ -22,6 +23,12 @@ interface Props {
   layout: 'modern' | 'old'
   horizontal?: boolean
   removed: boolean
+  /** 覆盖默认的「视频已移除」文案 */
+  removedMessage?: string
+  /** 移除/还原请求进行中 */
+  removedPending?: boolean
+  /** 等待确认移除：显示「确定/取消」而非「还原」 */
+  removedConfirming?: boolean
   isHover: boolean
   shouldHideOverlayElements: boolean
   previewVideoUrl: string
@@ -51,6 +58,8 @@ interface Props {
 const props = defineProps<Props>()
 const emit = defineEmits<{
   undo: []
+  confirmRemoved: []
+  cancelRemoved: []
   imageLoaded: []
   previewFullscreenChange: [isFullscreen: boolean]
 }>()
@@ -215,9 +224,7 @@ async function setupPreviewVideo(url: string, videoEl: HTMLVideoElement) {
   if (url.includes('.flv')) {
     const generation = ++previewGeneration
     try {
-      // 动态导入 flv.js 以避免构建时依赖问题
-      const flvjsModule = await import('flv.js')
-      const flvjs = flvjsModule.default
+      const flvjs = await loadFlvjs()
 
       if (generation !== previewGeneration || !videoEl.isConnected)
         return
@@ -278,14 +285,22 @@ async function setupPreviewVideo(url: string, videoEl: HTMLVideoElement) {
   }
   // Check if URL is HLS stream (.m3u8)
   else if (url.includes('.m3u8') || url.includes('m3u8')) {
-    if (Hls.isSupported()) {
+    const generation = ++previewGeneration
+    const HlsPlayer = await loadHls().catch((error) => {
+      console.error('Failed to load hls.js:', error)
+      return undefined
+    })
+    if (generation !== previewGeneration || !videoEl.isConnected)
+      return
+
+    if (HlsPlayer?.isSupported()) {
       // Cleanup previous players and clear video src
       cleanupPlayers()
       resetVideoElement(videoEl)
 
       isLoadingStream.value = true
 
-      hls = new Hls({
+      hls = new HlsPlayer({
         enableWorker: true,
         lowLatencyMode: true,
         // 优化配置以更快开始播放
@@ -299,18 +314,18 @@ async function setupPreviewVideo(url: string, videoEl: HTMLVideoElement) {
       hls.loadSource(url)
       hls.attachMedia(videoEl)
 
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      hls.on(HlsPlayer.Events.MANIFEST_PARSED, () => {
         isLoadingStream.value = false
         videoEl.play().catch(() => {
           // Ignore autoplay errors
         })
       })
 
-      hls.on(Hls.Events.ERROR, (_event: Events.ERROR, data: ErrorData) => {
+      hls.on(HlsPlayer.Events.ERROR, (_event: Events.ERROR, data: ErrorData) => {
         if (data.fatal) {
           isLoadingStream.value = false
           switch (data.type) {
-            case Hls.ErrorTypes.MEDIA_ERROR:
+            case HlsPlayer.ErrorTypes.MEDIA_ERROR:
               // Try to recover from media errors
               hls?.recoverMediaError()
               break
@@ -323,7 +338,7 @@ async function setupPreviewVideo(url: string, videoEl: HTMLVideoElement) {
       })
 
       // 添加首帧加载事件
-      hls.on(Hls.Events.BUFFER_APPENDED, () => {
+      hls.on(HlsPlayer.Events.BUFFER_APPENDED, () => {
         if (isLoadingStream.value) {
           isLoadingStream.value = false
         }
@@ -410,11 +425,22 @@ watch([shouldEnableVideoControls, () => props.previewVideoUrl, () => props.isHov
   showControls()
 }, { immediate: true })
 
-// Cleanup on unmount
-onMounted(() => {
+// Only a mounted preview video can enter fullscreen, so cards without one keep
+// no document listeners.
+watch(videoRef, (videoEl, _previousVideo, onCleanup) => {
+  if (!videoEl)
+    return
+
   document.addEventListener('fullscreenchange', syncPreviewFullscreenState)
   document.addEventListener('webkitfullscreenchange', syncPreviewFullscreenState as EventListener)
-})
+  onCleanup(() => {
+    document.removeEventListener('fullscreenchange', syncPreviewFullscreenState)
+    document.removeEventListener('webkitfullscreenchange', syncPreviewFullscreenState as EventListener)
+    // Removing a fullscreen element exits fullscreen after this listener is gone.
+    if (isPreviewFullscreen.value)
+      syncPreviewFullscreenState()
+  })
+}, { immediate: true })
 
 function deactivatePreview() {
   isActive.value = false
@@ -431,11 +457,7 @@ onActivated(() => {
 })
 onDeactivated(deactivatePreview)
 
-onBeforeUnmount(() => {
-  document.removeEventListener('fullscreenchange', syncPreviewFullscreenState)
-  document.removeEventListener('webkitfullscreenchange', syncPreviewFullscreenState as EventListener)
-  deactivatePreview()
-})
+onBeforeUnmount(deactivatePreview)
 
 // Shadow styles are now injected globally via CSS variables from App.vue
 // No per-card computation needed - significant performance improvement!
@@ -481,10 +503,34 @@ onBeforeUnmount(() => {
         bg="$bew-fill-4" backdrop-blur-20px mix-blend-luminosity rounded="$bew-media-radius" z-2
       >
         <p mb-2 color-white text-lg>
-          {{ $t('video_card.video_removed') }}
+          {{ removedMessage || $t('video_card.video_removed') }}
         </p>
+        <div v-if="removedConfirming" flex="~ gap-2 items-center">
+          <Button
+            color="rgba(255,255,255,.35)" text-color="white" size="small"
+            :disabled="removedPending"
+            @click.prevent.stop="emit('confirmRemoved')"
+          >
+            <template #left>
+              <div i-mingcute-check-line text-lg />
+            </template>
+            {{ $t('common.operation.confirm') }}
+          </Button>
+          <Button
+            color="rgba(255,255,255,.35)" text-color="white" size="small"
+            :disabled="removedPending"
+            @click.prevent.stop="emit('cancelRemoved')"
+          >
+            <template #left>
+              <div i-mingcute-close-line text-lg />
+            </template>
+            {{ $t('common.operation.cancel') }}
+          </Button>
+        </div>
         <Button
+          v-else
           color="rgba(255,255,255,.35)" text-color="white" size="small"
+          :disabled="removedPending"
           @click.prevent.stop="emit('undo')"
         >
           <template #left>

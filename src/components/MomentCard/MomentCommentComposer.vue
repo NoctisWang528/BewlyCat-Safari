@@ -21,7 +21,10 @@ const props = defineProps<{
   submit: (submission: CommentSubmission) => Promise<void>
   upload: (file: File) => Promise<CommentPicture>
 }>()
-const emit = defineEmits<{ cancel: [] }>()
+const emit = defineEmits<{
+  cancel: []
+  openImagePreview: [urls: string[], index: number, trigger: HTMLElement | null]
+}>()
 const { t } = useI18n()
 const account = useTopBarStore()
 const editor = ref<InstanceType<typeof MomentRichEditor> | null>(null)
@@ -67,6 +70,9 @@ function removeImage(id: number) {
   if (image)
     URL.revokeObjectURL(image.preview)
   images.value = images.value.filter(item => item.id !== id)
+}
+function previewImage(index: number, event: Event) {
+  emit('openImagePreview', images.value.map(image => image.preview), index, event.currentTarget instanceof HTMLElement ? event.currentTarget : null)
 }
 
 async function send() {
@@ -118,20 +124,25 @@ async function send() {
 
 onMounted(() => {
   const draft = commentDrafts.get(props.draftKey)
-  if (draft)
-    editor.value?.setNodes(draft)
+  if (!draft)
+    return
+  editor.value?.setNodes(draft.nodes)
+  images.value = draft.files.map(file => ({ id: ++imageId, file, preview: URL.createObjectURL(file) }))
 })
 // 父组件先于编辑器卸载，此时编辑器 DOM 仍在，可以读出最终草稿。
+// 正文与图片一起保留，与转发草稿一致：切换转发/评论或收起后再展开都能接着写。
 onBeforeUnmount(() => {
   alive = false
   images.value.forEach(image => URL.revokeObjectURL(image.preview))
   if (!editor.value)
     return
   editor.value.sync()
-  if (editor.value.nodes.some(node => node.raw_text.trim())) {
+  const nodes = editor.value.nodes
+  const files = images.value.map(image => image.file)
+  if (nodes.some(node => node.raw_text.trim()) || files.length) {
     if (commentDrafts.size >= 50 && !commentDrafts.has(props.draftKey))
       commentDrafts.delete(commentDrafts.keys().next().value!)
-    commentDrafts.set(props.draftKey, editor.value.nodes)
+    commentDrafts.set(props.draftKey, { nodes, files })
   }
   else {
     commentDrafts.delete(props.draftKey)
@@ -158,15 +169,27 @@ onBeforeUnmount(() => {
         :max-length="MAX_LENGTH"
         :disabled="submitting || disabled"
         :autofocus="autofocus"
+        :accepts-files="!replyName"
+        :toolbar-pinned="submitting || images.length > 0"
         @submit="send"
         @paste-files="addImages"
       >
         <template #attachments>
           <ul v-if="images.length" class="moment-comment-composer__images">
             <li v-for="(image, index) in images" :key="image.id">
-              <img :src="image.preview" :alt="t('moment_card.comment_image', { index: index + 1 })">
+              <!-- 预览与删除是并列的两个按钮：嵌套时删除键的回车/空格会冒泡成预览 -->
               <button
                 type="button"
+                class="moment-comment-composer__preview"
+                :aria-label="t('moment_card.comment_image', { index: index + 1 })"
+                :title="t('moment_card.comment_image', { index: index + 1 })"
+                @click="previewImage(index, $event)"
+              >
+                <img :src="image.preview" alt="">
+              </button>
+              <button
+                type="button"
+                class="moment-comment-composer__remove"
                 :disabled="submitting"
                 :aria-label="t('moment_card.comment_image_remove', { index: index + 1 })"
                 :title="t('moment_card.comment_image_remove', { index: index + 1 })"
@@ -178,7 +201,9 @@ onBeforeUnmount(() => {
           </ul>
         </template>
         <template #tools>
+          <!-- 与 B 站一致：只有主评论可以附图和同时转发，楼中楼回复只有表情与 @ -->
           <button
+            v-if="!replyName"
             class="bew-segment-control__item bew-segment-control__item--icon"
             type="button"
             :title="t('moment_card.comment_image_add')"
@@ -191,33 +216,35 @@ onBeforeUnmount(() => {
           </button>
           <button
             v-if="!replyName && canSyncToDynamic"
-            class="bew-segment-control__item bew-segment-control__item--icon"
+            class="bew-segment-control__item moment-comment-composer__sync"
             type="button"
-            :title="t('moment_card.comment_sync_repost')"
-            :aria-label="t('moment_card.comment_sync_repost')"
-            :aria-pressed="syncToDynamic"
-            :data-active="syncToDynamic"
+            role="switch"
+            :aria-checked="syncToDynamic"
             :disabled="submitting || disabled"
             @mousedown.prevent
             @click="syncToDynamic = !syncToDynamic"
           >
-            <span i-tabler-share-3 />
+            <span class="moment-comment-composer__sync-track" aria-hidden="true">
+              <span class="moment-comment-composer__sync-thumb" />
+            </span>
+            {{ t('moment_card.comment_sync_repost') }}
           </button>
         </template>
         <template #actions>
           <Button v-if="replyName" size="small" :disabled="submitting" @click="emit('cancel')">
             {{ t('common.operation.cancel') }}
           </Button>
+          <span class="moment-comment-composer__shortcut">{{ t('moment_card.comment_send_keys') }}</span>
           <Button
             type="primary"
             size="small"
             :disabled="disabled || empty || remaining < 0"
-            :aria-disabled="submitting"
+            :aria-disabled="submitting || disabled || empty || remaining < 0"
             :aria-busy="submitting"
             :title="t('moment_card.comment_send_shortcut')"
             @click="send"
           >
-            <span v-if="submitting" i-svg-spinners:ring-resize aria-hidden="true" />{{ t(replyName ? 'moment_card.comment_reply' : 'moment_card.comment_send') }}
+            <span v-if="submitting" class="bew-submit-spinner" aria-hidden="true" /><span class="bew-submit-label" :class="{ 'is-hidden': submitting }">{{ t(replyName ? 'moment_card.comment_reply' : 'moment_card.comment_send') }}</span>
           </Button>
         </template>
       </MomentRichEditor>
@@ -249,7 +276,7 @@ onBeforeUnmount(() => {
   --moment-rich-editor-min-height: 48px;
 
   &.is-reply {
-    --moment-rich-editor-min-height: 24px;
+    --moment-rich-editor-min-height: 32px;
   }
 }
 
@@ -278,25 +305,37 @@ onBeforeUnmount(() => {
 }
 
 .moment-comment-composer__error {
-  color: var(--bew-theme-color);
+  color: var(--bew-error-color);
 }
 
+// 删除按钮以缩略图右上角为圆心外凸半个按钮（12px）：
+// 间距与顶部留白都放到 12px，避免压到相邻缩略图和上方正文。
 .moment-comment-composer__images {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--bew-space-2);
+  gap: var(--bew-space-3);
   margin: 0;
-  padding: 0;
+  padding: var(--bew-space-1) 0 0;
   list-style: none;
 }
 
+// 圆角裁切放在预览按钮上，li 不裁切，删除按钮才能伸出图片角。
 .moment-comment-composer__images li {
   position: relative;
   width: 64px;
   height: 64px;
-  overflow: hidden;
   border-radius: var(--bew-radius-md);
   background: var(--bew-fill-1);
+
+  // 细框画在图片之上，白底图片也能看清缩略图边界；不拦截点击。
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px var(--bew-border-color);
+    pointer-events: none;
+  }
 }
 
 .moment-comment-composer__images img {
@@ -305,10 +344,29 @@ onBeforeUnmount(() => {
   object-fit: cover;
 }
 
-.moment-comment-composer__images button {
+.moment-comment-composer__preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: zoom-in;
+
+  &:focus-visible {
+    outline: 2px solid var(--bew-theme-color);
+    outline-offset: -2px;
+  }
+}
+
+.moment-comment-composer__remove {
   position: absolute;
-  top: var(--bew-space-1);
-  right: var(--bew-space-1);
+  z-index: 1;
+  // 圆心落在缩略图右上角。
+  top: -12px;
+  right: -12px;
   display: grid;
   place-items: center;
   width: 24px;
@@ -318,9 +376,16 @@ onBeforeUnmount(() => {
   border-radius: var(--bew-radius-full);
   color: #fff;
   // 与动态图片画廊的媒体浮层按钮一致，保证在任意图片上都可辨认。
-  background: rgb(15 20 25 / 72%);
+  background: var(--bew-media-button-bg);
   font-size: var(--bew-icon-size-sm);
   cursor: pointer;
+  transition:
+    opacity var(--bew-duration-fast) var(--bew-ease-standard),
+    background-color var(--bew-duration-fast) var(--bew-ease-standard);
+
+  &:hover {
+    background: var(--bew-media-button-bg-hover);
+  }
 
   &:disabled {
     cursor: not-allowed;
@@ -330,6 +395,60 @@ onBeforeUnmount(() => {
   &:focus-visible {
     outline: 2px solid var(--bew-theme-color);
     outline-offset: 1px;
+  }
+}
+
+// 可悬停设备上删除按钮默认隐藏，悬停或键盘聚焦到该缩略图时出现；触屏设备始终显示。
+@media (hover: hover) {
+  .moment-comment-composer__images li:not(:hover, :focus-within) .moment-comment-composer__remove {
+    opacity: 0;
+  }
+}
+
+.moment-comment-composer__shortcut {
+  color: var(--bew-text-3);
+  font-size: var(--bew-font-size-caption);
+  white-space: nowrap;
+}
+
+.moment-comment-composer__sync {
+  font-size: var(--bew-font-size-caption);
+}
+
+.moment-comment-composer__sync-track {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 28px;
+  height: 16px;
+  border-radius: var(--bew-radius-full);
+  background: var(--bew-switch-bg);
+  transition: background-color var(--bew-duration-fast) var(--bew-ease-standard);
+}
+
+.moment-comment-composer__sync-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform var(--bew-duration-fast) var(--bew-ease-standard);
+}
+
+.moment-comment-composer__sync[aria-checked="true"] .moment-comment-composer__sync-track {
+  background: var(--bew-theme-color);
+}
+
+.moment-comment-composer__sync[aria-checked="true"] .moment-comment-composer__sync-thumb {
+  transform: translateX(12px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .moment-comment-composer__sync-track,
+  .moment-comment-composer__sync-thumb {
+    transition: none;
   }
 }
 

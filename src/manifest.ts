@@ -82,6 +82,8 @@ export async function getManifest() {
           'dist/contentScripts/inject.global.js',
           'assets/*',
           'dist/contentScripts/listenVideoControl.js',
+          'dist/contentScripts/hlsPlayer.js',
+          'dist/contentScripts/flvPlayer.js',
         ],
         matches: [...CONTENT_SCRIPT_MATCHES],
       },

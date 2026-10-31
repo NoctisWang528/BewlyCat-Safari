@@ -51,6 +51,8 @@ interface Props {
   previewUrl?: string
   isLikeLoading?: boolean
   isReservationLoading?: boolean
+  /** 上次看到的位置，在卡片顶边显示分界标记 */
+  lastSeen?: boolean
 }
 
 const {
@@ -63,6 +65,7 @@ const {
   previewUrl = '',
   isLikeLoading = false,
   isReservationLoading = false,
+  lastSeen = false,
 } = defineProps<Props>()
 
 const emit = defineEmits<{
@@ -126,48 +129,81 @@ function toggleRepost() {
     toggleCommentPreview(commentPreview)
 }
 
+// 全局 bew-expand-host 的挂载时序：挂载时停在 0fr，enter() 后再过渡到 1fr；
+// 收起后等过渡（--bew-duration-normal）结束再卸载。转发面板与评论区共用。
+function useExpandHost(isOpen: () => boolean) {
+  const mounted = ref(false)
+  const entered = ref(false)
+  let leaveTimer: ReturnType<typeof setTimeout> | undefined
+
+  function mount() {
+    clearTimeout(leaveTimer)
+    entered.value = false
+    mounted.value = true
+  }
+  // 两帧：先让浏览器按 0fr 完成布局，再过渡到完整高度。
+  function enter() {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (isOpen())
+          entered.value = true
+      })
+    })
+  }
+  function leave() {
+    clearTimeout(leaveTimer)
+    entered.value = false
+    leaveTimer = setTimeout(() => {
+      mounted.value = false
+    }, 220)
+  }
+
+  onBeforeUnmount(() => clearTimeout(leaveTimer))
+  return { mounted, entered, mount, enter, leave }
+}
+
+// 转发内容随挂载同步渲染，无需等待数据就绪，挂载后即播放展开。
+const repostHost = useExpandHost(() => repostExpanded.value)
+const { mounted: repostMounted, entered: repostEntered } = repostHost
+
+watch(repostExpanded, (expanded) => {
+  if (expanded) {
+    repostHost.mount()
+    repostHost.enter()
+  }
+  else {
+    repostHost.leave()
+  }
+})
+
 // 评论区展开分两阶段：先挂载并在 0fr 收起态加载首屏评论，数据就绪、最终高度确定后再播放展开，
 // 避免展开动画播到一半时被异步到达的评论内容突然撑开。
-const commentsMounted = ref(false)
-const commentsEntered = ref(false)
+const commentsHost = useExpandHost(() => commentPreview.expanded)
+const { mounted: commentsMounted, entered: commentsEntered } = commentsHost
 const commentsPreparing = ref(false)
 let commentsReady = false
-let commentsLeaveTimer: ReturnType<typeof setTimeout> | undefined
 
 watch(() => commentPreview.expanded, (expanded) => {
-  clearTimeout(commentsLeaveTimer)
   if (expanded) {
     commentsReady = false
     commentsPreparing.value = true
-    commentsEntered.value = false
-    commentsMounted.value = true
+    commentsHost.mount()
     // 收起动画未结束就重新展开时子组件仍挂载、首屏已就绪，不会再发出 ready，由此直接播放展开。
     if (!commentPreview.loading && (commentPreview.page > 0 || commentPreview.error || commentPreview.done))
       handleCommentsReady()
   }
   else {
     commentsPreparing.value = false
-    commentsEntered.value = false
-    commentsLeaveTimer = setTimeout(() => {
-      commentsMounted.value = false
-    }, 220)
+    commentsHost.leave()
   }
 })
-
-onBeforeUnmount(() => clearTimeout(commentsLeaveTimer))
 
 function handleCommentsReady() {
   if (commentsReady)
     return
   commentsReady = true
   commentsPreparing.value = false
-  // 两帧：先让浏览器按 0fr 完成布局，再过渡到完整高度。
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      if (commentPreview.expanded)
-        commentsEntered.value = true
-    })
-  })
+  commentsHost.enter()
 }
 
 async function collapseComments() {
@@ -529,6 +565,7 @@ function handleAdditionalClick(event: MouseEvent) {
     @keydown.enter.self="emit('openDetail', moment)"
     @keydown.space.self.prevent="emit('openDetail', moment)"
   >
+    <span v-if="lastSeen" class="moment-card__last-seen">{{ t('moments.last_seen') }}</span>
     <div class="moment-card__surface">
       <MomentAuthorHeader
         :author="moment.author"
@@ -789,15 +826,20 @@ function handleAdditionalClick(event: MouseEvent) {
         @toggle-comments="toggleComments"
         @toggle-like="emit('toggleLike', moment)"
       />
-      <MomentRepost
-        v-if="repostExpanded"
-        :moment-id="moment.id"
-        @close="repostExpanded = false"
-        @sent="repostCount++; repostExpanded = false"
-      />
+      <div
+        v-if="repostMounted"
+        class="bew-expand-host"
+        :class="{ 'is-entered': repostEntered }"
+      >
+        <MomentRepost
+          :moment-id="moment.id"
+          @close="repostExpanded = false"
+          @sent="repostCount++; repostExpanded = false"
+        />
+      </div>
       <div
         v-if="commentsMounted"
-        class="moment-card__comments-host"
+        class="bew-expand-host"
         :class="{ 'is-entered': commentsEntered }"
       >
         <MomentComments
@@ -849,6 +891,24 @@ function handleAdditionalClick(event: MouseEvent) {
   box-shadow: none;
 }
 
+/* 绝对定位骑在卡片顶边，不改变卡片高度，避免影响虚拟列表测量 */
+.moment-card__last-seen {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  z-index: 2;
+  padding: 2px var(--bew-space-2);
+  border-radius: var(--bew-badge-radius);
+  background-color: var(--bew-theme-color);
+  color: white;
+  font-size: var(--bew-font-size-caption);
+  font-weight: var(--bew-font-weight-medium);
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
 .moment-card__surface {
   position: relative;
   overflow: hidden;
@@ -876,8 +936,10 @@ function handleAdditionalClick(event: MouseEvent) {
   padding: 0 var(--bew-space-4) var(--bew-space-4);
 }
 
-// 子组件各自声明内部交互元素的层级，这里只覆盖本模板内的链接与按钮。
-.moment-card__surface :is(a, button, [role="button"]):not(.moment-card__permalink):not(.bew-watch-later-cover__btn) {
+// 留白区链接只铺在 main 内，只有 main 里的链接与按钮需要抬到它之上。
+// 不能放宽到整张卡片：作用域属性挂在祖先上，会连带改写评论区、转发框等子组件里
+// 自行定位的按钮（如评论缩略图的绝对定位删除按钮被改成 relative 后挤出裁切区）。
+.moment-card__main :is(a, button, [role="button"]):not(.moment-card__permalink):not(.bew-watch-later-cover__btn) {
   @include mixins.interactive-layer;
 }
 
@@ -1002,29 +1064,6 @@ function handleAdditionalClick(event: MouseEvent) {
 @container (max-width: 359px) {
   .moment-card--text .moment-card__body {
     min-height: 0;
-  }
-}
-
-/* 评论区展开/收起：grid 轨道 0fr→1fr 过渡实现高度自适应动画，无需 JS 测量高度。
-   挂载时先停在 0fr，首屏评论就绪后由 .is-entered 播放展开，避免内容异步到达撑断动画。 */
-.moment-card__comments-host {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows var(--bew-duration-normal) var(--bew-ease-standard);
-}
-
-.moment-card__comments-host.is-entered {
-  grid-template-rows: 1fr;
-}
-
-.moment-card__comments-host > .moment-comments {
-  min-height: 0;
-  overflow: hidden;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .moment-card__comments-host {
-    transition: none;
   }
 }
 </style>

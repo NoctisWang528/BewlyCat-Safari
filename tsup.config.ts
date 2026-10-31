@@ -16,7 +16,8 @@ const shared: Options = {
   ignoreWatch: ['**/extension/**', '**/extension-firefox/**', '**/extension-safari/**'],
   splitting: false,
   loader: { '.css': 'text' },
-  noExternal: ['md5'],
+  // 动态加载的直播播放器必须包含自身依赖。
+  noExternal: ['md5', 'hls.js', 'flv.js'],
   esbuildPlugins: [thirdPartyLicensesEsbuildPlugin('background')],
   sourcemap: false, // https://github.com/vitejs/vite-plugin-vue/issues/35
   define: {
@@ -51,7 +52,11 @@ export default defineConfig((): Options[] => [
   },
   {
     ...shared,
-    entry: { 'contentScripts/listenVideoControl': './src/contentScripts/listenVideoControl.ts' },
+    entry: {
+      'contentScripts/listenVideoControl': './src/contentScripts/listenVideoControl.ts',
+      'contentScripts/hlsPlayer': './src/contentScripts/hlsPlayer.ts',
+      'contentScripts/flvPlayer': './src/contentScripts/flvPlayer.ts',
+    },
     // 动态 import() 需要命名导出；听视频入口不能随 Safari 后台一起转为 IIFE。
     format: ['esm'],
   },

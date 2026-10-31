@@ -14,7 +14,6 @@ let lastThemeChangeState: boolean | undefined
 let lastDarkModeBaseColor: string | undefined
 let isBiliDarkSuppressed = false
 let biliDarkObserver: MutationObserver | undefined
-
 function removeSuppressedBiliDark() {
   if (isBiliDarkSuppressed && document.documentElement.classList.contains('bili_dark'))
     document.documentElement.classList.remove('bili_dark')

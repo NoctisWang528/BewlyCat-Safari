@@ -5,6 +5,7 @@ import { provide, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import Button from '~/components/Button.vue'
+import FirefoxScrollbar from '~/components/FirefoxScrollbar.vue'
 import Icon from '~/components/Icon.vue'
 import Radio from '~/components/Radio.vue'
 import TopBarModeSwitcher from '~/components/TopBar/components/TopBarModeSwitcher.vue'
@@ -15,6 +16,7 @@ import { confirmDialogKey } from '~/composables/useConfirmDialog'
 import { useDark } from '~/composables/useDark'
 import { useLayoutEditMode } from '~/composables/useLayoutEditMode'
 import { BEWLY_MOUNTED, DRAWER_VIDEO_ENTER_PAGE_FULL, DRAWER_VIDEO_EXIT_PAGE_FULL, IFRAME_PAGE_SWITCH_BEWLY, IFRAME_PAGE_SWITCH_BILI, IFRAME_SEARCH_NAVIGATION, OVERLAY_SCROLL_BAR_SCROLL, OVERLAY_SCROLL_STATE_CHANGE } from '~/constants/globalEvents'
+import { isOriginalMomentsFeed } from '~/contentScripts/features/originalMomentsFeed'
 import { installScrollBridge } from '~/contentScripts/features/scrollBridge'
 import { HomeSubPage } from '~/contentScripts/views/Home/types'
 import { AppPage } from '~/enums/appEnums'
@@ -25,6 +27,8 @@ import { useSettingsStore } from '~/stores/settingsStore'
 import { useTopBarStore } from '~/stores/topBarStore'
 import { stripBilibiliLocalePathname } from '~/utils/bilibiliLocale'
 import { setOriginalBilibiliTopBarScrolled } from '~/utils/bilibiliTopBar'
+import { isFirefoxBuild } from '~/utils/buildTarget'
+import { SELECTION_FALLBACK_CLASS, supportsHighlightInheritance } from '~/utils/highlightInheritance'
 import { isHomePage, isInIframe, isNotificationPage, isSearchResultsPage, isVideoOrBangumiPage, openLinkToNewTab, queryDomUntilFound, scrollToTop } from '~/utils/main'
 import emitter from '~/utils/mitt'
 import { navigateToPluginSearchResults } from '~/utils/searchNavigation'
@@ -388,7 +392,7 @@ function isLayoutEditCandidateVisible(element: HTMLElement) {
 }
 
 function isOriginalMomentsFeedPage() {
-  return window.location.hostname === 't.bilibili.com' && /^\/?$/.test(window.location.pathname)
+  return isOriginalMomentsFeed()
 }
 
 function refreshLayoutEditTargets() {
@@ -994,6 +998,8 @@ useEventListener(window, 'resize', scheduleLayoutEditTargetsRefresh)
 useEventListener(window, 'scroll', scheduleLayoutEditTargetsRefresh, { passive: true })
 onUnmounted(stopLayoutEditTargetObserver)
 const scrollViewportRef = ref<HTMLElement | null>(null)
+// Firefox 原生滚动条无法自定义外观，仅 Firefox 包提供可选的重绘滚动条
+const useFirefoxScrollbar = computed(() => isFirefoxBuild && settings.value.enableFirefoxScrollbarRepaint)
 watch(scrollViewportRef, (viewport, _previousViewport, onCleanup) => {
   if (viewport && isHomePage() && !settings.value.useOriginalBilibiliHomepage)
     onCleanup(installScrollBridge(viewport))
@@ -1620,6 +1626,16 @@ function openVideoDialog(url: string) {
  */
 async function haveScrollbar() {
   await nextTick()
+  // Read after the browser has laid out the newly rendered cards; reading right
+  // after the Vue flush forced that layout synchronously after every page load.
+  // Hidden tabs do not run animation frames, so a timeout keeps loading going.
+  await new Promise<void>((resolve) => {
+    const fallback = window.setTimeout(resolve, 100)
+    requestAnimationFrame(() => setTimeout(() => {
+      window.clearTimeout(fallback)
+      resolve()
+    }, 0))
+  })
   const viewport = scrollViewportRef.value
   if (!viewport)
     return false
@@ -1857,6 +1873,7 @@ if (settings.value.cleanUrlArgument) {
     :class="{
       'dark': isDark,
       'bewly-wrapper--viewport': isHomePage() && !settings.useOriginalBilibiliHomepage,
+      [SELECTION_FALLBACK_CLASS]: !supportsHighlightInheritance(),
     }"
     text="$bew-text-1"
     @pointerdown.capture="blockOriginalLayoutInteraction"
@@ -2083,8 +2100,15 @@ if (settings.value.cleanUrlArgument) {
           <div
             ref="scrollViewportRef"
             class="bewly-scroll-viewport bew-page-controls"
-            :class="{ 'bew-page-controls--blend': useBlendedPageControls }"
-            :style="{ '--bew-control-wallpaper-mask': pageControlWallpaperMask }"
+            :class="{
+              'bew-page-controls--blend': useBlendedPageControls,
+              'bewly-scroll-viewport--repainted-scrollbar': useFirefoxScrollbar,
+            }"
+            :style="{
+              '--bew-control-wallpaper-mask': pageControlWallpaperMask,
+              // 视频弹窗打开时锁定背后列表，避免弹窗内滚轮与方向键越界滚动
+              'overflowY': videoDialog ? 'hidden' : undefined,
+            }"
             h-inherit of-y-auto of-x-hidden
             tabindex="-1"
             style="overscroll-behavior: contain;"
@@ -2111,6 +2135,7 @@ if (settings.value.cleanUrlArgument) {
           </div>
         </template>
       </Transition>
+      <FirefoxScrollbar v-if="useFirefoxScrollbar && showBewlyPage" :target="scrollViewportRef" />
 
       <Transition v-if="!showBewlyPage && iframePageURL && !isInIframe()" name="fade">
         <IframePage ref="iframePageRef" :url="iframePageURL" @scroll="topBarRef?.handleScroll($event)" />
@@ -2488,5 +2513,9 @@ if (settings.value.cleanUrlArgument) {
 .bewly-scroll-viewport {
   outline: none;
   scrollbar-gutter: stable;
+}
+
+.bewly-scroll-viewport--repainted-scrollbar {
+  scrollbar-width: none;
 }
 </style>
