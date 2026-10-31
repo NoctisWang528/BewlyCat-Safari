@@ -393,3 +393,11 @@ Issue #1 与已关闭、未合并的 PR #2 指出自定义首页滚动桥竞争�
 模拟事件不能替代 Safari 惯性滚动实机验证；2026-10-30 用户确认三种首页布局滚动均正常，
 随后已发布 v1.8.2-safari.2。感谢 GuZhengSVT 的问题报告、排查与 PR #2 修复思路。
 构建与安装结果见 `docs/compose/spec/fix-safari-home-scroll.md`。
+
+## v1.8.3 同步候选
+
+最新本地同步记录见 [v1.8.3](./compose/spec/sync-upstream-v1.8.3.md)，尚未发布。
+直播预览的 hlsPlayer/flvPlayer 与听视频一样依赖动态 import 的命名导出，必须为
+自包含 ESM，不能合入 Safari 后台 IIFE 任务。validator 已覆盖导出与资源可访问性。
+顶栏动态公共映射需保留 Safari 的 aid/bvid/isVideo，并包含阅读位置所需 dynId。
+本次继续保留 v1.8.2-safari.2 的滚动桥修复；新版本仍需单独实机验收。

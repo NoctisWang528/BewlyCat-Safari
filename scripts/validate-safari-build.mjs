@@ -4,6 +4,8 @@ import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
 
+import ts from 'typescript'
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
 const extDir = path.join(root, 'extension-safari')
@@ -132,6 +134,22 @@ if (fileExists(listenVideoPath)) {
   catch (error) {
     assert(false, `listenVideoControl.js cannot be imported as ESM: ${error.message}`)
   }
+}
+
+// 直播预览按需加载的独立模块必须提供命名导出，且不能残留外部依赖。
+for (const [file, exportName] of [['hlsPlayer', 'Hls'], ['flvPlayer', 'flvjs']]) {
+  const resource = `dist/contentScripts/${file}.js`
+  const target = path.join(extDir, resource)
+  assert(fileExists(target), `${resource} missing`)
+  assert(war.some(entry => entry.resources?.includes(resource)), `${resource} should be web accessible`)
+  if (!fileExists(target))
+    continue
+  const source = ts.createSourceFile(target, fs.readFileSync(target, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
+  assert(source.parseDiagnostics.length === 0, `${resource} must parse as JavaScript`)
+  const exports = source.statements.filter(ts.isExportDeclaration)
+  assert(exports.some(entry => entry.exportClause && ts.isNamedExports(entry.exportClause)
+    && entry.exportClause.elements.some(item => item.name.text === exportName)), `${resource} must export ${exportName}`)
+  assert(!source.statements.some(ts.isImportDeclaration) && !exports.some(entry => entry.moduleSpecifier), `${resource} must bundle its dependencies`)
 }
 
 // 13. Safari manifest should have required permissions

@@ -2,6 +2,7 @@ export interface TopBarMomentItem {
   type: string
   itemType?: number
   id_str?: string
+  dynId?: string
   title: string
   author: string
   authorFace: string

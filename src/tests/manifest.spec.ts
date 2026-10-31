@@ -57,7 +57,12 @@ describe('safari manifest', () => {
     const webAccessibleFiles = typeof webAccessibleResource === 'object'
       ? webAccessibleResource.resources
       : []
-    expect(webAccessibleFiles).toContain('dist/contentScripts/inject.global.js')
+    expect(webAccessibleFiles).toEqual(expect.arrayContaining([
+      'dist/contentScripts/inject.global.js',
+      'dist/contentScripts/listenVideoControl.js',
+      'dist/contentScripts/hlsPlayer.js',
+      'dist/contentScripts/flvPlayer.js',
+    ]))
     expect(webAccessibleFiles).not.toContain('dist/audioWorklets/volume-normalization.js')
     expect(serialized).not.toContain('"persistent"')
     expect(serialized).not.toContain('"world"')

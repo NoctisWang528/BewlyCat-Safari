@@ -1011,27 +1011,32 @@ export const useTopBarStore = defineStore('topBar', () => {
     if (selectedType === 'video')
       processedItems = mergeCollaborativeVideos(filteredItems)
 
-    return processedItems.map((item: any) => ({
-      item,
-      moment: {
-        ...extractMomentVideoIdentifier(item),
-        type: selectedType,
-        itemType: item.type,
-        title: item.title,
-        author: item.authors ? item.authors.map((a: any) => a.name).join(' / ') : item.author.name,
-        authorFace: item.author.face,
-        authorJumpUrl: item.author.jump_url,
-        pubTime: item.pub_time,
-        cover: item.cover,
-        link: item.jump_url,
-        rid: item.rid,
-        isCollaborative: !!item.authors,
-        authors: item.authors,
-        dynId: item.id_str,
-        // TransitionGroup 子元素需要唯一 key
-        id_str: item.rid != null ? `${item.type}-${item.rid}` : item.jump_url,
-      } satisfies TopBarMomentItem,
-    }))
+    return processedItems.map((item: any) => {
+      const { aid, bvid } = extractMomentVideoIdentifier(item)
+      return {
+        item,
+        moment: {
+          aid,
+          bvid,
+          isVideo: item.type === 8 && Boolean(aid || bvid),
+          type: selectedType,
+          itemType: item.type,
+          title: item.title,
+          author: item.authors ? item.authors.map((a: any) => a.name).join(' / ') : item.author.name,
+          authorFace: item.author.face,
+          authorJumpUrl: item.author.jump_url,
+          pubTime: item.pub_time,
+          cover: item.cover,
+          link: item.jump_url,
+          rid: aid,
+          isCollaborative: !!item.authors,
+          authors: item.authors,
+          dynId: item.id_str,
+          // TransitionGroup 子元素需要唯一 key
+          id_str: item.rid != null ? `${item.type}-${item.rid}` : item.jump_url,
+        } satisfies TopBarMomentItem,
+      }
+    })
   }
 
   function linkCollaborativeMoments(entries: Array<{ item: any, moment: any }>, selectedType: string) {

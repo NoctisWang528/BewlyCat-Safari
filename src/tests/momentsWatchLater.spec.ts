@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
     initMomentsData: vi.fn(),
     isLoadingMoments: false,
     isNewMoment: vi.fn(() => false),
+    isLastSeenMoment: vi.fn(() => false),
     moments: [] as any[],
     getMomentsData: vi.fn(),
     syncWatchLaterState: vi.fn(),
