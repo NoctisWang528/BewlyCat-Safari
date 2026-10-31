@@ -5,11 +5,10 @@
 [上游同步与维护手册](./UPSTREAM-MAINTENANCE-cmn_CN.md)，构建细节见
 [SAFARI.md](./SAFARI.md)，仓库约束见 [AGENTS.md](../AGENTS.md)。
 
-核对日期：2026-10-23；核对源码基线：`236b2b9b`（`v1.8.2-safari.1` 发布提交），
-`package.json` 为 `1.8.2` / `safariRevision: 1`。最近发布记录为
-[v1.8.2](./compose/spec/sync-upstream-v1.8.2.md)，已完成合并、全量自动校验、
-发布构建与 GitHub Release；安装应用与发布 zip 逐文件一致。接手时应重新读取当前 Git 状态和版本；本文不代表已重新检查远端
-Release、本机证书或 Applications 中应用的现状。
+核对日期：2026-10-31；当前发布构建基线为 `5829ba91`（`v1.8.3-safari.1`），
+`package.json` 为 `1.8.3` / `safariRevision: 1`。最新交付记录见
+[v1.8.3](./compose/spec/sync-upstream-v1.8.3.md)。用户验收通过后已发布，安装应用
+与发布 zip 逐文件一致。接手时仍须重新核对 Git、远端 Release 与本机应用状态。
 
 ## 新会话先做什么
 
@@ -394,10 +393,10 @@ Issue #1 与已关闭、未合并的 PR #2 指出自定义首页滚动桥竞争�
 随后已发布 v1.8.2-safari.2。感谢 GuZhengSVT 的问题报告、排查与 PR #2 修复思路。
 构建与安装结果见 `docs/compose/spec/fix-safari-home-scroll.md`。
 
-## v1.8.3 同步候选
+## v1.8.3 同步与发布
 
-最新本地同步记录见 [v1.8.3](./compose/spec/sync-upstream-v1.8.3.md)，尚未发布。
+最新同步记录见 [v1.8.3](./compose/spec/sync-upstream-v1.8.3.md)，已验收并发布。
 直播预览的 hlsPlayer/flvPlayer 与听视频一样依赖动态 import 的命名导出，必须为
 自包含 ESM，不能合入 Safari 后台 IIFE 任务。validator 已覆盖导出与资源可访问性。
 顶栏动态公共映射需保留 Safari 的 aid/bvid/isVideo，并包含阅读位置所需 dynId。
-本次继续保留 v1.8.2-safari.2 的滚动桥修复；新版本仍需单独实机验收。
+本次继续保留 v1.8.2-safari.2 的滚动桥修复；后续新版本仍需单独实机验收。

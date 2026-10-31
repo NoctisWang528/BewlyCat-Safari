@@ -1,6 +1,6 @@
 ---
 feature: sync-upstream-v1.8.3
-status: candidate-installed-awaiting-acceptance
+status: released
 updated: 2026-10-31
 branch: codex/sync-upstream-v1.8.3
 ---
@@ -9,7 +9,7 @@ branch: codex/sync-upstream-v1.8.3
 
 从 main 4b42b176 合并上游正式 tag v1.8.3（f11de770），merge commit 为 807e42c7。
 候选版本为 v1.8.3-safari.1，manifest 1.8.3.1，App 与扩展 1.8.3 (1)。
-本次不推送、不打 tag、不发布；等待该版本用户验收。
+2026-10-31 用户明确验收通过并授权发布，已完成自有仓库发布。
 
 ## 合并与适配
 
@@ -37,7 +37,7 @@ branch: codex/sync-upstream-v1.8.3
 冻结依赖安装、lint、typecheck、knip、test（27 文件 / 215 项）、build 和
 validate-safari 均通过。生成 manifest 为 1.8.3.1，无新增 host 权限。
 Node 24.19.0、pnpm 10.21.0、macOS 27.2 (26B123)、Safari 27.2、
-Xcode Beta 27.0 (27A5209h)。实机验收尚未进行。
+Xcode Beta 27.0 (27A5209h)。用户已确认功能正常、验收通过。
 
 ## 签名候选交付
 
@@ -50,4 +50,18 @@ pnpm package-safari 重建工程，Xcode Release arm64 构建成功。父 App �
 已退出 Safari/BewlyCat 并安装到 `/Applications/BewlyCat Safari.app`，安装后版本、
 架构、签名与资源复检通过。延续用户唯一候选要求，移除旧完整应用及 DerivedData
 中的完整 app，保留中间缓存、Xcode 工程和已校验的 v1.8.2-safari.2 发布 zip。
-仅注册安装路径中的扩展。尚未推送、创建 Safari tag 或 Release，等待用户验收。
+仅注册安装路径中的扩展；发布阶段保留同一份已验收应用。
+
+## 发布与清理
+
+- main 快进至 2b802523 并推送自有 origin；CI run 41194888106 全部通过。
+  后续文档提交记录本次发布结果。
+- 注释 tag v1.8.3-safari.1 指向实际构建提交 5829ba91。
+- [Release](https://github.com/NoctisWang528/BewlyCat-Safari/releases/tag/v1.8.3-safari.1) 已发布。
+- zip 2,350,508 字节，SHA-256 为
+  `74f4a8829bbaa297e37144a58fc6e6704c389e20cb905ebf9479819d81bd5dae`。
+- 解压应用与安装应用逐文件一致，版本、arm64、严格签名复检通过；GitHub 两个附件
+  的大小和 digest 回读与本地一致。签名仍为 Apple Development，未 notarize。
+- 两个 BewlyCat DerivedData 目录移入废纸篓
+  `BewlyCat-post-v1.8.3-safari.1-20261031`；删除本次解压校验目录。
+- 保留 /Applications 中的已验收应用、extension-safari-macos/ 工程及 release/ 发布资产。

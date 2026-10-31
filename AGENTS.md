@@ -24,7 +24,7 @@ conflicts, but they are never built, tested, or released from this repository.
 3. [Safari 构建与维护说明](docs/SAFARI.md) 与
    [发布清单](docs/RELEASE.md)。
 4. `docs/compose/spec/` 中与当前任务有关的最近交付记录；
-   [v1.8.2 记录](docs/compose/spec/sync-upstream-v1.8.2.md) 是本文更新时的最近基线。
+   [v1.8.3 记录](docs/compose/spec/sync-upstream-v1.8.3.md) 是本文更新时的最近基线。
 
 接手时重新检查 Git 状态、版本和工具链，不将文档中的历史版本或测试数量当作
 当前事实。代码与测试是当前行为的依据；用户在 Safari 验收通过后才进入发布阶段。
