@@ -8,10 +8,13 @@ import {
   SAFARI_VERSION,
 } from '~/constants/release'
 
+import { safariRevision, version } from '../../package.json'
+
 describe('safari release metadata', () => {
   it('uses the upstream version plus Safari revision', () => {
-    expect(SAFARI_VERSION).toBe('1.8.3-safari.1')
-    expect(SAFARI_TAG).toBe('v1.8.3-safari.1')
+    const expectedVersion = `${version}-safari.${safariRevision}`
+    expect(SAFARI_VERSION).toBe(expectedVersion)
+    expect(SAFARI_TAG).toBe(`v${expectedVersion}`)
   })
 
   it('checks and links to Safari releases instead of upstream browser packages', () => {

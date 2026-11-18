@@ -106,7 +106,7 @@ async function pollLoginQRCode(controller: AbortController) {
     else if (pollRes.code === 86038) {
       await setLoginQRCode()
     }
-    else if (pollRes.code === -3 || pollRes.code === -400 || pollRes.code === -404) {
+    else if (pollRes.code === -3 || pollRes.code === -400 || pollRes.code === -404 || pollRes.code === -412) {
       stopPolling()
       toast.error(pollRes.message)
     }
@@ -156,7 +156,7 @@ onBeforeUnmount(deactivate)
         </p>
       </div>
 
-      <div bg-white border="white 4">
+      <div v-if="loginQRCodeUrl || !qrcodeMsg" bg-white border="white 4">
         <QRCodeVue v-if="loginQRCodeUrl" :value="loginQRCodeUrl" :size="150" />
         <div v-else w-150px h-150px grid="~ place-items-center">
           <div i-svg-spinners:ring-resize />

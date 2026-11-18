@@ -50,6 +50,7 @@ describe('buildAppClientHeaderRules', () => {
         'sec-ch-ua-mobile',
         'sec-ch-ua-platform',
       ])
+      expect(rule.action.requestHeaders).toContainEqual({ header: 'origin', operation: 'remove' })
     }
   })
 
@@ -66,7 +67,9 @@ describe('buildAppClientHeaderRules', () => {
       expect(rule.action.requestHeaders).toEqual([
         { header: 'user-agent', operation: 'set', value: expect.stringContaining(rule.id === 1003 ? 'BiliDroid/2.0.1' : 'Dart/3.6') },
         { header: 'referer', operation: 'set', value: 'https://www.bilibili.com' },
-        { header: 'origin', operation: 'remove' },
+        rule.id === 1002 || rule.id === 1005
+          ? { header: 'origin', operation: 'set', value: 'https://www.bilibili.com' }
+          : { header: 'origin', operation: 'remove' },
       ])
     }
   })

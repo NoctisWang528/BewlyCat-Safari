@@ -142,10 +142,14 @@ export function isAppClientRequestUrl(url: string): boolean {
 
 export function buildAppClientHeaderRules(isSafariBuild: boolean): browser.DeclarativeNetRequest.Rule[] {
   return APP_CLIENT_HEADER_RULES.map((rule) => {
+    // Safari 会在扫码和刷新 POST 中保留扩展 Origin，B 站会拒绝该来源。
+    const isSafariPassportRule = isSafariBuild && (rule.id === 1002 || rule.id === 1005)
     const requestHeaders: browser.DeclarativeNetRequest.RuleActionRequestHeadersItemType[] = [
       { header: 'user-agent', operation: 'set', value: rule.userAgent },
       { header: 'referer', operation: 'set', value: APP_CLIENT_REFERER },
-      { header: 'origin', operation: 'remove' },
+      isSafariPassportRule
+        ? { header: 'origin', operation: 'set', value: APP_CLIENT_REFERER }
+        : { header: 'origin', operation: 'remove' },
     ]
 
     // Safari 不发送这些客户端提示，继续省略；本次规则拒绝的根因是旧 1002 的分支正则。

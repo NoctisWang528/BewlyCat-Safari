@@ -5,10 +5,11 @@
 [上游同步与维护手册](./UPSTREAM-MAINTENANCE-cmn_CN.md)，构建细节见
 [SAFARI.md](./SAFARI.md)，仓库约束见 [AGENTS.md](../AGENTS.md)。
 
-核对日期：2026-10-31；当前发布构建基线为 `5829ba91`（`v1.8.3-safari.1`），
-`package.json` 为 `1.8.3` / `safariRevision: 1`。最新交付记录见
-[v1.8.3](./compose/spec/sync-upstream-v1.8.3.md)。用户验收通过后已发布，安装应用
-与发布 zip 逐文件一致。接手时仍须重新核对 Git、远端 Release 与本机应用状态。
+核对日期：2026-11-18；上游基线为 `v1.8.3`，`package.json` 为
+`1.8.3` / `safariRevision: 2`。上游同步与首个 Safari 修订的交付见
+[v1.8.3](./compose/spec/sync-upstream-v1.8.3.md)。第二个 Safari 修订修复了
+APP 扫码授权的 HTTP 412，验证经过见第 5 节。接手时仍须重新核对 Git、远端 Release
+与本机应用状态。
 
 ## 新会话先做什么
 
@@ -187,17 +188,25 @@ Safari 的添加/移除由 `APIClient` 统一分流到页面桥，使用页面�
   参数，不能把任意 URL 变成后台代理。通用 `api` 请求不再注入 APP token。
 - 定时器与按需刷新共用 refreshPromise，取后台内存中的最新 token。旧请求、
   撤销或重新授权会替换 token 快照，完成后的旧刷新不得恢复旧授权。
-- `appClient.ts` 用会话 DNR 改写 APP 请求的 UA/Referer 并移除 Origin 与
-  client hints。Chromium 用 `tabIds: [-1]` 限定为非标签页请求；Safari 不支持
+- `appClient.ts` 用会话 DNR 改写 APP 请求的 UA、Referer 和 Origin。
+  Chromium 同时移除 client hints，并用 `tabIds: [-1]` 限定为非标签页请求；Safari 不支持
   该字段，构建分支会省略它，仅保留固定接口的精确正则与 `xmlhttprequest`
   resource type。此前将后续拒绝误判为 `sec-ch-ua*` 请求头问题；本次确认
   根因是旧规则 `1002` 的 alternation（`|`）正则。现在拆为扫码前缀 `1002`
   和 v2/v3 token refresh `1005`，加上 feed `1003`、dislike `1004` 共四条
   无分支正则规则。移除列表含旧 `1002` 与新 `1005`，不触碰 `1001`。
-  Safari 继续只设置 UA/Referer 并移除 Origin，不添加 `tabIds`/`sec-ch-ua*`；
+  Safari 省略 `tabIds`/`sec-ch-ua*`，扫码和 token 刷新规则显式设置
+  B 站主站 Origin，推荐流和不感兴趣规则仍移除 Origin；
   Chromium 仍带 `tabIds: [-1]` 和六项请求头操作。
   因此 Safari 的作用域是 URL 而非标签页，实机必须确认 B 站页面自己发出的
   同名接口请求没有被意外改写。
+- Safari 27.3 复现二维码请求 HTTP 412 时，四条会话规则均已注册，检查器显示
+  扫码 POST 仍携带 `safari-web-extension://` Origin。只更换 Origin 的对照请求中，
+  扩展来源得到 412，B 站主站来源得到 200。临时应用同样的扫码规则后，
+  Safari 返回二维码、轮询返回「二维码尚未确认」，用户随后扫码授权成功。
+  `appClientRules.spec.ts` 覆盖扫码/刷新与其他 APP 规则的 Origin 操作。
+  `AppAuthorizationDialog.vue` 在生成失败时隐藏加载动画，轮询收到 -412 时
+  停止自动请求并保留手动刷新入口；到期 token 的实机刷新仍需单独验收。
 - `requestWithSafariCompat` 与静态 DNR 配合：api/passport 的 POST 覆盖
   `xmlhttprequest` / `other`。覆盖范围内移除脚本 Origin/Referer，交 DNR 设置；
   其他请求移除 Origin、保留调用方 Referer。主机必须精确匹配，不能用后缀误匹配。

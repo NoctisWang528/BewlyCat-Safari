@@ -3,6 +3,9 @@ import { createApp, defineComponent, h, nextTick } from 'vue'
 import { createI18n } from 'vue-i18n'
 
 import About from '~/components/Settings/About/About.vue'
+import { SAFARI_TAG, SAFARI_VERSION } from '~/constants/release'
+
+import { safariRevision, version } from '../../package.json'
 
 const mocks = vi.hoisted(() => ({
   getURL: vi.fn((path: string) => `safari-extension://bewlycat${path}`),
@@ -122,12 +125,12 @@ describe('settings about page', () => {
   })
 
   it('shows Safari branding and keeps distinct repository links in order', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(successfulReleaseResponse('v1.8.3-safari.1')))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(successfulReleaseResponse(SAFARI_TAG)))
     const { app, root } = mountAbout()
     await flushReleaseCheck()
 
     expect(root.querySelector('.product-name')?.textContent).toBe('BewlyCat-Safari')
-    expect(root.querySelector('.version-link')?.textContent?.trim()).toBe('v1.8.3-safari.1')
+    expect(root.querySelector('.version-link')?.textContent?.trim()).toBe(SAFARI_TAG)
 
     const links = Array.from(root.querySelectorAll<HTMLAnchorElement>('.link-card'))
     expect(links.map(link => ({
@@ -156,7 +159,7 @@ describe('settings about page', () => {
   })
 
   it('checks Safari releases and shows NEW for a different full tag', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(successfulReleaseResponse('v1.8.3-safari.2'))
+    const fetchMock = vi.fn().mockResolvedValue(successfulReleaseResponse(`v${version}-safari.${safariRevision + 1}`))
     vi.stubGlobal('fetch', fetchMock)
     const { app, root } = mountAbout()
     await flushReleaseCheck()
@@ -174,7 +177,7 @@ describe('settings about page', () => {
 
   it('hides NEW for the exact current tag and when the release check fails', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(successfulReleaseResponse('v1.8.3-safari.1'))
+      .mockResolvedValueOnce(successfulReleaseResponse(SAFARI_TAG))
       .mockRejectedValueOnce(new Error('offline'))
     vi.stubGlobal('fetch', fetchMock)
 
@@ -196,7 +199,7 @@ describe('settings about page', () => {
       configurable: true,
       value: { writeText },
     })
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(successfulReleaseResponse('v1.8.3-safari.1')))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(successfulReleaseResponse(SAFARI_TAG)))
 
     const { app, root } = mountAbout()
     await flushReleaseCheck()
@@ -209,7 +212,7 @@ describe('settings about page', () => {
     copyButton?.click()
     await Promise.resolve()
 
-    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('BewlyCat-Safari 1.8.3-safari.1'))
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining(`BewlyCat-Safari ${SAFARI_VERSION}`))
     app.unmount()
   })
 })
