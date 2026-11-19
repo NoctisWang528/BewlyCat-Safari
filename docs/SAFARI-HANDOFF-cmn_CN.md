@@ -5,11 +5,10 @@
 [上游同步与维护手册](./UPSTREAM-MAINTENANCE-cmn_CN.md)，构建细节见
 [SAFARI.md](./SAFARI.md)，仓库约束见 [AGENTS.md](../AGENTS.md)。
 
-核对日期：2026-11-18；上游基线为 `v1.8.3`，`package.json` 为
-`1.8.3` / `safariRevision: 2`。上游同步与首个 Safari 修订的交付见
-[v1.8.3](./compose/spec/sync-upstream-v1.8.3.md)。第二个 Safari 修订修复了
-APP 扫码授权的 HTTP 412，验证经过见第 5 节。接手时仍须重新核对 Git、远端 Release
-与本机应用状态。
+核对日期：2026-11-19；上游基线为 `v1.8.4`，`package.json` 为
+`1.8.4` / `safariRevision: 1`。当前同步见
+[v1.8.4 交付记录](./compose/spec/sync-upstream-v1.8.4.md)。
+APP 扫码授权 HTTP 412 的历史修复见第 5 节。接手时重新核对 Git、远端 Release 与本机应用状态。
 
 ## 新会话先做什么
 
@@ -76,11 +75,12 @@ LTS 要求，包管理器固定 `pnpm@10.21.0`；历史记录里出现过的具�
   `document_start` 执行；MAIN-world bundle 通过可访问资源单独加载。
 - 当前 Vite shared config 与 tsup 都定义了 `process.env.SAFARI`；新增构建
   入口要确认继承对应 define，不能在页面世界导入 Node 侧 `scripts/utils.ts`。
-- `listenVideoControl.js` 由 `listenVideoFeature.ts` 动态 `import()` 并读取
-  `initListenVideoControl`，必须单独输出 ESM；不能将 Safari 的所有 tsup 入口
-  一律设为 IIFE。后台与 `pageLoading.js` 仍为 IIFE。两个任务均 `clean: false`，
-  由 `clear-safari` 统一清理，避免互删产物。validator 实际导入听视频产物并
-  断言导出函数，同时检查它在 web-accessible resources 中。
+- `flvPlayer.js` 由直播预览动态导入，单独输出自包含 ESM；后台与
+  `pageLoading.js` 输出 IIFE。两个任务均设 `clean: false`，由 `clear-safari`
+  统一清理。validator 校验 FLV 命名导出、自包含依赖与 web-accessible resources。
+- 内容样式随 isolated 脚本内联，恢复流程直接重新注入脚本。独立设置页在
+  `dist/options/` 打包，由工具栏和站内入口打开。Safari packager 会拒绝
+  `options_ui.open_in_tab`，Safari manifest 仅声明页面路径。设置维持本地存储。
 - 后台依赖可能间接引入 Vue；tsup 的 Vue 编译期 feature flags 也需保留。
   仅给 Vite 配置 flag 不覆盖后台 bundle，需检查最终产物没有未替换的常量。
 - 第三方依赖许可由 `scripts/thirdPartyLicenses.ts` 在 content/inject/background
@@ -344,7 +344,7 @@ git show aa3d2f70 -- src/utils/storageWriteQueue.ts src/tests/storageWriteQueue.
 | 会话恢复后空白或重复 UI | PONG 身份、两层幂等标记、pageLoading 顺序、READY/FAILED、重复 `#bewly` |
 | 稍后再看首页可用但动态失败 | aid/bvid 归一化、原始页面 fetch、CSRF 是否存在、pending/失败回滚、是否误走后台 POST |
 | APP client 会话规则更新失败 | 旧 `1002` 是否仍含 `\|`、四条规则及清理 ID、Safari 无 `tabIds`/`sec-ch-ua*`、实际安装资源 |
-| 听视频模块加载失败 / 缺少初始化函数 | `listenVideoControl.js` 是否为 ESM、命名导出与 web-accessible resources、最终 app 三方资源一致性 |
+| FLV 直播预览加载失败 | `flvPlayer.js` 是否为 ESM、`flvjs` 命名导出、web-accessible resources、最终 app 三方资源一致性 |
 | 休眠后授权失败 | alarms、按需刷新、共享 promise、请求最终签名；只看设置页 token 存在不够 |
 | 设置不持久、壁纸替换失败 | 配额 vs Disk I/O、入口是否导入守卫、local-only 协调器、原子提交成功后再更新内存 |
 | 包签名通过但版本错误 | 父 App 与 Extension 的 Info.plist、最终 zip 内 app、资源一致性、实际 arm64 架构 |
@@ -404,8 +404,20 @@ Issue #1 与已关闭、未合并的 PR #2 指出自定义首页滚动桥竞争�
 
 ## v1.8.3 同步与发布
 
-最新同步记录见 [v1.8.3](./compose/spec/sync-upstream-v1.8.3.md)，已验收并发布。
+同步记录见 [v1.8.3](./compose/spec/sync-upstream-v1.8.3.md)，已验收并发布。
 直播预览的 hlsPlayer/flvPlayer 与听视频一样依赖动态 import 的命名导出，必须为
 自包含 ESM，不能合入 Safari 后台 IIFE 任务。validator 已覆盖导出与资源可访问性。
 顶栏动态公共映射需保留 Safari 的 aid/bvid/isVideo，并包含阅读位置所需 dynId。
 本次继续保留 v1.8.2-safari.2 的滚动桥修复；后续新版本仍需单独实机验收。
+
+## v1.8.4 独立设置页与页面更新
+
+- `src/options/main.ts` 挂载独立设置页。浏览器缺少 Cookie 变更事件时，回到
+  设置标签页触发登录快照刷新。`src/background/settingsPage.ts` 按消息封包
+  读取已打开标签页的位置，播放器操作由 `settingsPageBridge.ts` 回传结果。
+- `src/utils/localWallpaper.ts` 的备份恢复使用现有写入队列和
+  `setAndPersist()`，与上传及替换共用持久化路径。现有壁纸与存储测试覆盖写入机制，
+  设置页完整导入、导出和恢复需 Safari 实机验收。
+- 上游样式内联后，恢复脚本不再依赖磁盘上的 CSS 文件，由
+  `contentScriptRecovery.spec.ts` 验证恢复顺序。Safari 页面脚本通过原有
+  READY 握手报告版本，比较包含 Safari 修订号的 manifest 版本。

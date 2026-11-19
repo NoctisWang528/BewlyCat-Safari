@@ -24,7 +24,7 @@ conflicts, but they are never built, tested, or released from this repository.
 3. [Safari 构建与维护说明](docs/SAFARI.md) 与
    [发布清单](docs/RELEASE.md)。
 4. `docs/compose/spec/` 中与当前任务有关的最近交付记录；
-   [v1.8.3 记录](docs/compose/spec/sync-upstream-v1.8.3.md) 是本文更新时的最近基线。
+   [v1.8.4 记录](docs/compose/spec/sync-upstream-v1.8.4.md) 是本文更新时的最近基线。
 
 接手时重新检查 Git 状态、版本和工具链，不将文档中的历史版本或测试数量当作
 当前事实。代码与测试是当前行为的依据；用户在 Safari 验收通过后才进入发布阶段。
@@ -81,12 +81,13 @@ Chromium paths exist only in upstream source and are not invoked here.
 is repeated in `scripts/prepare.ts`, `scripts/manifest.ts`, `vite.config.ts`,
 `vite.config.content.ts`, `vite.config.inject.ts`, and `tsup.config.ts`.
 
-The build has four relevant stages:
+The build has five relevant stages:
 
 1. `scripts/prepare.ts` copies `assets/` and generates `manifest.json`.
 2. `vite.config.content.ts` builds the isolated content script and CSS.
 3. `vite.config.inject.ts` builds the script that runs in the page's main world.
-4. `tsup.config.ts` builds the background script.
+4. `vite.config.options.ts` builds the standalone settings page.
+5. `tsup.config.ts` builds the background, page-loading script, and FLV player.
 
 `src/manifest.ts` is the source of truth for all generated manifests.
 
@@ -111,9 +112,8 @@ The build has four relevant stages:
 - `assets/rules.json` contains declarative network request rules used to set
   Bilibili request headers.
 
-The options and popup Vue entries exist, but their manifest declarations are
-currently commented out in `src/manifest.ts`. Do not assume they are reachable
-from Safari's extension UI without adding and testing manifest configuration.
+The standalone settings page is declared in `src/manifest.ts` under
+`options_ui`. The toolbar action opens it through `src/background/settingsPage.ts`.
 
 ## Safari compatibility
 

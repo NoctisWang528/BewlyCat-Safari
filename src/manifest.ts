@@ -22,7 +22,7 @@ export async function getManifest() {
     },
     options_ui: {
       page: 'dist/options/index.html',
-      open_in_tab: true,
+      ...isSafari ? {} : { open_in_tab: true },
     },
 
     // Setting `persistent` to true in Manifest V3 results in an error in Firefox
