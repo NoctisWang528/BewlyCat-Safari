@@ -1,6 +1,8 @@
 import type { API_COLLECTION } from '~/background/messageListeners/api'
 import { isSearchResultApiMethod } from '~/constants/searchApi'
 import { settings } from '~/logic'
+import { recordBackgroundUnavailable } from '~/utils/apiDiagnostics'
+import { applyBilibiliTranslatedTitles, getBilibiliLocaleRequestParam } from '~/utils/bilibiliLocale'
 import { sendAbortableApiMessage, sendMessage } from '~/utils/messaging'
 import { isPageWatchLaterMethod, requestPageWatchLater } from '~/utils/pageWatchLater'
 
@@ -111,11 +113,20 @@ export class APIClient {
                 if (isSearchResultRequest && settings.value.depersonalizeSearchResults)
                   message.bewlyNoCookie = true
 
-                const responsePromise = request?.signal
+                // 后台无法得知页面语言，由这里传入；同时参与响应缓存键，避免不同语言共用缓存。
+                const locale = getBilibiliLocaleRequestParam()
+                if (locale)
+                  message.bewlyLocale = locale
+
+                const response = (request?.signal
                   ? sendAbortableApiMessage(p as string, message, request.signal)
                   : sendMessage(p as string, message)
-                return responsePromise
-                  .then(response => assertApiResponse(response, namespace, p))
+                ).catch((error) => {
+                  recordBackgroundUnavailable(p as string, requestOptions, error)
+                  throw error
+                })
+                const validatedResponse = response.then(value => assertApiResponse(value, namespace, p))
+                return locale ? validatedResponse.then(applyBilibiliTranslatedTitles) : validatedResponse
               }
             },
           })

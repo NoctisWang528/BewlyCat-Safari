@@ -13,9 +13,6 @@ Icon
 .idea/
 .vite-ssg-dist
 .vite-ssg-temp
-.trae
-.kiro
-.claude
 .reasonix
 # Node.js
 npm-debug.log*
@@ -41,6 +38,33 @@ node_modules
 extension-safari-macos/
 release/
 # src/old-extension/
+
+# AI 客户端与 MCP 本地目录
+.agent
+.agents
+.aider*
+.amp
+.augment
+.claude
+.cline
+.codebuddy
+.codex
+.continue
+.copilot
+.cursor
+.factory
+.gemini
+.goose
+.junie
+.kiro
+.lingma
+.opencode
 .playwright-mcp/
+.qoder
+.qwen
+.roo
+.trae
+.windsurf
+
 # 本地计划
 UI-FIX-PLAN.md

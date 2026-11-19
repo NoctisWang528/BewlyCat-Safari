@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useElementBounding, useEventListener } from '@vueuse/core'
+import { useElementBounding, useEventListener, useResizeObserver } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useToast } from 'vue-toastification'
 
@@ -26,18 +26,20 @@ import {
   shouldUseMomentImageGrid,
 } from '~/components/MomentCard/utils'
 import { useBewlyApp } from '~/composables/useAppProvider'
-import { useExtensionCache } from '~/composables/useExtensionCache'
 import { useLayoutEditMode } from '~/composables/useLayoutEditMode'
-import { DRAWER_VIDEO_ENTER_PAGE_FULL, DRAWER_VIDEO_EXIT_PAGE_FULL, VIDEO_DIALOG_IFRAME_NAME } from '~/constants/globalEvents'
+import { DRAWER_VIDEO_ENTER_PAGE_FULL, DRAWER_VIDEO_EXIT_PAGE_FULL, OVERLAY_SCROLL_BAR_REBASE, VIDEO_DIALOG_IFRAME_NAME } from '~/constants/globalEvents'
 import { settings } from '~/logic'
-import { momentsPinnedUsers, momentsWantedUsers } from '~/logic/storage'
+import { parseDedeUserID } from '~/logic/loginStatus'
+import { momentsPinnedUsers } from '~/logic/storage'
 import { recordUploaderLatestVideoTimes } from '~/logic/uploaderLatestVideoTimes'
 import { ensureWatchLaterState } from '~/logic/watchLaterState'
 import type { DataItem, MomentResult } from '~/models/moment/moment'
+import { useTopBarStore } from '~/stores/topBarStore'
 import api from '~/utils/api'
 import { numFormatter } from '~/utils/dataFormatter'
-import { getCSRF } from '~/utils/main'
+import { getCSRF, isProgrammaticScrollActive } from '~/utils/main'
 import { MasonryColumnMetrics } from '~/utils/masonryColumnMetrics'
+import emitter from '~/utils/mitt'
 import {
   fetchNewerMoments,
   fetchUnreadMomentIds,
@@ -45,7 +47,7 @@ import {
   isNewerDynamicId,
 } from '~/utils/momentsLastSeen'
 import { resolveVideoDialogPlayerModeOverride } from '~/utils/player'
-import { loadFlvjs, loadHls } from '~/utils/streamPlayers'
+import { loadFlvjs } from '~/utils/streamPlayers'
 import { openLinkInBackground } from '~/utils/tabs'
 import {
   DIALOG_SAFE_HEIGHT,
@@ -60,6 +62,7 @@ import {
 } from '~/utils/videoDialog'
 import { recordVideoVisit } from '~/utils/videoVisitHistory'
 
+import MomentsFilterEntry from './MomentsFilterEntry.vue'
 import MomentsHotSearch from './MomentsHotSearch.vue'
 
 const loadingGifUrl = browser.runtime.getURL('/assets/loading.gif')
@@ -84,13 +87,21 @@ interface MomentsPortalUser {
   }
 }
 
-interface MomentsPortalLiveUser {
-  mid: string
-  room_id: string
-  jump_url: string
+interface MomentsSidebarLiveUser {
+  roomid: number
+  link?: string
   face: string
   uname: string
   title: string
+}
+
+interface MomentsSidebarLiveResult {
+  code: number
+  data?: {
+    results?: number | string
+    pagesize?: number | string
+    list?: MomentsSidebarLiveUser[] | null
+  }
 }
 
 interface MomentsPortalUpItem {
@@ -118,10 +129,6 @@ interface MomentsPortalResult {
   code: number
   data?: {
     my_info?: MomentsPortalUser
-    live_users?: {
-      count?: number
-      items?: MomentsPortalLiveUser[]
-    }
     /** 真实接口为 { has_more, items }；兼容历史数组形态 */
     up_list?: MomentsPortalUpList | MomentsPortalUpListItem[]
   }
@@ -129,11 +136,14 @@ interface MomentsPortalResult {
 
 /** 动态流 features：补齐 opus 图文与充电列表字段 */
 const MOMENT_FEED_FEATURES = 'itemOpusStyle,listOnlyfans,opusBigCover,onlyfansVote,decorationCard,onlyfansAssetsV2,forwardListHidden,ugcDelete,onlyfansQaCard'
+const SIDEBAR_LIVE_PAGE_SIZE = 10
 const toast = useToast()
 const { t } = useI18n()
+const topBarStore = useTopBarStore()
+
+type MomentFilter = 'all' | 'video' | 'pgc' | 'article'
 
 const moments = ref<DisplayMoment[]>([])
-type MomentFilter = 'all' | 'video' | 'pgc' | 'article'
 const momentFilters = computed<Array<{ value: MomentFilter, label: string }>>(() => [
   { value: 'all', label: t('moments.filter_all') },
   { value: 'video', label: t('moments.filter_video') },
@@ -141,33 +151,19 @@ const momentFilters = computed<Array<{ value: MomentFilter, label: string }>>(()
   { value: 'article', label: t('moments.filter_article') },
 ])
 const activeMomentFilter = ref<MomentFilter>('all')
-interface MomentsFeedCacheEntry {
-  items: DisplayMoment[]
-  offset: string
-  updateBaseline: string
-  hasMore: boolean
-  updatedAt: number
-  continuation?: {
-    items: DisplayMoment[]
-    offset: string
-    updateBaseline: string
-    hasMore: boolean
-  }
-}
-type MomentsFeedCache = Partial<Record<MomentFilter, MomentsFeedCacheEntry>>
-// 缓存可达数 MB，存于后台 IndexedDB，避免 storage.local 把每次写入广播给所有标签页。
-const {
-  data: momentsFeedCache,
-  ready: momentsFeedCacheReady,
-  flush: flushMomentsCacheWrite,
-} = useExtensionCache<MomentsFeedCache>('momentsFeedCache', {}, { writeDelay: 500 })
-type MomentGroup = 'all' | 'wanted'
-const activeMomentGroup = ref<MomentGroup>('all')
-/** 只保留“想看”尚未扫描的缓存段；已展示数据交给虚拟列表管理。 */
-let wantedFeedBuffer: MomentsFeedCacheEntry | undefined
 const portalUser = ref<MomentsPortalUser | null>(null)
-const portalLiveUsers = ref<MomentsPortalLiveUser[]>([])
-const portalLiveCount = ref(0)
+const sidebarLiveUsers = shallowRef<MomentsSidebarLiveUser[]>([])
+const sidebarLiveViewportRef = ref<HTMLElement | null>(null)
+const sidebarLiveTotal = ref<number>()
+const nextSidebarLivePage = ref<number>()
+const sidebarLiveLoadFailed = ref(false)
+const sidebarLiveRequest = shallowRef<AbortController>()
+const isSidebarLiveLoading = computed(() => Boolean(sidebarLiveRequest.value))
+const sidebarLiveAccount = computed(() => topBarStore.isLogin
+  ? topBarStore.userInfo.mid ?? parseDedeUserID(document.cookie)
+  : undefined)
+const showSidebarLiveCard = computed(() => settings.value.momentsSidebarShowLive
+  && (sidebarLiveUsers.value.length > 0 || isSidebarLiveLoading.value || sidebarLiveLoadFailed.value))
 const portalUpList = ref<MomentsPortalUpItem[]>([])
 /** 选中的经常访问 UP 主 mid；空字符串表示“全部动态” */
 const selectedHostMid = ref('')
@@ -240,14 +236,13 @@ function cancelPendingPreview() {
 watch(hoveredMediaId, cancelPendingPreview, { flush: 'sync' })
 onBeforeUnmount(cancelPendingPreview)
 
-const previewUrls = reactive<Record<string, string>>({})
+const previewUrl = ref('')
 const likingMomentIds = reactive(new Set<string>())
 const reservationLoadingMomentIds = reactive(new Set<string>())
 const videoCidCache = new Map<string, number>()
 const videoCidRequests = new Map<string, Promise<number | undefined>>()
 const videoAspectRatios = reactive<Record<string, number>>({})
 const cardHeights = reactive<Record<string, number>>({})
-const visibleMomentIds = reactive(new Set<string>())
 const readyCardIds = reactive(new Set<string>())
 const enteringCardIds = reactive(new Set<string>())
 const revealedCardIds = new Set<string>()
@@ -266,7 +261,6 @@ const coverRatios = reactive<Record<string, number>>({})
 
 let gridObserver: ResizeObserver | undefined
 let liveFlvPlayer: any = null
-let liveHlsPlayer: any = null
 let activePreviewVideo: { id: string, element: HTMLVideoElement } | null = null
 let previewPlaybackGeneration = 0
 const isLoading = ref(false)
@@ -283,7 +277,7 @@ const hasNewerMoments = ref(false)
 const isLoadingNewerMoments = ref(false)
 /** 已加载原始条目中最新的动态 ID，用作向上加载的衔接点 */
 let newestLoadedMomentId = ''
-/** 本轮从中段开始加载，列表不是 feed 头部，不能写入全部动态缓存 */
+/** 本轮从中段开始加载，列表不是 feed 头部 */
 let isLastSeenSession = false
 /** “回到最新”后的下一次重置跳过定位，直接从顶部加载 */
 let skipLastSeenOnce = false
@@ -291,7 +285,19 @@ let skipLastSeenOnce = false
 let pendingLastSeenIds: string[] | null = null
 /** 向上插入的卡片按估算高度排布，实测高度变化时据此补偿滚动位置 */
 const prependedCardIds = new Set<string>()
-const { handlePageRefresh, handleReachBottom, mainAppRef, openSettings, scrollViewportRef } = useBewlyApp()
+/**
+ * 各列顶部已回收卡片占据的高度（含间距），即当前首张卡片在列内的顶部位置。
+ * 回收时按各列共同的部分整体收起并补偿滚动，剩余部分以顶部 spacer 保持布局不变。
+ */
+let columnHeadOffsets: number[] = []
+/** 本轮浏览已回收过列表顶部的动态 */
+const hasTrimmedHead = ref(false)
+/** 视口已接近被回收区域，显示重新加载入口 */
+const isNearTrimmedHead = ref(false)
+let headTrimTimer: ReturnType<typeof setTimeout> | null = null
+/** 分页后正在等待恢复滚动位置，此时回收会被恢复覆盖 */
+let pendingPaginationScrollRestores = 0
+const { handlePageRefresh, handleReachBottom, mainAppRef, scrollViewportRef } = useBewlyApp()
 // Shadow DOM 内的滚动不会传播到 window，直接监听页面实际的滚动容器。
 useEventListener(scrollViewportRef, 'scroll', updateSidebarBounds, { passive: true })
 
@@ -300,17 +306,19 @@ function resetMomentsScroll() {
     scrollViewportRef.value.scrollTop = 0
 }
 
-const OVERSCAN_PX = 1200
-const MAX_PREVIEW_CACHE = 12
+/** 挂载窗口留半屏缓冲，已挂载卡片留一屏缓冲，减少小幅往返滚动时的重挂载。 */
+const MOMENTS_RENDER_BUFFER_PX = 480
+const MOMENTS_RETAIN_BUFFER_PX = 720
 const MAX_VIDEO_CID_CACHE = 80
 /** 首屏最多再补 1 页把视口填满；之后只随滚动请求 */
 const MAX_POST_LOAD_AUTOFILL_PAGES = 1
-const WANTED_SCAN_LIMIT = 100
 /** 开启类型过滤时单次最多请求的原始动态页数 */
 const FILTERED_MAX_REQUEST_PAGES = 2
-/** 仅限制持久化缓存，不能作为动态浏览或“想看”扫描的上限。 */
-const MOMENTS_CACHE_MAX_ITEMS = 1000
-const MOMENTS_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000
+/** 超过阈值后回收视口上方的早期动态，留出余量避免每加载一页都回收。 */
+const MOMENTS_MEMORY_MAX_ITEMS = 160
+const MOMENTS_MEMORY_TRIM_TARGET = 120
+/** 只回收底边高于视口顶部至少这么多屏的卡片 */
+const MOMENTS_TRIM_KEEP_SCREENS = 2
 /** 未读超过该数量时才从上次看到的位置开始加载，否则分界点就在首屏 */
 const MOMENTS_LAST_SEEN_MIN_UNREAD = 8
 /** 定位后保留在分界点上方的未读条数 */
@@ -339,7 +347,6 @@ let detailImageViewerDragOriginY = 0
 /** 高度已稳定的卡片，避免反复 Resize 微抖动 */
 const settledHeights = new Set<string>()
 
-const wantedUserMids = computed(() => new Set(momentsWantedUsers.value.map(user => user.mid)))
 const pinnedUserMids = computed(() => new Set(momentsPinnedUsers.value.map(user => user.mid)))
 const visiblePortalUpList = computed(() =>
   portalUpList.value.filter(up => !pinnedUserMids.value.has(up.mid)),
@@ -350,7 +357,6 @@ const showMomentsUpList = computed(() =>
     isPortalLoading.value
     || portalUpList.value.length > 0
     || momentsPinnedUsers.value.length > 0
-    || settings.value.momentsEnableWantedFilter
   ),
 )
 
@@ -396,7 +402,6 @@ function handlePinnedListFocusOut(event: FocusEvent) {
 onBeforeUnmount(() => {
   if (pinnedListCollapseTimer)
     clearTimeout(pinnedListCollapseTimer)
-  flushMomentsCacheWrite()
 })
 
 function getDetailImageUrlKey(url: string) {
@@ -923,10 +928,7 @@ function openMomentExternally(moment: DisplayMoment, openMode: Exclude<ResolvedM
   if (!url)
     return
 
-  hoveredMediaId.value = ''
-  cleanupLivePreviewPlayer()
-  if (previewUrls[moment.id])
-    delete previewUrls[moment.id]
+  clearMomentPreview()
   if (openMode === 'background')
     void openLinkInBackground(url)
   else if (openMode === 'currentTab')
@@ -1008,10 +1010,7 @@ function openMomentDialog(moment: DisplayMoment) {
   detailFrameLoaded.value = false
   setDetailPlayerImmersive(false)
   // 打开详情时释放悬停预览资源
-  if (previewUrls[hoveredMediaId.value])
-    delete previewUrls[hoveredMediaId.value]
-  hoveredMediaId.value = ''
-  cleanupLivePreviewPlayer()
+  clearMomentPreview()
   clearDetailLoadTimer()
   destroyDetailIframe()
   // 转发原页直接展示；图文等待布局 ready，超时后解除加载遮罩。
@@ -1227,44 +1226,10 @@ function handleMomentFilterChange(filter: MomentFilter) {
   if (activeMomentFilter.value === filter)
     return
 
-  hoveredMediaId.value = ''
-  cleanupLivePreviewPlayer()
-  Object.keys(previewUrls).forEach(key => delete previewUrls[key])
-  visibleMomentIds.clear()
+  clearMomentPreview()
   activeMomentFilter.value = filter
-  if (filter !== 'all' && filter !== 'video')
-    activeMomentGroup.value = 'all'
   resetMomentsScroll()
   void loadMoments(true)
-}
-
-function handleMomentGroupChange(group: MomentGroup) {
-  if (
-    group === 'wanted'
-    && (
-      !settings.value.momentsEnableWantedFilter
-      || (activeMomentFilter.value !== 'all' && activeMomentFilter.value !== 'video')
-    )
-  ) {
-    return
-  }
-  if (activeMomentGroup.value === group && (group !== 'wanted' || !selectedHostMid.value))
-    return
-
-  prepareMomentListTransition()
-  if (group === 'wanted')
-    selectedHostMid.value = ''
-  activeMomentGroup.value = group
-  void loadMoments(true)
-}
-
-/** 打开设置并定位到「想看分组」，供想看列表为空时的引导按钮使用 */
-function openWantedUsersSettings() {
-  openSettings({
-    menu: 'BewlyPages',
-    secondaryPage: 'moments',
-    targetTitleKey: 'settings.group_moments_wanted_users',
-  })
 }
 
 function clearUpUpdateDot(mid: string) {
@@ -1276,22 +1241,18 @@ function clearUpUpdateDot(mid: string) {
 }
 
 function prepareMomentListTransition() {
-  hoveredMediaId.value = ''
-  cleanupLivePreviewPlayer()
-  Object.keys(previewUrls).forEach(key => delete previewUrls[key])
-  visibleMomentIds.clear()
+  clearMomentPreview()
   resetMomentsScroll()
 }
 
 /** 选择“全部动态”或某个经常访问的 UP 主；切换时 reset 列表与分页 */
 function handleUpFilterChange(mid = '') {
   const nextMid = mid ? String(mid) : ''
-  if (selectedHostMid.value === nextMid && activeMomentGroup.value === 'all')
+  if (selectedHostMid.value === nextMid)
     return
 
   prepareMomentListTransition()
   selectedHostMid.value = nextMid
-  activeMomentGroup.value = 'all'
   if (nextMid)
     clearUpUpdateDot(nextMid)
   void loadMoments(true)
@@ -1347,23 +1308,17 @@ function setupUpListScrollerObserver() {
   updateUpListScrollState()
 }
 
-type UpNavTargetKey = 'all' | 'wanted' | `mid:${string}`
+type UpNavTargetKey = 'all' | `mid:${string}`
 interface UpNavTarget {
   key: UpNavTargetKey
   activate: () => void
 }
 
-/** 键盘左右切换时按视觉顺序遍历：全部 → 想看 → 经常访问 UP → 固定 UP */
+/** 键盘左右切换时按视觉顺序遍历：全部 → 经常访问 UP → 固定 UP */
 const upNavTargets = computed<UpNavTarget[]>(() => {
   const targets: UpNavTarget[] = [
     { key: 'all', activate: () => handleUpFilterChange('') },
   ]
-  if (
-    settings.value.momentsEnableWantedFilter
-    && (activeMomentFilter.value === 'all' || activeMomentFilter.value === 'video')
-  ) {
-    targets.push({ key: 'wanted', activate: () => handleMomentGroupChange('wanted') })
-  }
   for (const up of visiblePortalUpList.value) {
     targets.push({ key: `mid:${up.mid}`, activate: () => handleUpFilterChange(up.mid) })
   }
@@ -1373,11 +1328,9 @@ const upNavTargets = computed<UpNavTarget[]>(() => {
   return targets
 })
 
-const activeUpNavKey = computed<UpNavTargetKey>(() => {
-  if (activeMomentGroup.value === 'wanted')
-    return 'wanted'
-  return selectedHostMid.value ? `mid:${selectedHostMid.value}` : 'all'
-})
+const activeUpNavKey = computed<UpNavTargetKey>(() =>
+  selectedHostMid.value ? `mid:${selectedHostMid.value}` : 'all',
+)
 
 function isEditableFocusTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement))
@@ -1390,7 +1343,7 @@ function isEditableFocusTarget(target: EventTarget | null): boolean {
 }
 
 function findUpNavButton(key: UpNavTargetKey) {
-  const selector = key === 'all' || key === 'wanted'
+  const selector = key === 'all'
     ? `[data-up-nav="${key}"]`
     : `[data-up-nav-mid="${CSS.escape(key.slice(4))}"]`
   return pageRef.value?.querySelector<HTMLElement>(selector) ?? null
@@ -1434,7 +1387,6 @@ function handleUpNavKeydown(event: KeyboardEvent) {
     detailImageViewerOpen.value
     || selectedMoment.value
     || lotteryDialogUrl.value
-    || document.getElementById('bewly')?.classList.contains('settings-open')
   ) {
     return
   }
@@ -1472,154 +1424,11 @@ function handleUpNavKeydown(event: KeyboardEvent) {
 function isFeedRequestCurrent(
   requestToken: number,
   requestType: MomentFilter,
-  requestGroup: MomentGroup,
   requestHostMid: string,
 ) {
   return requestToken === feedRequestToken
     && requestType === activeMomentFilter.value
-    && requestGroup === activeMomentGroup.value
     && requestHostMid === selectedHostMid.value
-}
-
-function matchesMomentFilter(moment: DisplayMoment) {
-  if (activeMomentFilter.value === 'all')
-    return true
-  if (activeMomentFilter.value === 'video')
-    return moment.isVideo && !moment.isPgc
-  if (activeMomentFilter.value === 'pgc')
-    return moment.isPgc
-  return moment.isArticle
-}
-
-function getValidMomentsCache(filter: MomentFilter) {
-  const entry = momentsFeedCache.value[filter]
-  if (!entry)
-    return undefined
-  const usesCurrentVideoShape = entry.items.every(moment => (
-    typeof moment.videoPlay === 'string'
-    && typeof moment.videoDanmaku === 'string'
-    && !(moment.isForward && moment.isVideo)
-  ))
-  const usesCurrentVoteShape = entry.items.every(moment => (
-    !moment.additional?.isVote
-    || (Boolean(moment.additional.voteId) && !moment.additional.url)
-  ))
-  if (
-    usesCurrentVideoShape
-    && usesCurrentVoteShape
-    && Date.now() - entry.updatedAt < MOMENTS_CACHE_TTL_MS
-  ) {
-    return entry
-  }
-
-  const { [filter]: _expired, ...validEntries } = momentsFeedCache.value
-  momentsFeedCache.value = validEntries
-  return undefined
-}
-
-function mergeCachedMoments(primary: DisplayMoment[], secondary: DisplayMoment[]) {
-  const result: DisplayMoment[] = []
-  const ids = new Set<string>()
-  for (const moment of [...primary, ...secondary]) {
-    if (ids.has(moment.id))
-      continue
-    ids.add(moment.id)
-    result.push(moment)
-  }
-  return result
-}
-
-function saveMomentsCache(filter: MomentFilter, entry: MomentsFeedCacheEntry) {
-  // offset 对应当前段的末尾。裁掉头部才能保证恢复缓存后继续分页时不跳过动态。
-  const items = entry.items.slice(-MOMENTS_CACHE_MAX_ITEMS)
-  const continuationLimit = Math.max(0, MOMENTS_CACHE_MAX_ITEMS - items.length)
-  const continuation = entry.continuation && continuationLimit > 0
-    ? { ...entry.continuation, items: entry.continuation.items.slice(-continuationLimit) }
-    : undefined
-  momentsFeedCache.value = {
-    ...momentsFeedCache.value,
-    [filter]: {
-      ...entry,
-      items,
-      continuation,
-      updatedAt: Date.now(),
-    },
-  }
-}
-
-function cacheRegularMomentPage(
-  filter: MomentFilter,
-  pageItems: DisplayMoment[],
-  pageOffset: string,
-  pageUpdateBaseline: string,
-  pageHasMore: boolean,
-  reset: boolean,
-) {
-  if ((filter !== 'all' && filter !== 'video') || !pageItems.length)
-    return
-
-  const existing = getValidMomentsCache(filter)
-  if (!existing) {
-    saveMomentsCache(filter, {
-      items: pageItems,
-      offset: pageOffset,
-      updateBaseline: pageUpdateBaseline,
-      hasMore: pageHasMore,
-      updatedAt: Date.now(),
-    })
-    return
-  }
-
-  const existingIds = new Set(existing.items.map(moment => moment.id))
-  const overlapsCache = pageItems.some(moment => existingIds.has(moment.id))
-  // 顶部刷新若尚未追上旧缓存，保留旧段，后续按每批 100 条继续寻找衔接点。
-  if (reset && !overlapsCache) {
-    saveMomentsCache(filter, {
-      items: pageItems,
-      offset: pageOffset,
-      updateBaseline: pageUpdateBaseline,
-      hasMore: pageHasMore,
-      updatedAt: Date.now(),
-      continuation: {
-        items: existing.items,
-        offset: existing.offset,
-        updateBaseline: existing.updateBaseline,
-        hasMore: existing.hasMore,
-      },
-    })
-    return
-  }
-
-  const continuationIds = new Set(existing.continuation?.items.map(moment => moment.id) || [])
-  const reachesContinuation = pageItems.some(moment => continuationIds.has(moment.id))
-  if (reachesContinuation && existing.continuation) {
-    saveMomentsCache(filter, {
-      items: mergeCachedMoments(existing.items, mergeCachedMoments(pageItems, existing.continuation.items))
-        .sort((a, b) => b.publishedAt - a.publishedAt),
-      offset: existing.continuation.offset,
-      updateBaseline: existing.continuation.updateBaseline,
-      hasMore: existing.continuation.hasMore,
-      updatedAt: Date.now(),
-    })
-    return
-  }
-
-  const existingOldest = Math.min(...existing.items.map(moment => moment.publishedAt || Infinity))
-  const pageOldest = Math.min(...pageItems.map(moment => moment.publishedAt || Infinity))
-  const extendsCachedTail = pageOldest < existingOldest
-  const items = mergeCachedMoments(
-    reset ? pageItems : existing.items,
-    reset ? existing.items : pageItems,
-  )
-    .sort((a, b) => b.publishedAt - a.publishedAt)
-  saveMomentsCache(filter, {
-    items,
-    offset: extendsCachedTail ? pageOffset : existing.offset,
-    updateBaseline: extendsCachedTail ? pageUpdateBaseline : existing.updateBaseline,
-    hasMore: extendsCachedTail ? pageHasMore : existing.hasMore,
-    updatedAt: Date.now(),
-    continuation: existing.continuation,
-  })
 }
 
 function loadMoreMoments() {
@@ -1655,7 +1464,7 @@ function matchesBlockedMomentKeyword(moment: DisplayMoment) {
   return blockedMomentKeywords.value.some(keyword => searchableText.includes(keyword))
 }
 
-/** 想看分组和任一动态过滤都只允许通过按钮继续分页。 */
+/** 任一动态过滤开启时都只允许通过按钮继续分页。 */
 function hasActiveMomentFilters() {
   return settings.value.momentsFilterUpRecommendation
     || settings.value.momentsHideChargeExclusive
@@ -1724,6 +1533,18 @@ function getColumnStackHeight(column: DisplayMoment[]) {
   }, 0)
 }
 
+function getColumnHeadOffset(columnIndex: number) {
+  return columnHeadOffsets[columnIndex] || 0
+}
+
+/** 列底部在网格内的位置，包含顶部已回收区域 */
+function getColumnBottom(column: DisplayMoment[], columnIndex: number) {
+  const headOffset = getColumnHeadOffset(columnIndex)
+  if (!column.length)
+    return Math.max(0, headOffset - GRID_ROW_GAP)
+  return headOffset + getColumnStackHeight(column)
+}
+
 function findShortestColumnIndex(columns: DisplayMoment[][], heights?: number[]) {
   let minIdx = 0
   let minHeight = Infinity
@@ -1751,7 +1572,7 @@ function balanceColumnBottoms(columns: DisplayMoment[][]) {
   const maxMoves = Math.min(moments.value.length, 24)
 
   for (let moveCount = 0; moveCount < maxMoves; moveCount++) {
-    const heights = next.map(column => getColumnStackHeight(column))
+    const heights = next.map((column, columnIndex) => getColumnBottom(column, columnIndex))
     const currentSpread = Math.max(...heights) - Math.min(...heights)
     let bestMove: { sourceIndex: number, targetIndex: number, itemIndex: number, spread: number } | null = null
 
@@ -1769,7 +1590,7 @@ function balanceColumnBottoms(columns: DisplayMoment[][]) {
 
           const candidateHeights = [...heights]
           candidateHeights[sourceIndex] -= itemHeight + GRID_ROW_GAP
-          candidateHeights[targetIndex] += itemHeight + (target.length ? GRID_ROW_GAP : 0)
+          candidateHeights[targetIndex] += itemHeight + (heights[targetIndex] > 0 ? GRID_ROW_GAP : 0)
           const spread = Math.max(...candidateHeights) - Math.min(...candidateHeights)
           if (spread >= currentSpread - 4 || (bestMove && spread >= bestMove.spread))
             return
@@ -1804,6 +1625,8 @@ function redistributeColumns() {
     heights[columnIndex] += (heights[columnIndex] > 0 ? GRID_ROW_GAP : 0) + getCardHeight(item)
   })
 
+  // 整体重排从网格顶部开始，已回收区域不再保留
+  columnHeadOffsets = []
   momentColumns.value = balanceColumnBottoms(next).columns
   rebuildColumnMetrics()
   updateVirtualColumns()
@@ -1883,8 +1706,8 @@ const lastSeenMomentId = computed(() => {
   return lastSeenId
 })
 
-function canLocateLastSeen(filter: MomentFilter, group: MomentGroup, hostMid: string) {
-  return group === 'all' && !hostMid && (filter === 'all' || filter === 'video')
+function canLocateLastSeen(filter: MomentFilter, hostMid: string) {
+  return !hostMid && (filter === 'all' || filter === 'video')
 }
 
 function jumpToLatestMoments() {
@@ -1896,9 +1719,13 @@ function jumpToLatestMoments() {
 
 /** 从顶部加载且分界点尚未加载出来时，提供跳到上次看到的位置的入口 */
 const canJumpToLastSeen = computed(() => !hasNewerMoments.value
+  && !hasTrimmedHead.value
   && unreadMomentIds.value.length > MOMENTS_LAST_SEEN_MIN_UNREAD
   && !lastSeenMomentId.value
-  && canLocateLastSeen(activeMomentFilter.value, activeMomentGroup.value, selectedHostMid.value))
+  && canLocateLastSeen(activeMomentFilter.value, selectedHostMid.value))
+
+/** 滚回已回收区域附近时提示较早的动态已释放 */
+const showTrimmedHeadNotice = computed(() => hasTrimmedHead.value && isNearTrimmedHead.value)
 
 function jumpToLastSeenMoments() {
   pendingLastSeenIds = [...unreadMomentIds.value]
@@ -1912,6 +1739,9 @@ function jumpToLastSeenMoments() {
  * 任一列的偏移都不超过列差的一半。
  */
 function prependMoments(items: DisplayMoment[]) {
+  // 顶部已回收时列首不再是最新内容，不能在其上方插入。
+  if (hasTrimmedHead.value)
+    return
   const existingIds = new Set(moments.value.map(moment => moment.id))
   const fresh = items.filter((moment) => {
     if (existingIds.has(moment.id))
@@ -1937,10 +1767,9 @@ function prependMoments(items: DisplayMoment[]) {
   moments.value = [...fresh, ...moments.value]
   momentColumns.value = momentColumns.value.map((column, index) => [...prefixColumns[index], ...column])
   rebuildColumnMetrics()
-  const viewport = scrollViewportRef.value
-  if (viewport)
-    viewport.scrollTop += (Math.max(...shifts) + Math.min(...shifts)) / 2
+  adjustViewportScrollTop((Math.max(...shifts) + Math.min(...shifts)) / 2)
   updateVirtualColumns()
+  scheduleHeadTrim()
 }
 
 function appendMoments(items: DisplayMoment[]) {
@@ -1950,7 +1779,7 @@ function appendMoments(items: DisplayMoment[]) {
     momentColumns.value = Array.from({ length: Math.max(1, gridColumnCount.value) }, () => [])
 
   const existingIds = new Set(moments.value.map(moment => moment.id))
-  const columnHeights = momentColumns.value.map(column => getColumnStackHeight(column))
+  const columnHeights = momentColumns.value.map((column, columnIndex) => getColumnBottom(column, columnIndex))
 
   items.forEach((item) => {
     if (existingIds.has(item.id))
@@ -1969,6 +1798,7 @@ function appendMoments(items: DisplayMoment[]) {
   rebuildColumnMetrics()
   updateVirtualColumns()
   scheduleBottomRebalance()
+  scheduleHeadTrim()
   return appended
 }
 
@@ -2004,7 +1834,7 @@ function scheduleBottomRebalance() {
       if (distanceFromBottom < viewport.clientHeight * 1.25)
         return
     }
-    const heights = momentColumns.value.map(column => getColumnStackHeight(column))
+    const heights = momentColumns.value.map((column, columnIndex) => getColumnBottom(column, columnIndex))
     const maxH = Math.max(...heights)
     const minH = Math.min(...heights)
     // 空闲时对列尾做小范围补位，让追加数据后的底边也保持相对平整
@@ -2034,7 +1864,7 @@ function commitCardHeight(id: string, next: number, options?: { force?: boolean 
     const metrics = columnMetrics[position.column]
     // 视口上方向上插入的卡片从估算高度变为实测高度时，补偿滚动位置避免内容跳动
     if (metrics && prependedCardIds.has(id))
-      compensatePrependedCardHeight(metrics.offsetOf(position.index), metrics.heightOf(position.index), next)
+      compensatePrependedCardHeight(getColumnHeadOffset(position.column) + metrics.offsetOf(position.index), metrics.heightOf(position.index), next)
     metrics?.set(position.index, next)
   }
   // 连续两次接近的高度视为稳定，后续忽略小幅 Resize 抖动
@@ -2046,6 +1876,17 @@ function commitCardHeight(id: string, next: number, options?: { force?: boolean 
   return true
 }
 
+function adjustViewportScrollTop(delta: number) {
+  const viewport = scrollViewportRef.value
+  if (!viewport || !Number.isFinite(delta) || delta === 0)
+    return
+  const previous = viewport.scrollTop
+  viewport.scrollTop = Math.max(0, previous + delta)
+  const actualDelta = viewport.scrollTop - previous
+  if (actualDelta !== 0)
+    emitter.emit(OVERLAY_SCROLL_BAR_REBASE, actualDelta)
+}
+
 function compensatePrependedCardHeight(cardTop: number, previousHeight: number, nextHeight: number) {
   const viewport = scrollViewportRef.value
   if (!viewport || previousHeight <= 0)
@@ -2053,7 +1894,7 @@ function compensatePrependedCardHeight(cardTop: number, previousHeight: number, 
   const viewTop = viewport.scrollTop - getGridOffsetTop()
   if (cardTop + previousHeight > viewTop)
     return
-  viewport.scrollTop += (nextHeight - previousHeight) / Math.max(1, momentColumns.value.length)
+  adjustViewportScrollTop((nextHeight - previousHeight) / Math.max(1, momentColumns.value.length))
 }
 
 function scheduleVirtualUpdate() {
@@ -2091,9 +1932,8 @@ async function loadNewerMoments() {
 
   const requestToken = feedRequestToken
   const requestType = activeMomentFilter.value
-  const requestGroup = activeMomentGroup.value
   const requestHostMid = selectedHostMid.value
-  const isCurrent = () => isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid)
+  const isCurrent = () => isFeedRequestCurrent(requestToken, requestType, requestHostMid)
   isLoadingNewerMoments.value = true
   try {
     // 本地过滤可能把一批全部滤掉；列表停在顶部时无法再触发滚动，因此继续向上直到有内容可插入
@@ -2202,17 +2042,30 @@ function updateVirtualColumns() {
   }
 
   const viewport = scrollViewportRef.value
-  const scrollTop = viewport?.scrollTop ?? 0
   const viewportHeight = viewport?.clientHeight ?? window.innerHeight
-  const gridOffsetTop = getGridOffsetTop()
-  const viewStart = scrollTop - gridOffsetTop - OVERSCAN_PX
-  const viewEnd = scrollTop - gridOffsetTop + viewportHeight + OVERSCAN_PX
+  const viewTop = (viewport?.scrollTop ?? 0) - getGridOffsetTop()
+  const viewBottom = viewTop + viewportHeight
+  const renderBuffer = Math.min(viewportHeight / 2, MOMENTS_RENDER_BUFFER_PX)
+  const retainBuffer = Math.min(viewportHeight, MOMENTS_RETAIN_BUFFER_PX)
 
   const previous = virtualColumns.value
+  let maxHeadOffset = 0
   const next = momentColumns.value.map((column, columnIndex) => {
-    const { start, end, topPad, bottomPad } = columnMetrics[columnIndex].getWindow(viewStart, viewEnd)
-    return { topPad, bottomPad, items: column.slice(start, end) }
+    const headOffset = getColumnHeadOffset(columnIndex)
+    maxHeadOffset = Math.max(maxHeadOffset, headOffset)
+    const { start, end, topPad, bottomPad } = columnMetrics[columnIndex].getWindow(
+      viewTop - renderBuffer - headOffset,
+      viewBottom + renderBuffer - headOffset,
+      {
+        start: viewTop - retainBuffer - headOffset,
+        end: viewBottom + retainBuffer - headOffset,
+        isMounted: index => cardElements.has(column[index].id),
+      },
+    )
+    return { topPad: getVirtualTopPad(headOffset, start, topPad), bottomPad, items: column.slice(start, end) }
   })
+  isNearTrimmedHead.value = hasTrimmedHead.value
+    && viewTop < maxHeadOffset + viewportHeight
   // 滚动尚未跨卡片边界时复用窗口，避免每帧触发卡片 patch / ref 回调与测量。
   if (next.length !== previous.length || next.some((column, index) => {
     const old = previous[index]
@@ -2222,30 +2075,131 @@ function updateVirtualColumns() {
   })) {
     virtualColumns.value = next
   }
-
-  prunePreviewCache()
 }
 
-function prunePreviewCache() {
-  const keys = Object.keys(previewUrls)
-  if (keys.length <= MAX_PREVIEW_CACHE)
+/**
+ * 顶部 spacer 高度。spacer 与卡片之间由 CSS 提供一个行间距，
+ * 因此回收区域的 spacer 要扣除该间距，首张卡片才能停在原位置。
+ */
+function getVirtualTopPad(headOffset: number, start: number, topPad: number) {
+  if (headOffset <= 0)
+    return topPad
+  return start > 0 ? headOffset + topPad : headOffset - GRID_ROW_GAP
+}
+
+function scheduleHeadTrim() {
+  if (isMomentsDisposed || document.hidden || headTrimTimer || moments.value.length <= MOMENTS_MEMORY_MAX_ITEMS)
+    return
+  headTrimTimer = setTimeout(() => {
+    headTrimTimer = null
+    if (isMomentsDisposed)
+      return
+    // 加载、分页恢复滚动或滚动中回收都会让补偿后的位置被覆盖或打断惯性滚动。
+    // 后台标签页不轮询，回到前台时再安排。
+    if (document.hidden)
+      return
+    if (
+      isLoading.value
+      || isLoadingNewerMoments.value
+      || pendingPaginationScrollRestores > 0
+      || Date.now() - lastScrollAt < 480
+    ) {
+      scheduleHeadTrim()
+      return
+    }
+    trimMomentsHead()
+  }, 720)
+}
+
+function cancelHeadTrim() {
+  if (headTrimTimer)
+    clearTimeout(headTrimTimer)
+  headTrimTimer = null
+}
+
+function releaseMomentState(ids: Set<string>) {
+  ids.forEach((id) => {
+    delete cardHeights[id]
+    delete coverRatios[id]
+    settledHeights.delete(id)
+    revealedCardIds.delete(id)
+    prependedCardIds.delete(id)
+    readyCardIds.delete(id)
+    enteringCardIds.delete(id)
+    const enterTimer = cardEnterTimers.get(id)
+    if (enterTimer)
+      clearTimeout(enterTimer)
+    cardEnterTimers.delete(id)
+  })
+  if (ids.has(hoveredMediaId.value))
+    clearMomentPreview()
+}
+
+/**
+ * 动态超过内存上限时，回收视口上方很远处的早期卡片。
+ * 各列只移除列首连续的一段，按底边从上到下选取；各列共同的回收高度整体收起并补偿滚动，
+ * 其余部分保留为顶部 spacer，因此可见内容与各列相对位置都不变。
+ */
+function trimMomentsHead() {
+  if (isMomentsDisposed || moments.value.length <= MOMENTS_MEMORY_MAX_ITEMS)
+    return
+  const viewport = scrollViewportRef.value
+  const columns = momentColumns.value
+  if (!viewport?.clientHeight || isProgrammaticScrollActive(viewport) || !columns.length || columnMetrics.length !== columns.length)
     return
 
-  keys.forEach((id) => {
-    if (id === hoveredMediaId.value)
-      return
-    if (visibleMomentIds.has(id))
-      return
-    delete previewUrls[id]
-  })
+  const viewTop = viewport.scrollTop - getGridOffsetTop()
+  const cutoff = viewTop - viewport.clientHeight * MOMENTS_TRIM_KEEP_SCREENS
+  if (cutoff <= 0)
+    return
 
-  // 仍过多时淘汰更早的非悬停项
-  const remain = Object.keys(previewUrls).filter(id => id !== hoveredMediaId.value)
-  if (remain.length > MAX_PREVIEW_CACHE) {
-    remain.slice(0, remain.length - MAX_PREVIEW_CACHE).forEach((id) => {
-      delete previewUrls[id]
-    })
-  }
+  const candidates: Array<{ column: number, bottom: number }> = []
+  columns.forEach((column, columnIndex) => {
+    const metrics = columnMetrics[columnIndex]
+    const headOffset = getColumnHeadOffset(columnIndex)
+    // 每列至少保留一张卡片，后续追加仍以它为基准排布。
+    for (let index = 0; index < column.length - 1; index++) {
+      const bottom = headOffset + metrics.offsetOf(index) + metrics.heightOf(index)
+      if (bottom >= cutoff)
+        break
+      candidates.push({ column: columnIndex, bottom })
+    }
+  })
+  if (!candidates.length)
+    return
+
+  // 同列卡片底边随下标递增，取全局最靠上的若干张即为各列的列首前缀。
+  candidates.sort((a, b) => a.bottom - b.bottom)
+  const removeCounts = columns.map(() => 0)
+  candidates
+    .slice(0, moments.value.length - MOMENTS_MEMORY_TRIM_TARGET)
+    .forEach(candidate => removeCounts[candidate.column]++)
+
+  const removedIds = new Set<string>()
+  const nextOffsets = columns.map((column, columnIndex) => {
+    const count = removeCounts[columnIndex]
+    column.slice(0, count).forEach(moment => removedIds.add(moment.id))
+    return getColumnHeadOffset(columnIndex) + (count ? columnMetrics[columnIndex].offsetOf(count) : 0)
+  })
+  if (!removedIds.size)
+    return
+
+  // 剩余回收高度要么为 0，要么大于行间距，否则 spacer 无法表达该位置。
+  let collapse = Math.min(...nextOffsets)
+  if (nextOffsets.some(offset => offset - collapse > 0 && offset - collapse <= GRID_ROW_GAP))
+    collapse = Math.max(0, collapse - GRID_ROW_GAP * 2)
+
+  columnHeadOffsets = nextOffsets.map(offset => offset - collapse)
+  momentColumns.value = columns.map((column, columnIndex) => column.slice(removeCounts[columnIndex]))
+  moments.value = moments.value.filter(moment => !removedIds.has(moment.id))
+  releaseMomentState(removedIds)
+  // 列首已不是本轮加载的最新内容，停止向上衔接更新的动态。
+  hasNewerMoments.value = false
+  hasTrimmedHead.value = true
+  rebuildColumnMetrics()
+  if (collapse > 0)
+    adjustViewportScrollTop(-collapse)
+  updateVirtualColumns()
 }
 
 /** 卡片仅在第一次完成测量时播放入场动画，虚拟列表重新挂载不重复播放 */
@@ -2303,19 +2257,14 @@ function bindCardEl(el: Element | null, moment: DisplayMoment) {
       visibilityObserver?.unobserve(previous)
       cardElements.delete(moment.id)
     }
-    visibleMomentIds.delete(moment.id)
     readyCardIds.delete(moment.id)
     enteringCardIds.delete(moment.id)
     const enterTimer = cardEnterTimers.get(moment.id)
     if (enterTimer)
       clearTimeout(enterTimer)
     cardEnterTimers.delete(moment.id)
-    if (hoveredMediaId.value === moment.id) {
-      hoveredMediaId.value = ''
-      cleanupLivePreviewPlayer()
-    }
-    if (previewUrls[moment.id])
-      delete previewUrls[moment.id]
+    if (hoveredMediaId.value === moment.id)
+      clearMomentPreview()
     return
   }
 
@@ -2355,7 +2304,7 @@ function setupVirtualObservers() {
     entries.forEach((entry) => {
       const card = entry.target as HTMLElement
       const id = card.dataset.momentId
-      if (!id)
+      if (!id || cardElements.get(id) !== card)
         return
       fitVideoCardDescription(card)
       const next = Math.round(entry.contentRect.height)
@@ -2372,24 +2321,14 @@ function setupVirtualObservers() {
   })
 
   visibilityObserver = new IntersectionObserver((entries) => {
-    entries.forEach((entry) => {
-      const id = (entry.target as HTMLElement).dataset.momentId
-      if (!id)
-        return
-      if (entry.isIntersecting)
-        visibleMomentIds.add(id)
-      else
-        visibleMomentIds.delete(id)
-
-      // 离开视口时释放该卡预览资源
-      if (!entry.isIntersecting && hoveredMediaId.value !== id && previewUrls[id])
-        delete previewUrls[id]
-    })
-    prunePreviewCache()
+    const hoveredCard = cardElements.get(hoveredMediaId.value)
+    if (!hoveredCard || activePreviewVideo?.element.matches(':fullscreen'))
+      return
+    // 卡片仍在挂载缓冲区内时，滑出视口也立即释放预览。
+    if (entries.findLast(entry => entry.target === hoveredCard)?.isIntersecting === false)
+      clearMomentPreview()
   }, {
     root: scrollViewportRef.value,
-    rootMargin: '200px 0px',
-    threshold: 0.01,
   })
 
   // 观察器重建后重新绑定当前虚拟窗口内的卡片
@@ -2403,6 +2342,7 @@ function handleViewportScroll() {
   hasFeedScrollSinceReset = true
   lastScrollAt = Date.now()
   scheduleVirtualUpdate()
+  scheduleHeadTrim()
 }
 
 function attachViewportScroll() {
@@ -2428,12 +2368,14 @@ function handleCoverLoad(event: Event, momentId: string) {
   if (!ratio)
     return
   const moment = moments.value.find(item => item.id === momentId)
+  if (!moment)
+    return
   const prevRatio = coverRatios[momentId]
   coverRatios[momentId] = ratio
 
   // 封面比例变化会改估算高度；若尚未实测稳定，用估算高度更新并补偿滚动
   if (!settledHeights.has(momentId) && (!prevRatio || Math.abs(prevRatio - ratio) > 0.01)) {
-    if (moment && !cardHeights[momentId]) {
+    if (!cardHeights[momentId]) {
       commitCardHeight(momentId, estimateCardHeight(moment), { force: true })
       scheduleVirtualUpdate()
     }
@@ -2460,15 +2402,6 @@ function releasePreviewVideoElement(video: HTMLVideoElement | null | undefined) 
 
 function cleanupLivePreviewPlayer() {
   previewPlaybackGeneration += 1
-  if (liveHlsPlayer) {
-    try {
-      liveHlsPlayer.destroy()
-    }
-    catch {
-      // 即使播放器库销毁失败，也必须继续释放媒体元素引用。
-    }
-    liveHlsPlayer = null
-  }
   if (liveFlvPlayer) {
     try {
       liveFlvPlayer.pause()
@@ -2483,6 +2416,12 @@ function cleanupLivePreviewPlayer() {
   }
   releasePreviewVideoElement(activePreviewVideo?.element)
   activePreviewVideo = null
+}
+
+function clearMomentPreview() {
+  hoveredMediaId.value = ''
+  previewUrl.value = ''
+  cleanupLivePreviewPlayer()
 }
 
 async function setupStreamPreview(url: string, videoEl: HTMLVideoElement, momentId: string) {
@@ -2524,37 +2463,6 @@ async function setupStreamPreview(url: string, videoEl: HTMLVideoElement, moment
     return
   }
 
-  if (url.includes('m3u8')) {
-    try {
-      // A player module that fails to load still leaves native HLS (Safari).
-      const Hls = await loadHls().catch(() => undefined)
-      if (!isCurrentPreview())
-        return
-      if (Hls?.isSupported()) {
-        liveHlsPlayer = new Hls({
-          enableWorker: true,
-          lowLatencyMode: true,
-          maxBufferLength: 10,
-        })
-        liveHlsPlayer.loadSource(url)
-        liveHlsPlayer.attachMedia(videoEl)
-        liveHlsPlayer.on(Hls.Events.MANIFEST_PARSED, () => {
-          if (isCurrentPreview())
-            void videoEl.play().catch(() => {})
-        })
-        return
-      }
-      if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-        videoEl.src = url
-        void videoEl.play().catch(() => {})
-      }
-    }
-    catch {
-      // 直播预览失败时保留封面
-    }
-    return
-  }
-
   videoEl.src = url
   void videoEl.play().catch(() => {})
 }
@@ -2575,14 +2483,8 @@ function cacheVideoCid(bvid: string, cid: number) {
     if (!oldestBvid)
       break
     videoCidCache.delete(oldestBvid)
+    delete videoAspectRatios[oldestBvid]
   }
-}
-
-function cacheVideoAspectRatio(bvid: string, dimension: any) {
-  const ratio = getDimensionAspectRatio(dimension)
-  if (ratio)
-    videoAspectRatios[bvid] = ratio
-  return ratio
 }
 
 async function getVideoCid(bvid: string) {
@@ -2598,11 +2500,12 @@ async function getVideoCid(bvid: string) {
 
   const request = api.video.getVideoPageList({ bvid })
     .then((response) => {
-      if (response.code === 0)
-        cacheVideoAspectRatio(bvid, response.data?.[0]?.dimension)
       const cid = Number(response.code === 0 ? response.data?.[0]?.cid : 0)
-      if (!cid)
+      if (!cid || isMomentsDisposed)
         return undefined
+      const ratio = getDimensionAspectRatio(response.data?.[0]?.dimension)
+      if (ratio)
+        videoAspectRatios[bvid] = ratio
       cacheVideoCid(bvid, cid)
       return cid
     })
@@ -2613,9 +2516,12 @@ async function getVideoCid(bvid: string) {
 }
 
 function handleMediaEnter(moment: DisplayMoment) {
-  if (!isMomentPreviewEnabled(moment) || hoveredMediaId.value === moment.id)
+  if (document.hidden || !isMomentPreviewEnabled(moment) || hoveredMediaId.value === moment.id
+    || activePreviewVideo?.element.matches(':fullscreen')) {
     return
+  }
 
+  clearMomentPreview()
   hoveredMediaId.value = moment.id
   const generation = previewRequestGeneration
   const delay = moment.isLive ? 0 : (settings.value.momentsVideoPreviewDelayed ? 1200 : 500)
@@ -2626,9 +2532,9 @@ function handleMediaEnter(moment: DisplayMoment) {
 }
 
 async function loadMomentPreview(moment: DisplayMoment, generation: number) {
-  const isCurrentRequest = () => generation === previewRequestGeneration
+  const isCurrentRequest = () => !document.hidden && generation === previewRequestGeneration
     && hoveredMediaId.value === moment.id && isMomentPreviewEnabled(moment)
-  if (!isCurrentRequest() || previewUrls[moment.id])
+  if (!isCurrentRequest() || previewUrl.value)
     return
 
   try {
@@ -2641,7 +2547,7 @@ async function loadMomentPreview(moment: DisplayMoment, generation: number) {
       if (!isCurrentRequest())
         return
       if (res.code === 0 && res.data?.durl?.[0]?.url)
-        previewUrls[moment.id] = httpsUrl(res.data.durl[0].url)
+        previewUrl.value = httpsUrl(res.data.durl[0].url)
       return
     }
 
@@ -2659,7 +2565,7 @@ async function loadMomentPreview(moment: DisplayMoment, generation: number) {
       && preview.data?.durl?.[0]?.url
       && isCurrentRequest()
     ) {
-      previewUrls[moment.id] = httpsUrl(preview.data.durl[0].url)
+      previewUrl.value = httpsUrl(preview.data.durl[0].url)
     }
   }
   catch {
@@ -2668,15 +2574,8 @@ async function loadMomentPreview(moment: DisplayMoment, generation: number) {
 }
 
 function handleMediaLeave(moment: DisplayMoment) {
-  if (activePreviewVideo?.id === moment.id && activePreviewVideo.element.matches(':fullscreen'))
-    return
-  if (hoveredMediaId.value !== moment.id)
-    return
-  hoveredMediaId.value = ''
-  cleanupLivePreviewPlayer()
-  // 悬停结束即释放预览地址，避免缓存堆积
-  if (previewUrls[moment.id])
-    delete previewUrls[moment.id]
+  if (hoveredMediaId.value === moment.id && !activePreviewVideo?.element.matches(':fullscreen'))
+    clearMomentPreview()
 }
 
 function openClassifiedLink(url: string, kind: MomentLinkKind, video?: DisplayForwardVideo) {
@@ -2728,8 +2627,7 @@ function openClassifiedLink(url: string, kind: MomentLinkKind, video?: DisplayFo
     return
   }
 
-  hoveredMediaId.value = ''
-  cleanupLivePreviewPlayer()
+  clearMomentPreview()
   if (mode === 'background')
     void openLinkInBackground(url)
   else if (mode === 'currentTab')
@@ -2748,11 +2646,11 @@ function bindPreviewVideo(el: Element | null, moment: DisplayMoment) {
       cleanupLivePreviewPlayer()
     return
   }
-  const url = previewUrls[moment.id]
-  if (!url || hoveredMediaId.value !== moment.id)
+  const url = previewUrl.value
+  if (document.hidden || !url || hoveredMediaId.value !== moment.id)
     return
 
-  if (moment.isLive || url.includes('.flv') || url.includes('m3u8')) {
+  if (moment.isLive || url.includes('.flv')) {
     void setupStreamPreview(url, el, moment.id)
   }
   else {
@@ -2766,28 +2664,18 @@ function bindPreviewVideo(el: Element | null, moment: DisplayMoment) {
 
 function playPreview(event: Event) {
   const video = event.target as HTMLVideoElement
-  void video.play().catch(() => {})
+  if (!document.hidden && activePreviewVideo?.element === video)
+    void video.play().catch(() => {})
 }
 
-/** 删除动态后就地移除卡片，不重新分配列，并同步清理缓存避免恢复时再次出现。 */
+/** 删除动态后就地移除卡片，不重新分配列。 */
 function removeMoment(moment: DisplayMoment) {
   const keep = (item: DisplayMoment) => item.id !== moment.id
-  handleMediaLeave(moment)
   moments.value = moments.value.filter(keep)
   momentColumns.value = momentColumns.value.map(column => column.filter(keep))
+  releaseMomentState(new Set([moment.id]))
   rebuildColumnMetrics()
   updateVirtualColumns()
-
-  if (wantedFeedBuffer)
-    wantedFeedBuffer = { ...wantedFeedBuffer, items: wantedFeedBuffer.items.filter(keep) }
-  const cache = momentsFeedCache.value
-  if (Object.values(cache).some(entry => entry?.items.some(item => !keep(item)) || entry?.continuation?.items.some(item => !keep(item)))) {
-    momentsFeedCache.value = Object.fromEntries(Object.entries(cache).map(([filter, entry]) => [filter, entry && {
-      ...entry,
-      items: entry.items.filter(keep),
-      continuation: entry.continuation && { ...entry.continuation, items: entry.continuation.items.filter(keep) },
-    }]))
-  }
 }
 
 async function toggleMomentLike(moment: DisplayMoment) {
@@ -2868,13 +2756,18 @@ async function toggleMomentReservation(moment: DisplayMoment) {
 }
 
 function handleDocumentVisibilityChange() {
+  if (document.hidden) {
+    clearMomentPreview()
+    cancelHeadTrim()
+    return
+  }
   // 动态接口不返回稍后再看状态；回到本页时按共享缓存的有效期重新比对
-  if (document.visibilityState === 'visible')
-    void ensureWatchLaterState()
+  void ensureWatchLaterState()
+  scheduleHeadTrim()
 }
 
 async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = false) {
-  // “想看”或低保留率类型过滤开启时只允许按钮触发后续批次，避免滚动自动连刷。
+  // 低保留率类型过滤开启时只允许按钮触发后续批次，避免滚动自动连刷。
   if (!reset && requiresManualMomentPaging() && !manualPaging)
     return
   if ((!reset && isLoading.value) || (!reset && noMoreContent.value))
@@ -2882,14 +2775,12 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
 
   if (reset) {
     feedRequestToken += 1
-    wantedFeedBuffer = undefined
     moments.value = []
     momentColumns.value = []
     columnMetrics = []
     cardMetricPositions.clear()
     virtualColumns.value = []
     Object.keys(cardHeights).forEach(key => delete cardHeights[key])
-    Object.keys(previewUrls).forEach(key => delete previewUrls[key])
     Object.keys(coverRatios).forEach(key => delete coverRatios[key])
     readyCardIds.clear()
     enteringCardIds.clear()
@@ -2897,10 +2788,8 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
     cardEnterTimers.forEach(timer => clearTimeout(timer))
     cardEnterTimers.clear()
     settledHeights.clear()
-    visibleMomentIds.clear()
     likingMomentIds.clear()
-    cleanupLivePreviewPlayer()
-    hoveredMediaId.value = ''
+    clearMomentPreview()
     isInitialLoading.value = true
     hasFeedScrollSinceReset = false
     filterScanRawCount.value = 0
@@ -2908,7 +2797,6 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
   }
   const requestToken = feedRequestToken
   const requestType = activeMomentFilter.value
-  const requestGroup = activeMomentGroup.value
   const requestHostMid = selectedHostMid.value
   let pageApplied = false
   let preservedPaginationScrollTop: number | null = null
@@ -2924,23 +2812,26 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
     newestLoadedMomentId = ''
     isLastSeenSession = false
     prependedCardIds.clear()
+    cancelHeadTrim()
+    columnHeadOffsets = []
+    hasTrimmedHead.value = false
+    isNearTrimmedHead.value = false
   }
 
   try {
     let rawItems: DataItem[] = []
-    let cachedBatch: DisplayMoment[] | undefined
     let hasMore = false
     let nextOffset = ''
     let nextUpdateBaseline = ''
 
-    if (reset && canLocateLastSeen(requestType, requestGroup, requestHostMid)) {
+    if (reset && canLocateLastSeen(requestType, requestHostMid)) {
       // 先取未读 ID 再请求列表：首页请求会推进服务端已读位置，之后就拿不到分界点了
       const reusedIds = pendingLastSeenIds
       const useLastSeen = Boolean(reusedIds) || (settings.value.momentsStartFromLastSeen && !skipLastSeenOnce)
       skipLastSeenOnce = false
       pendingLastSeenIds = null
       const unreadIds = reusedIds ?? await fetchUnreadMomentIds()
-      if (!isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid))
+      if (!isFeedRequestCurrent(requestToken, requestType, requestHostMid))
         return
       unreadMomentIds.value = unreadIds || []
       if (useLastSeen && unreadMomentIds.value.length > MOMENTS_LAST_SEEN_MIN_UNREAD) {
@@ -2951,7 +2842,7 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
     }
 
     if (requestHostMid) {
-      // 按 UP 主筛选：走 feed/all + host_mid，不写入全局全部动态缓存
+      // 按 UP 主筛选：走 feed/all + host_mid
       let nextPage = momentsFeedPage.value
       if (hasActiveMomentFilters()) {
         let scanOffset = offset.value
@@ -2972,7 +2863,7 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
             web_location: '333.1365',
           }) as MomentResult
           if (
-            !isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid)
+            !isFeedRequestCurrent(requestToken, requestType, requestHostMid)
             || response.code !== 0
           ) {
             return
@@ -3007,7 +2898,7 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
           web_location: '333.1365',
         }) as MomentResult
         if (
-          !isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid)
+          !isFeedRequestCurrent(requestToken, requestType, requestHostMid)
           || response.code !== 0
         ) {
           return
@@ -3019,159 +2910,6 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
         nextPage += 1
       }
       momentsFeedPage.value = nextPage
-    }
-    else if (requestGroup === 'wanted') {
-      await momentsFeedCacheReady
-      if (!isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid))
-        return
-      // 类型过滤开启时，首批缓存刷新与后续填充共用两页请求预算。
-      const maxRequestPages = hasActiveMomentFilters() ? FILTERED_MAX_REQUEST_PAGES : Infinity
-      let requestPages = 0
-      let cacheEntry = wantedFeedBuffer ?? getValidMomentsCache(requestType) ?? {
-        items: [],
-        offset: '',
-        updateBaseline: '',
-        hasMore: true,
-        updatedAt: Date.now(),
-      }
-
-      if (!momentsWantedUsers.value.length) {
-        wantedFeedBuffer = undefined
-        cachedBatch = []
-      }
-      else {
-        let cacheChanged = false
-        if (reset) {
-          const existingCache = cacheEntry
-          const existingIds = new Set(existingCache.items.map(moment => moment.id))
-          const freshItems: DisplayMoment[] = []
-          let scanOffset = ''
-          let scanUpdateBaseline = ''
-          let canContinue = true
-          let reachedCache = false
-
-          while (
-            canContinue
-            && freshItems.length < WANTED_SCAN_LIMIT
-            && !reachedCache
-            && requestPages < maxRequestPages
-          ) {
-            const response = await api.moment.getMoments({
-              type: requestType,
-              offset: scanOffset || undefined,
-              update_baseline: scanUpdateBaseline || undefined,
-              features: MOMENT_FEED_FEATURES,
-            }) as MomentResult
-            if (
-              !isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid)
-              || response.code !== 0
-            ) {
-              return
-            }
-
-            const pageItems = (response.data?.items || []).map(mapMoment)
-            requestPages += 1
-            reachedCache = pageItems.some(moment => existingIds.has(moment.id))
-            freshItems.push(...pageItems)
-            const responseOffset = response.data?.offset || ''
-            scanUpdateBaseline = response.data?.update_baseline || ''
-            canContinue = Boolean(response.data?.has_more)
-              && pageItems.length > 0
-              && responseOffset !== scanOffset
-            scanOffset = responseOffset
-          }
-
-          cacheEntry = reachedCache
-            ? {
-                ...existingCache,
-                items: mergeCachedMoments(freshItems, existingCache.items),
-              }
-            : {
-                items: mergeCachedMoments(freshItems, []),
-                offset: scanOffset,
-                updateBaseline: scanUpdateBaseline,
-                hasMore: canContinue,
-                updatedAt: Date.now(),
-                continuation: canContinue && existingCache.items.length
-                  ? {
-                      items: existingCache.items,
-                      offset: existingCache.offset,
-                      updateBaseline: existingCache.updateBaseline,
-                      hasMore: existingCache.hasMore,
-                    }
-                  : undefined,
-              }
-          cacheChanged = true
-        }
-
-        const batchEnd = WANTED_SCAN_LIMIT
-        while (
-          cacheEntry.items.length < batchEnd
-          && cacheEntry.hasMore
-          && requestPages < maxRequestPages
-        ) {
-          const response = await api.moment.getMoments({
-            type: requestType,
-            offset: cacheEntry.offset || undefined,
-            update_baseline: cacheEntry.updateBaseline || undefined,
-            features: MOMENT_FEED_FEATURES,
-          }) as MomentResult
-          if (
-            !isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid)
-            || response.code !== 0
-          ) {
-            return
-          }
-
-          const pageItems = (response.data?.items || []).map(mapMoment)
-          requestPages += 1
-          const responseOffset = response.data?.offset || ''
-          const continuationIds = new Set(cacheEntry.continuation?.items.map(moment => moment.id) || [])
-          const reachesContinuation = pageItems.some(moment => continuationIds.has(moment.id))
-          if (reachesContinuation && cacheEntry.continuation) {
-            cacheEntry = {
-              items: mergeCachedMoments(
-                cacheEntry.items,
-                mergeCachedMoments(pageItems, cacheEntry.continuation.items),
-              ),
-              offset: cacheEntry.continuation.offset,
-              updateBaseline: cacheEntry.continuation.updateBaseline,
-              hasMore: cacheEntry.continuation.hasMore,
-              updatedAt: Date.now(),
-            }
-          }
-          else {
-            cacheEntry = {
-              items: mergeCachedMoments(cacheEntry.items, pageItems),
-              offset: responseOffset,
-              updateBaseline: response.data?.update_baseline || '',
-              hasMore: Boolean(response.data?.has_more)
-                && pageItems.length > 0
-                && responseOffset !== cacheEntry.offset,
-              updatedAt: Date.now(),
-              continuation: response.data?.has_more && pageItems.length > 0 && responseOffset !== cacheEntry.offset
-                ? cacheEntry.continuation
-                : undefined,
-            }
-          }
-          cacheChanged = true
-          if (reachesContinuation)
-            break
-        }
-
-        if (cacheChanged)
-          saveMomentsCache(requestType, cacheEntry)
-        // 连续缓存可一次全部展示；存在缺口时仍按 API 原始条数每批推进 100 条。
-        const displayEnd = cacheEntry.continuation ? batchEnd : cacheEntry.items.length
-        cachedBatch = cacheEntry.items.slice(0, displayEnd)
-        wantedFeedBuffer = {
-          ...cacheEntry,
-          items: cacheEntry.items.slice(cachedBatch.length),
-        }
-        nextOffset = cacheEntry.offset
-        nextUpdateBaseline = cacheEntry.updateBaseline
-        hasMore = wantedFeedBuffer.items.length > 0 || cacheEntry.hasMore
-      }
     }
     else if (hasActiveMomentFilters()) {
       // 过滤开启：单次最多请求两页原始动态，再交给本地过滤
@@ -3189,7 +2927,7 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
           features: MOMENT_FEED_FEATURES,
         }) as MomentResult
         if (
-          !isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid)
+          !isFeedRequestCurrent(requestToken, requestType, requestHostMid)
           || response.code !== 0
         ) {
           return
@@ -3220,7 +2958,7 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
         features: MOMENT_FEED_FEATURES,
       }) as MomentResult
       if (
-        !isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid)
+        !isFeedRequestCurrent(requestToken, requestType, requestHostMid)
         || response.code !== 0
       ) {
         return
@@ -3231,7 +2969,7 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
       nextUpdateBaseline = response.data?.update_baseline || ''
     }
 
-    const normalizedItems = cachedBatch ?? rawItems.map(mapMoment)
+    const normalizedItems = rawItems.map(mapMoment)
     if (reset && rawItems[0]?.id_str)
       newestLoadedMomentId = rawItems[0].id_str
     void recordUploaderLatestVideoTimes(
@@ -3246,23 +2984,10 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
       ],
       'moments-page',
     )
-    // 按 UP 主请求、从上次看到的位置开始的中段数据都不写入全局全部动态缓存
-    if (requestGroup === 'all' && !requestHostMid && !isLastSeenSession) {
-      cacheRegularMomentPage(
-        requestType,
-        normalizedItems,
-        nextOffset,
-        nextUpdateBaseline,
-        hasMore,
-        reset,
-      )
-    }
     const items = normalizedItems
-      .filter(moment => requestGroup !== 'wanted' || wantedUserMids.value.has(moment.author.mid))
-      .filter(moment => requestGroup !== 'wanted' || matchesMomentFilter(moment))
       .filter(passesMomentSettings)
       .sort((a, b) => b.publishedAt - a.publishedAt)
-    if (!isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid)) {
+    if (!isFeedRequestCurrent(requestToken, requestType, requestHostMid)) {
       return
     }
     filterScanRawCount.value += normalizedItems.length
@@ -3283,7 +3008,7 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
     pageApplied = true
   }
   finally {
-    if (isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid)) {
+    if (isFeedRequestCurrent(requestToken, requestType, requestHostMid)) {
       isLoading.value = false
       isInitialLoading.value = false
     }
@@ -3291,15 +3016,21 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
 
   if (
     preservedPaginationScrollTop !== null
-    && isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid)
+    && isFeedRequestCurrent(requestToken, requestType, requestHostMid)
   ) {
     // 等卡片、虚拟 spacer 和底部加载提示完成更新后，恢复分页前的滚动位置
-    await nextTick()
-    updateVirtualColumns()
-    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-    const viewport = scrollViewportRef.value
-    if (viewport)
-      viewport.scrollTop = preservedPaginationScrollTop
+    pendingPaginationScrollRestores += 1
+    try {
+      await nextTick()
+      updateVirtualColumns()
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      const viewport = scrollViewportRef.value
+      if (viewport)
+        viewport.scrollTop = preservedPaginationScrollTop
+    }
+    finally {
+      pendingPaginationScrollRestores -= 1
+    }
   }
 
   // 定位到上次看到的位置后先向上预取一批：页面停在顶部时无法再触发向上滚动
@@ -3307,7 +3038,7 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
     pageApplied
     && reset
     && hasNewerMoments.value
-    && isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid)
+    && isFeedRequestCurrent(requestToken, requestType, requestHostMid)
   ) {
     await nextTick()
     void loadNewerMoments()
@@ -3320,7 +3051,7 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
     || noMoreContent.value
     || requiresManualMomentPaging()
     || autoFillDepth >= MAX_POST_LOAD_AUTOFILL_PAGES
-    || !isFeedRequestCurrent(requestToken, requestType, requestGroup, requestHostMid)
+    || !isFeedRequestCurrent(requestToken, requestType, requestHostMid)
   ) {
     return
   }
@@ -3338,8 +3069,6 @@ async function loadMoments(reset = false, autoFillDepth = 0, manualPaging = fals
 
 function clearMomentsPortalState() {
   portalUser.value = null
-  portalLiveUsers.value = []
-  portalLiveCount.value = 0
   portalUpList.value = []
 }
 
@@ -3357,8 +3086,6 @@ async function loadMomentsPortal() {
     }
 
     portalUser.value = response.data?.my_info || null
-    portalLiveUsers.value = response.data?.live_users?.items || []
-    portalLiveCount.value = response.data?.live_users?.count ?? portalLiveUsers.value.length
     portalUpList.value = normalizePortalUpList(response.data)
   }
   catch {
@@ -3371,10 +3098,99 @@ async function loadMomentsPortal() {
   }
 }
 
+function reloadSidebarLive() {
+  sidebarLiveRequest.value?.abort()
+  sidebarLiveRequest.value = undefined
+  sidebarLiveUsers.value = []
+  sidebarLiveTotal.value = undefined
+  sidebarLiveLoadFailed.value = false
+  nextSidebarLivePage.value = 1
+  void loadSidebarLivePage()
+}
+
+async function loadSidebarLivePage() {
+  const page = nextSidebarLivePage.value
+  const account = sidebarLiveAccount.value
+  if (page === undefined || account === undefined || isMomentsDisposed
+    || !settings.value.momentsSidebarShowLive || isSidebarLiveLoading.value) {
+    return
+  }
+
+  const request = new AbortController()
+  sidebarLiveRequest.value = request
+  sidebarLiveLoadFailed.value = false
+  try {
+    const response: MomentsSidebarLiveResult | undefined = await api.moment.getTopBarLiveMoments({
+      page,
+      pagesize: SIDEBAR_LIVE_PAGE_SIZE,
+    }, { signal: request.signal })
+    if (request.signal.aborted || account !== sidebarLiveAccount.value)
+      return
+
+    if (response?.code === -101) {
+      sidebarLiveUsers.value = []
+      sidebarLiveTotal.value = undefined
+      nextSidebarLivePage.value = undefined
+      return
+    }
+
+    if (response?.code !== 0 || !response.data) {
+      sidebarLiveLoadFailed.value = true
+      return
+    }
+
+    const items = response.data.list ?? []
+    const reportedTotal = Number(response.data.results)
+    const total = Number.isSafeInteger(reportedTotal) && reportedTotal >= items.length ? reportedTotal : undefined
+    const reportedPageSize = Number(response.data.pagesize)
+    const pageSize = Number.isSafeInteger(reportedPageSize) && reportedPageSize > 0 ? reportedPageSize : SIDEBAR_LIVE_PAGE_SIZE
+
+    // 开播状态变化会让房间跨页移动，按房间号合并以免重复。
+    const loadedCount = sidebarLiveUsers.value.length
+    const usersByRoom = new Map(sidebarLiveUsers.value.map(user => [user.roomid, user]))
+    for (const user of items)
+      usersByRoom.set(user.roomid, user)
+    sidebarLiveUsers.value = [...usersByRoom.values()]
+    sidebarLiveTotal.value = total ?? sidebarLiveTotal.value
+
+    const hasMore = items.length > 0 && (total === undefined
+      ? items.length >= pageSize && usersByRoom.size > loadedCount
+      : page * pageSize < total)
+    nextSidebarLivePage.value = hasMore ? page + 1 : undefined
+  }
+  catch {
+    if (!request.signal.aborted && account === sidebarLiveAccount.value)
+      sidebarLiveLoadFailed.value = true
+  }
+  finally {
+    if (sidebarLiveRequest.value === request)
+      sidebarLiveRequest.value = undefined
+  }
+}
+
+function fillSidebarLiveViewport() {
+  const viewport = sidebarLiveViewportRef.value
+  if (!viewport?.clientHeight || !sidebarLiveUsers.value.length || isLayoutEditing.value || sidebarLiveLoadFailed.value)
+    return
+
+  if (viewport.scrollHeight <= viewport.clientHeight)
+    void loadSidebarLivePage()
+}
+
+function handleSidebarLiveScroll(event: Event) {
+  if (isLayoutEditing.value || sidebarLiveLoadFailed.value)
+    return
+
+  const viewport = event.currentTarget as HTMLElement
+  if (viewport.scrollTop > 0 && viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 1)
+    void loadSidebarLivePage()
+}
+
 function refresh() {
   isInitialLoading.value = moments.value.length === 0
   void loadMoments(true)
   void loadMomentsPortal()
+  reloadSidebarLive()
   void ensureWatchLaterState()
 }
 
@@ -3452,22 +3268,22 @@ onMounted(() => {
 onBeforeUnmount(() => {
   isMomentsDisposed = true
   feedRequestToken += 1
-  wantedFeedBuffer = undefined
+  sidebarLiveRequest.value?.abort()
   gridObserver?.disconnect()
   cardMeasureObserver?.disconnect()
   visibilityObserver?.disconnect()
   upListResizeObserver?.disconnect()
   upListResizeObserver = undefined
   detachViewportScroll()
-  cleanupLivePreviewPlayer()
+  clearMomentPreview()
   closeMomentDetail()
-  Object.keys(previewUrls).forEach(key => delete previewUrls[key])
   videoCidCache.clear()
   videoCidRequests.clear()
   Object.keys(videoAspectRatios).forEach(key => delete videoAspectRatios[key])
-  visibleMomentIds.clear()
   cardElements.clear()
   columnMetrics = []
+  columnHeadOffsets = []
+  cancelHeadTrim()
   cardMetricPositions.clear()
   cardEnterTimers.forEach(timer => clearTimeout(timer))
   cardEnterTimers.clear()
@@ -3528,6 +3344,12 @@ watch(
   },
 )
 
+watch([sidebarLiveAccount, () => settings.value.momentsSidebarShowLive], reloadSidebarLive)
+
+// 等新一页渲染后检查滚动高度，窗口尺寸变化时也重新检查。
+watch([sidebarLiveViewportRef, nextSidebarLivePage, isLayoutEditing], fillSidebarLiveViewport, { flush: 'post' })
+useResizeObserver(sidebarLiveViewportRef, fillSidebarLiveViewport)
+
 watch(
   () => settings.value.momentsGridColumns,
   async () => {
@@ -3548,7 +3370,6 @@ watch(upListScrollerRef, async () => {
 watch(
   [
     () => visiblePortalUpList.value.map(up => up.mid).join(','),
-    () => settings.value.momentsEnableWantedFilter,
     () => isPortalLoading.value,
   ],
   async () => {
@@ -3558,30 +3379,10 @@ watch(
 )
 
 watch(
-  () => momentsWantedUsers.value.map(user => user.mid).join(','),
-  () => {
-    if (activeMomentGroup.value === 'wanted')
-      void loadMoments(true)
-  },
-)
-
-watch(
   () => momentsPinnedUsers.value.map(user => user.mid).join(','),
   async () => {
     await nextTick()
     updateUpListScrollState()
-  },
-)
-
-watch(
-  () => settings.value.momentsEnableWantedFilter,
-  (enabled) => {
-    if (enabled || activeMomentGroup.value !== 'wanted')
-      return
-
-    activeMomentGroup.value = 'all'
-    resetMomentsScroll()
-    void loadMoments(true)
   },
 )
 
@@ -3614,16 +3415,7 @@ watch(
     () => settings.value.momentsVideoPreviewDelayed,
     () => settings.value.momentsOnlyCoverVideoPreview,
   ],
-  () => {
-    const activeMoment = moments.value.find(moment => moment.id === hoveredMediaId.value)
-    if (!activeMoment)
-      return
-
-    hoveredMediaId.value = ''
-    cleanupLivePreviewPlayer()
-    if (previewUrls[activeMoment.id])
-      delete previewUrls[activeMoment.id]
-  },
+  clearMomentPreview,
 )
 </script>
 
@@ -3641,7 +3433,7 @@ watch(
         v-if="showMomentsSidebar || isLayoutEditing"
         ref="sidebarRef"
         class="moments-sidebar"
-        :class="{ 'moments-sidebar--with-live': !isLayoutEditing && !isPortalLoading && settings.momentsSidebarShowLive && portalLiveUsers.length }"
+        :class="{ 'moments-sidebar--with-live': !isLayoutEditing && !isPortalLoading && showSidebarLiveCard }"
         :style="{ '--moments-sidebar-top': `${sidebarTop}px` }"
         :aria-label="t('moments.user_info')"
       >
@@ -3737,7 +3529,7 @@ watch(
           </a>
 
           <section
-            v-if="isLayoutEditing || (settings.momentsSidebarShowLive && portalLiveUsers.length)"
+            v-if="isLayoutEditing || showSidebarLiveCard"
             class="moments-live-card"
             data-layout-edit-target="moments-sidebar-live"
             data-layout-settings-menu="BewlyPages"
@@ -3745,13 +3537,22 @@ watch(
             data-layout-settings-title-key="settings.moments_show_live"
           >
             <header>
-              <strong>{{ t('moments.live_now') }} <span>{{ portalLiveCount }}</span></strong>
+              <strong>
+                {{ t('moments.live_now') }}
+                <span v-if="sidebarLiveTotal !== undefined || sidebarLiveUsers.length">{{ sidebarLiveTotal ?? sidebarLiveUsers.length }}</span>
+              </strong>
             </header>
-            <div v-if="portalLiveUsers.length" class="moments-live-card__list">
+            <div
+              v-if="sidebarLiveUsers.length || !isLayoutEditing"
+              ref="sidebarLiveViewportRef"
+              class="moments-live-card__list"
+              :aria-busy="isSidebarLiveLoading"
+              @scroll.passive="handleSidebarLiveScroll"
+            >
               <a
-                v-for="liveUser in isLayoutEditing ? portalLiveUsers.slice(0, 1) : portalLiveUsers"
-                :key="liveUser.room_id"
-                :href="liveUser.jump_url || `https://live.bilibili.com/${liveUser.room_id}`"
+                v-for="liveUser in isLayoutEditing ? sidebarLiveUsers.slice(0, 1) : sidebarLiveUsers"
+                :key="liveUser.roomid"
+                :href="liveUser.link || `https://live.bilibili.com/${liveUser.roomid}`"
                 target="_blank"
                 rel="noopener noreferrer"
               >
@@ -3763,6 +3564,21 @@ watch(
                   <small>{{ liveUser.title }}</small>
                 </span>
               </a>
+              <p v-if="!isLayoutEditing && isSidebarLiveLoading" class="moments-live-card__status" role="status">
+                {{ t('common.loading') }}
+              </p>
+              <Button
+                v-else-if="!isLayoutEditing && sidebarLiveLoadFailed"
+                class="shrink-0"
+                type="tertiary"
+                size="small"
+                block
+                center
+                :title="t('common.load_failed')"
+                @click="loadSidebarLivePage()"
+              >
+                {{ t('moments.reload') }}
+              </Button>
             </div>
           </section>
         </template>
@@ -3804,6 +3620,13 @@ watch(
             </div>
           </div>
         </section>
+        <MomentsFilterEntry
+          v-if="settings.momentsShowFilterEntry"
+          class="moments-filter-entry"
+          data-layout-settings-menu="BewlyPages"
+          data-layout-settings-page="moments"
+          data-layout-settings-title-key="settings.moments_show_filter_entry"
+        />
       </header>
 
       <div class="moments-center" :style="momentsContentStyle">
@@ -3820,9 +3643,9 @@ watch(
             <button
               type="button"
               class="moments-up-list__item"
-              :class="{ 'moments-up-list__item--active': !selectedHostMid && activeMomentGroup === 'all' }"
+              :class="{ 'moments-up-list__item--active': !selectedHostMid }"
               role="listitem"
-              :aria-pressed="!selectedHostMid && activeMomentGroup === 'all'"
+              :aria-pressed="!selectedHostMid"
               data-up-nav="all"
               :title="t('moments.all_posts')"
               @click="handleUpFilterChange('')"
@@ -3830,37 +3653,10 @@ watch(
               <span class="moments-up-list__avatar moments-up-list__avatar--all" aria-hidden="true">
                 <span
                   class="moments-up-list__all-icon"
-                  :class="!selectedHostMid && activeMomentGroup === 'all' ? 'i-tabler-windmill-filled' : 'i-tabler-windmill'"
+                  :class="!selectedHostMid ? 'i-tabler-windmill-filled' : 'i-tabler-windmill'"
                 />
               </span>
               <span class="moments-up-list__name">{{ t('moments.all_posts') }}</span>
-            </button>
-            <button
-              v-if="settings.momentsEnableWantedFilter"
-              type="button"
-              class="moments-up-list__item"
-              data-layout-edit-target="moments-wanted-users"
-              data-layout-settings-menu="BewlyPages"
-              data-layout-settings-page="moments"
-              data-layout-settings-title-key="settings.group_moments_wanted_users"
-              :class="{ 'moments-up-list__item--active': activeMomentGroup === 'wanted' }"
-              role="listitem"
-              :aria-pressed="activeMomentGroup === 'wanted'"
-              data-up-nav="wanted"
-              :disabled="activeMomentFilter !== 'all' && activeMomentFilter !== 'video'"
-              :aria-label="activeMomentGroup === 'wanted' ? t('moments.cancel_wanted_only') : t('moments.wanted_only')"
-              :title="activeMomentFilter === 'all' || activeMomentFilter === 'video'
-                ? (activeMomentGroup === 'wanted' ? t('moments.cancel_wanted_only') : t('moments.wanted_only'))
-                : t('moments.wanted_scope_hint')"
-              @click="handleMomentGroupChange(activeMomentGroup === 'wanted' ? 'all' : 'wanted')"
-            >
-              <span class="moments-up-list__avatar moments-up-list__avatar--wanted" aria-hidden="true">
-                <span
-                  class="moments-up-list__wanted-icon"
-                  :class="activeMomentGroup === 'wanted' ? 'i-tabler-star-filled' : 'i-tabler-star'"
-                />
-              </span>
-              <span class="moments-up-list__name">{{ t('moments.wanted') }}</span>
             </button>
           </div>
 
@@ -3921,9 +3717,9 @@ watch(
                 type="button"
                 class="moments-up-list__item"
                 :data-up-nav-mid="up.mid"
-                :class="{ 'moments-up-list__item--active': selectedHostMid === up.mid && activeMomentGroup === 'all' }"
+                :class="{ 'moments-up-list__item--active': selectedHostMid === up.mid }"
                 role="listitem"
-                :aria-pressed="selectedHostMid === up.mid && activeMomentGroup === 'all'"
+                :aria-pressed="selectedHostMid === up.mid"
                 :title="up.uname"
                 @click="handleUpFilterChange(up.mid)"
               >
@@ -3975,9 +3771,9 @@ watch(
               type="button"
               class="moments-up-list__item"
               :data-up-nav-mid="user.mid"
-              :class="{ 'moments-up-list__item--active': selectedHostMid === user.mid && activeMomentGroup === 'all' }"
+              :class="{ 'moments-up-list__item--active': selectedHostMid === user.mid }"
               role="listitem"
-              :aria-pressed="selectedHostMid === user.mid && activeMomentGroup === 'all'"
+              :aria-pressed="selectedHostMid === user.mid"
               :title="user.name"
               @click="handleUpFilterChange(user.mid)"
             >
@@ -3995,9 +3791,18 @@ watch(
         </section>
         <div class="moments-feed">
           <!-- 零高度容器内的悬浮按钮，不参与布局，避免影响向上插入时的滚动补偿 -->
-          <div v-if="!isInitialLoading && (hasNewerMoments || canJumpToLastSeen)" class="moments-newer-bar">
+          <div v-if="!isInitialLoading && (showTrimmedHeadNotice || hasNewerMoments || canJumpToLastSeen)" class="moments-newer-bar">
             <button
-              v-if="hasNewerMoments"
+              v-if="showTrimmedHeadNotice"
+              type="button"
+              class="moments-newer-bar__button"
+              @click="jumpToLatestMoments"
+            >
+              <span i-tabler-arrow-up />
+              {{ t('moments.released_above') }} · {{ t('moments.jump_to_latest') }}
+            </button>
+            <button
+              v-else-if="hasNewerMoments"
               type="button"
               class="moments-newer-bar__button"
               @click="jumpToLatestMoments"
@@ -4063,8 +3868,8 @@ watch(
                 :image-ratio="coverRatios[moment.id]"
                 :ready="readyCardIds.has(moment.id)"
                 :entering="enteringCardIds.has(moment.id)"
-                :preview-active="Boolean(hoveredMediaId === moment.id && previewUrls[moment.id])"
-                :preview-url="previewUrls[moment.id]"
+                :preview-active="hoveredMediaId === moment.id && Boolean(previewUrl)"
+                :preview-url="hoveredMediaId === moment.id ? previewUrl : undefined"
                 :is-like-loading="likingMomentIds.has(moment.id)"
                 :is-reservation-loading="reservationLoadingMomentIds.has(moment.id)"
                 :last-seen="moment.id === lastSeenMomentId"
@@ -4087,26 +3892,18 @@ watch(
             </div>
           </div>
           <div v-else-if="!isInitialLoading" class="moments-page__empty">
-            <span i-tabler-windmill text="size-$bew-icon-size-xl" /><p>{{ activeMomentGroup === 'wanted' ? (momentsWantedUsers.length ? t('moments.no_recent_updates') : t('moments.add_wanted_first')) : t('moments.empty') }}</p><Button
-              v-if="activeMomentGroup !== 'wanted' || momentsWantedUsers.length"
+            <span i-tabler-windmill text="size-$bew-icon-size-xl" /><p>{{ t('moments.empty') }}</p><Button
               type="secondary"
               :disabled="isLoading"
               @click="requiresManualMomentPaging() && !noMoreContent ? loadMoreMoments() : refresh()"
             >
-              {{ isLoading ? t('common.loading') : requiresManualMomentPaging() ? (!noMoreContent ? t('common.load_more') : (activeMomentGroup === 'wanted' ? t('moments.recheck') : t('moments.reload'))) : t('moments.reload') }}
-            </Button>
-            <Button
-              v-else
-              type="primary"
-              @click="openWantedUsersSettings"
-            >
-              {{ t('settings.btn.open_settings') }}
+              {{ isLoading ? t('common.loading') : requiresManualMomentPaging() ? (!noMoreContent ? t('common.load_more') : t('moments.reload')) : t('moments.reload') }}
             </Button>
           </div>
           <button
             v-if="requiresManualMomentPaging() && moments.length && !isLoading && !noMoreContent"
             type="button"
-            class="moments-wanted-load-more"
+            class="moments-load-more"
             @click="loadMoreMoments()"
           >
             <span i-tabler-arrow-down />
@@ -4241,6 +4038,7 @@ watch(
       <div
         ref="detailImageViewerRef"
         class="moment-image-viewer"
+        :class="{ 'is-close-bottom': settings.imageViewerCloseAtBottom }"
         role="dialog"
         aria-modal="true"
         :aria-label="t('moments.image_viewer')"
@@ -4256,6 +4054,9 @@ watch(
         >
           <span i-tabler-x />
         </button>
+        <span v-if="detailImageViewerUrls.length > 1" class="moment-image-viewer__counter">
+          {{ detailImageViewerIndex + 1 }} / {{ detailImageViewerUrls.length }}
+        </span>
         <div class="moment-image-viewer__stage" @click.self="closeDetailImageViewer">
           <img
             :src="detailImageViewerUrl"
@@ -4266,7 +4067,7 @@ watch(
               'is-dragging': detailImageViewerDragging,
             }"
             :style="{ transform: detailImageViewerTransform }"
-            draggable="false"
+            :draggable="detailImageViewerScale <= 1"
             @dblclick.prevent.stop="handleDetailImageViewerDoubleClick"
             @pointerdown="handleDetailImageViewerPointerDown"
             @pointermove="handleDetailImageViewerPointerMove"
@@ -4293,10 +4094,6 @@ watch(
           <span i-tabler-chevron-right />
         </button>
         <div class="moment-image-viewer__toolbar">
-          <span class="moment-image-viewer__counter">
-            {{ detailImageViewerIndex + 1 }}/{{ detailImageViewerUrls.length }}
-          </span>
-          <span class="moment-image-viewer__divider" />
           <button type="button" :aria-label="t('moments.zoom_out')" :title="t('moments.zoom_out')" @click="setDetailImageViewerScale(detailImageViewerScale - 0.25)">
             −
           </button>
@@ -4555,15 +4352,13 @@ watch(
   }
 
   .moments-up-list__avatar > img,
-  .moments-up-list__avatar--all,
-  .moments-up-list__avatar--wanted {
+  .moments-up-list__avatar--all {
     box-shadow:
       0 0 0 2px var(--bew-elevated),
       0 0 0 4px var(--bew-theme-color);
   }
 
-  .moments-up-list__avatar--all,
-  .moments-up-list__avatar--wanted {
+  .moments-up-list__avatar--all {
     border-color: var(--bew-theme-color);
     color: #fff;
     background: var(--bew-theme-color);
@@ -4593,8 +4388,7 @@ watch(
   background: var(--bew-fill-1);
   transition: box-shadow var(--bew-duration-fast) var(--bew-ease-standard);
 }
-.moments-up-list__avatar--all,
-.moments-up-list__avatar--wanted {
+.moments-up-list__avatar--all {
   display: grid;
   place-items: center;
   width: 48px;
@@ -4614,8 +4408,7 @@ watch(
   opacity: 0.45;
   cursor: not-allowed;
 }
-.moments-up-list__all-icon,
-.moments-up-list__wanted-icon {
+.moments-up-list__all-icon {
   display: block;
   width: 22px;
   height: 22px;
@@ -4859,8 +4652,18 @@ watch(
   flex-direction: column;
   gap: var(--bew-space-1);
   overflow-y: auto;
+  overflow-anchor: none;
   overscroll-behavior: contain;
   padding-inline: var(--bew-space-4);
+}
+.moments-live-card__status {
+  flex-shrink: 0;
+  margin: 0;
+  padding: var(--bew-space-1) 0;
+  color: var(--bew-text-3);
+  font-size: var(--bew-font-size-caption);
+  line-height: var(--bew-line-height-caption);
+  text-align: center;
 }
 .moments-live-card__list > a {
   display: flex;
@@ -5114,20 +4917,27 @@ watch(
 .moments-filter-header {
   position: relative;
   grid-area: header;
-  display: grid;
-  grid-template-columns: minmax(0, max-content);
-  justify-content: start;
+  display: flex;
+  justify-content: flex-start;
   justify-self: start;
   align-items: center;
+  gap: var(--bew-space-3);
   width: 100%;
   min-width: 0;
 }
+// 过滤入口紧跟在类型标签栏右侧，居中时两者作为一组居中
 .moments-filter-header--center {
   justify-content: center;
 }
 
 .moments-filter-panel {
+  flex: 0 1 auto;
+  min-width: 0;
   max-width: 100%;
+}
+
+.moments-filter-entry {
+  flex-shrink: 0;
 }
 .moments-filter-scroll {
   height: 100%;
@@ -5150,11 +4960,6 @@ watch(
 @media (max-width: 1000px) {
   .moments-filter-panel {
     max-width: 100%;
-  }
-}
-@media (max-width: 600px) {
-  .moments-filter-header {
-    grid-template-columns: minmax(0, 1fr);
   }
 }
 .moments-grid {
@@ -5223,7 +5028,7 @@ watch(
   visibility: visible;
   opacity: 1;
 }
-.moments-wanted-load-more {
+.moments-load-more {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -5247,7 +5052,7 @@ watch(
     border-color var(--bew-duration-normal) var(--bew-ease-standard),
     opacity var(--bew-duration-normal) var(--bew-ease-standard);
 }
-.moments-wanted-load-more:hover {
+.moments-load-more:hover {
   color: #fff;
   border-color: var(--bew-theme-color);
   background: var(--bew-theme-color);
@@ -5419,7 +5224,6 @@ watch(
   transform-origin: center center;
   transition: transform 0.12s ease-out;
   user-select: none;
-  -webkit-user-drag: none;
   cursor: zoom-in;
 }
 .moment-image-viewer__image.is-zoomed {
@@ -5445,30 +5249,60 @@ watch(
   font-family: inherit;
   cursor: pointer;
 }
-.moment-image-viewer__close:hover,
-.moment-image-viewer__nav:hover,
 .moment-image-viewer__toolbar button:hover {
   background: rgb(0 0 0 / 72%);
 }
+// 关闭、切换按钮与计数器的位置和外观对齐 B 站原生查看器（bili-photoswipe）
+.moment-image-viewer__close,
+.moment-image-viewer__nav {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 58%);
+  font-size: var(--bew-icon-size-md);
+}
+.moment-image-viewer__close:hover,
+.moment-image-viewer__nav:hover {
+  color: var(--brand_pink, #f69);
+}
 .moment-image-viewer__close {
   position: absolute;
-  top: 20px;
-  left: 20px;
+  top: 16px;
+  right: 16px;
   z-index: 4;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  font-size: var(--bew-icon-size-lg);
+  opacity: 0.85;
+}
+.moment-image-viewer__close:hover {
+  opacity: 1;
+}
+// 关闭按钮置于底部工具栏上方，并为其预留图片区域
+.moment-image-viewer.is-close-bottom .moment-image-viewer__close {
+  top: auto;
+  right: auto;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+}
+.moment-image-viewer.is-close-bottom .moment-image-viewer__stage {
+  padding-bottom: 140px;
+}
+.moment-image-viewer__counter {
+  position: absolute;
+  top: 20px;
+  left: 16px;
+  z-index: 4;
+  height: 30px;
+  font-size: 14px;
+  line-height: 30px;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 1px 1px 3px #4f4f4f;
+  opacity: 0.85;
+  user-select: none;
 }
 .moment-image-viewer__nav {
   position: absolute;
-  top: 50%;
+  top: calc(50% - 50px);
   z-index: 4;
-  width: 44px;
-  height: 56px;
-  border-radius: var(--bew-radius-md);
-  transform: translateY(-50%);
-  font-size: var(--bew-icon-size-xl);
   line-height: 1;
 }
 .moment-image-viewer__nav--prev {
@@ -5500,14 +5334,11 @@ watch(
   background: transparent;
   font-size: var(--bew-icon-size-md);
 }
-.moment-image-viewer__counter,
 .moment-image-viewer__zoom {
   min-width: 48px;
   text-align: center;
   font-size: var(--bew-font-size-control);
   font-variant-numeric: tabular-nums;
-}
-.moment-image-viewer__zoom {
   width: 64px;
   height: 30px;
   padding: 0 var(--bew-space-1);
@@ -5522,12 +5353,6 @@ watch(
 .moment-image-viewer__zoom:focus {
   background: rgb(255 255 255 / 14%);
 }
-.moment-image-viewer__divider {
-  width: 1px;
-  height: 24px;
-  margin: 0 var(--bew-space-1);
-  background: rgb(255 255 255 / 24%);
-}
 @media (max-width: 640px) {
   .moment-image-viewer__stage {
     padding: 68px 12px 92px;
@@ -5536,8 +5361,7 @@ watch(
     top: auto;
     bottom: 24px;
     width: 36px;
-    height: 42px;
-    transform: none;
+    height: 36px;
   }
 }
 @keyframes moment-shimmer {

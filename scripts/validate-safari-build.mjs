@@ -1,4 +1,3 @@
-import { Buffer } from 'node:buffer'
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
@@ -61,11 +60,10 @@ assert(
   'dist/contentScripts/inject.global.js missing',
 )
 
-// 6. Content style exists
-assert(
-  fileExists(path.join(extDir, 'dist/contentScripts/style.css')),
-  'dist/contentScripts/style.css missing',
-)
+// 6. 独立设置页和它的 JS 入口必须随扩展打包。
+const optionsPage = manifest.options_ui?.page
+assert(optionsPage === 'dist/options/index.html' && fileExists(path.join(extDir, optionsPage)), 'Safari options page missing')
+assert(fileExists(path.join(extDir, 'dist/options/index.global.js')), 'Safari options bundle missing')
 
 // 7. DNR rules exist
 assert(
@@ -114,42 +112,18 @@ assert(
   'removed volume-normalization.js should not remain in web_accessible_resources',
 )
 
-// 听视频由 isolated 入口动态导入，必须是可访问且保留命名导出的独立 ESM。
-const listenVideoResource = 'dist/contentScripts/listenVideoControl.js'
-const listenVideoPath = path.join(extDir, listenVideoResource)
-assert(fileExists(listenVideoPath), `${listenVideoResource} missing`)
-assert(
-  war.some(entry => entry.resources?.includes(listenVideoResource)),
-  'listenVideoControl.js should be in web_accessible_resources',
-)
-if (fileExists(listenVideoPath)) {
-  try {
-    const code = fs.readFileSync(listenVideoPath, 'utf8')
-    const module = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
-    assert(
-      typeof module.initListenVideoControl === 'function',
-      'listenVideoControl.js must export an importable initListenVideoControl function',
-    )
-  }
-  catch (error) {
-    assert(false, `listenVideoControl.js cannot be imported as ESM: ${error.message}`)
-  }
-}
-
-// 直播预览按需加载的独立模块必须提供命名导出，且不能残留外部依赖。
-for (const [file, exportName] of [['hlsPlayer', 'Hls'], ['flvPlayer', 'flvjs']]) {
-  const resource = `dist/contentScripts/${file}.js`
-  const target = path.join(extDir, resource)
-  assert(fileExists(target), `${resource} missing`)
-  assert(war.some(entry => entry.resources?.includes(resource)), `${resource} should be web accessible`)
-  if (!fileExists(target))
-    continue
-  const source = ts.createSourceFile(target, fs.readFileSync(target, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
-  assert(source.parseDiagnostics.length === 0, `${resource} must parse as JavaScript`)
+// FLV 直播预览按需加载，独立模块必须提供命名导出且自带依赖。
+const flvResource = 'dist/contentScripts/flvPlayer.js'
+const flvPath = path.join(extDir, flvResource)
+assert(fileExists(flvPath), `${flvResource} missing`)
+assert(war.some(entry => entry.resources?.includes(flvResource)), `${flvResource} should be web accessible`)
+if (fileExists(flvPath)) {
+  const source = ts.createSourceFile(flvPath, fs.readFileSync(flvPath, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
+  assert(source.parseDiagnostics.length === 0, `${flvResource} must parse as JavaScript`)
   const exports = source.statements.filter(ts.isExportDeclaration)
   assert(exports.some(entry => entry.exportClause && ts.isNamedExports(entry.exportClause)
-    && entry.exportClause.elements.some(item => item.name.text === exportName)), `${resource} must export ${exportName}`)
-  assert(!source.statements.some(ts.isImportDeclaration) && !exports.some(entry => entry.moduleSpecifier), `${resource} must bundle its dependencies`)
+    && entry.exportClause.elements.some(item => item.name.text === 'flvjs')), `${flvResource} must export flvjs`)
+  assert(!source.statements.some(ts.isImportDeclaration) && !exports.some(entry => entry.moduleSpecifier), `${flvResource} must bundle its dependencies`)
 }
 
 // 13. Safari manifest should have required permissions
@@ -225,6 +199,7 @@ const jsFilesToScan = [
   path.join(extDir, 'dist/background/index.js'),
   path.join(extDir, 'dist/contentScripts/index.global.js'),
   path.join(extDir, 'dist/contentScripts/inject.global.js'),
+  path.join(extDir, 'dist/options/index.global.js'),
 ]
 
 for (const file of jsFilesToScan) {

@@ -5,7 +5,6 @@ import { CONTENT_SCRIPT_COMMIT, CONTENT_SCRIPT_PING, CONTENT_SCRIPT_PONG, isCont
 
 import { injectContentScriptRefreshPrompt } from './contentScriptRefreshPrompt'
 
-const CONTENT_SCRIPT_CSS = 'dist/contentScripts/style.css'
 const CONTENT_SCRIPT_JS = 'dist/contentScripts/index.global.js'
 const PAGE_LOADING_JS = 'dist/contentScripts/pageLoading.js'
 const PAGE_SCRIPT_JS = 'dist/contentScripts/inject.global.js'
@@ -13,7 +12,7 @@ const CONTENT_SCRIPT_STARTUP_GRACE_PERIOD_MS = 100
 
 export interface ContentScriptRecoveryBrowser {
   tabs: Pick<Tabs.Static, 'get' | 'sendMessage'>
-  scripting: Pick<Scripting.Static, 'executeScript' | 'insertCSS'>
+  scripting: Pick<Scripting.Static, 'executeScript'>
 }
 
 export type ContentScriptRecoveryResult = 'ineligible' | 'already-injected' | 'outdated' | 'injected'
@@ -103,11 +102,6 @@ export async function recoverContentScript(
     ? { tabId }
     : { tabId, frameIds: [0] }
 
-  await extensionApi.scripting.insertCSS({
-    target,
-    files: [CONTENT_SCRIPT_CSS],
-  })
-
   if (platform === 'safari') {
     // 先恢复轻量的 document_start 守卫，再恢复 isolated 主脚本。
     await extensionApi.scripting.executeScript({
@@ -174,7 +168,7 @@ export function setupContentScriptRecovery(): void {
   if (recoveryListenersInitialized || process.env.FIREFOX)
     return
 
-  if (!browser.scripting?.insertCSS || !browser.scripting?.executeScript) {
+  if (!browser.scripting?.executeScript) {
     console.warn('[BewlyCat] Content script recovery is unavailable because the scripting API is missing.')
     return
   }

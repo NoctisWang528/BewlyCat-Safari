@@ -28,7 +28,6 @@ function createExtensionApi() {
   }
   const scripting = {
     executeScript: vi.fn(),
-    insertCSS: vi.fn(),
   }
 
   return {
@@ -50,7 +49,6 @@ describe('content script recovery', () => {
 
     await expect(recoverContentScript(7, extensionApi)).resolves.toBe('outdated')
     expect(tabs.sendMessage).toHaveBeenCalledWith(7, expect.anything(), { frameId: 0 })
-    expect(scripting.insertCSS).not.toHaveBeenCalled()
     expect(scripting.executeScript).not.toHaveBeenCalled()
   })
 
@@ -66,7 +64,6 @@ describe('content script recovery', () => {
     })
 
     await expect(recoverContentScript(8, extensionApi)).resolves.toBe('already-injected')
-    expect(scripting.insertCSS).not.toHaveBeenCalled()
     expect(scripting.executeScript).not.toHaveBeenCalled()
   })
 
@@ -82,11 +79,10 @@ describe('content script recovery', () => {
     })
 
     await expect(recoverContentScript(9, extensionApi)).resolves.toBe('outdated')
-    expect(scripting.insertCSS).not.toHaveBeenCalled()
     expect(scripting.executeScript).not.toHaveBeenCalled()
   })
 
-  it('restores CSS and both script worlds when the receiver is missing', async () => {
+  it('restores both script worlds when the receiver is missing', async () => {
     const { extensionApi, scripting, tabs } = createExtensionApi()
     tabs.get.mockResolvedValue(eligibleTab)
     tabs.sendMessage.mockRejectedValue(new Error('Receiving end does not exist'))
@@ -95,10 +91,6 @@ describe('content script recovery', () => {
 
     expect(tabs.get).toHaveBeenCalledTimes(2)
     expect(tabs.sendMessage).toHaveBeenCalledTimes(2)
-    expect(scripting.insertCSS).toHaveBeenCalledWith({
-      target: { tabId: 11, frameIds: [0] },
-      files: ['dist/contentScripts/style.css'],
-    })
     expect(scripting.executeScript).toHaveBeenNthCalledWith(1, {
       target: { tabId: 11, frameIds: [0] },
       files: ['dist/contentScripts/index.global.js'],
@@ -120,10 +112,6 @@ describe('content script recovery', () => {
 
     await expect(recoverContentScript(21, extensionApi, 'safari')).resolves.toBe('injected')
 
-    expect(scripting.insertCSS).toHaveBeenCalledWith({
-      target: { tabId: 21 },
-      files: ['dist/contentScripts/style.css'],
-    })
     expect(scripting.executeScript).toHaveBeenNthCalledWith(1, {
       target: { tabId: 21 },
       files: ['dist/contentScripts/pageLoading.js'],
@@ -143,12 +131,11 @@ describe('content script recovery', () => {
 
     await expect(recoverContentScript(12, extensionApi)).resolves.toBe('outdated')
     expect(tabs.sendMessage).toHaveBeenCalledTimes(2)
-    expect(scripting.insertCSS).not.toHaveBeenCalled()
     expect(scripting.executeScript).not.toHaveBeenCalled()
   })
 
   it('does not inject into an ineligible active tab', async () => {
-    const { extensionApi, scripting, tabs } = createExtensionApi()
+    const { extensionApi, tabs } = createExtensionApi()
     tabs.get.mockResolvedValue({
       active: true,
       status: 'complete',
@@ -157,7 +144,6 @@ describe('content script recovery', () => {
 
     await expect(recoverContentScript(13, extensionApi)).resolves.toBe('ineligible')
     expect(tabs.sendMessage).not.toHaveBeenCalled()
-    expect(scripting.insertCSS).not.toHaveBeenCalled()
   })
 
   it('stops if the tab starts navigating after a failed ping', async () => {
@@ -168,7 +154,6 @@ describe('content script recovery', () => {
     tabs.sendMessage.mockRejectedValue(new Error('Tab navigated'))
 
     await expect(recoverContentScript(17, extensionApi)).resolves.toBe('ineligible')
-    expect(scripting.insertCSS).not.toHaveBeenCalled()
     expect(scripting.executeScript).not.toHaveBeenCalled()
   })
 })

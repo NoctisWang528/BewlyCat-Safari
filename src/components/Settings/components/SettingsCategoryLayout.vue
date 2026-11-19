@@ -19,6 +19,12 @@ export interface CategoryPage {
 const props = defineProps<{
   pages: CategoryPage[]
   storageKey: string
+  /** 由父级壳层控制的当前二级页；不传时沿用 sessionStorage 中的选择。 */
+  activePage?: string
+}>()
+
+const emit = defineEmits<{
+  'update:activePage': [value: string]
 }>()
 
 const { t } = useI18n()
@@ -26,10 +32,17 @@ const setBreadcrumb = inject<(detail?: string) => void>('setSettingsBreadcrumb')
 const scrollSettingsContentToTop = inject<() => void>('scrollSettingsContentToTop')
 const savedPage = sessionStorage.getItem(props.storageKey)
 const activePage = ref(
-  props.pages.some(page => page.value === savedPage)
-    ? savedPage!
-    : props.pages[0]?.value ?? '',
+  props.activePage && props.pages.some(page => page.value === props.activePage)
+    ? props.activePage
+    : props.pages.some(page => page.value === savedPage)
+      ? savedPage!
+      : props.pages[0]?.value ?? '',
 )
+
+watch(() => props.activePage, (page) => {
+  if (page && page !== activePage.value && props.pages.some(item => item.value === page))
+    activePage.value = page
+})
 
 const currentPage = computed(() =>
   props.pages.find(page => page.value === activePage.value) ?? props.pages[0],
@@ -51,7 +64,10 @@ const pageGroups = computed(() => {
   return groups
 })
 
-watch(activePage, page => sessionStorage.setItem(props.storageKey, page))
+watch(activePage, (page) => {
+  sessionStorage.setItem(props.storageKey, page)
+  emit('update:activePage', page)
+})
 watchEffect(() => setBreadcrumb?.(currentPage.value ? t(currentPage.value.titleKey) : undefined))
 
 function selectPage(page: string) {

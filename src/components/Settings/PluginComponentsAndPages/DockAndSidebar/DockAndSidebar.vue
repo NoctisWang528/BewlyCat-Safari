@@ -92,10 +92,14 @@ function updateDockItemPageMode(dockItem: DockItem, useOriginalBiliPage: boolean
 <template>
   <div>
     <SettingsItemGroup :title="$t('settings.group_dock')">
-      <SettingsItem :title="$t('settings.show_layout_edit_button')" :desc="$t('settings.show_layout_edit_button_desc')" right-width="auto">
-        <Radio v-model="settings.showLayoutEditButton" />
+      <SettingsItem :title="$t('settings.dock_position')" :desc="$t('settings.dock_position_desc')" right-width="auto">
+        <Select
+          v-model="settings.dockPosition"
+          :options="dockPositions"
+          w="160px"
+        />
       </SettingsItem>
-      <SettingsItem :title="$t('settings.always_use_dock')" :desc="$t('settings.always_use_dock_desc')" right-width="auto">
+      <SettingsItem v-if="!settings.useOriginalBilibiliHomepage" :title="$t('settings.always_use_dock')" :desc="$t('settings.always_use_dock_desc')" right-width="auto">
         <Radio v-model="settings.alwaysUseDock" />
       </SettingsItem>
       <SettingsItem :title="$t('settings.auto_hide_dock')" right-width="auto">
@@ -110,13 +114,6 @@ function updateDockItemPageMode(dockItem: DockItem, useOriginalBiliPage: boolean
       </SettingsItem>
       <SettingsItem :title="$t('settings.half_hide_dock')" right-width="auto">
         <Radio v-model="settings.halfHideDock" />
-      </SettingsItem>
-      <SettingsItem :title="$t('settings.dock_position')" :desc="$t('settings.dock_position_desc')" right-width="auto">
-        <Select
-          v-model="settings.dockPosition"
-          :options="dockPositions"
-          w="160px"
-        />
       </SettingsItem>
       <SettingsItem
         :title="$t('settings.dock_content_adjustment')"
@@ -160,6 +157,7 @@ function updateDockItemPageMode(dockItem: DockItem, useOriginalBiliPage: boolean
                 </div>
                 <div flex="~ gap-4 items-center justify-between wrap" @click.stop>
                   <div
+                    v-if="!settings.useOriginalBilibiliHomepage"
                     flex="~ items-center"
                   >
                     {{ $t('settings.dock_item_use_original_bili_web_page') }}
@@ -178,14 +176,27 @@ function updateDockItemPageMode(dockItem: DockItem, useOriginalBiliPage: boolean
           </draggable>
         </template>
       </SettingsItem>
+      <SettingsItem :title="$t('settings.show_layout_edit_button')" :desc="$t('settings.show_layout_edit_button_desc')" right-width="auto">
+        <Radio v-model="settings.showLayoutEditButton" />
+      </SettingsItem>
       <SettingsItem :title="$t('settings.disable_dock_glowing_effect')" right-width="auto">
         <Radio v-model="settings.disableDockGlowingEffect" />
+      </SettingsItem>
+      <SettingsItem
+        :title="$t('settings.disable_dock_icon_animation')"
+        :desc="$t('settings.disable_dock_icon_animation_desc')"
+        right-width="auto"
+      >
+        <Radio v-model="settings.disableDockIconAnimation" />
       </SettingsItem>
       <SettingsItem :title="$t('settings.disable_light_dark_mode_switcher')" right-width="auto">
         <Radio v-model="settings.disableLightDarkModeSwitcherOnDock" />
       </SettingsItem>
       <SettingsItem :title="$t('settings.disable_back_to_top_button_on_dock')" right-width="auto">
         <Radio v-model="settings.disableBackToTopButtonOnDock" />
+      </SettingsItem>
+      <SettingsItem :title="$t('settings.disable_refresh_button_on_dock')" right-width="auto">
+        <Radio v-model="settings.disableRefreshButtonOnDock" />
       </SettingsItem>
       <SettingsItem :title="$t('settings.back_to_top_and_refresh_buttons_are_separated')" right-width="auto">
         <Radio v-model="settings.backToTopAndRefreshButtonsAreSeparated" />
@@ -196,10 +207,13 @@ function updateDockItemPageMode(dockItem: DockItem, useOriginalBiliPage: boolean
     </SettingsItemGroup>
 
     <SettingsItemGroup :title="$t('settings.group_sidebar')" :desc="$t('settings.group_sidebar_desc')">
-      <SettingsItem :title="$t('settings.sidebar_position')" right-width="auto">
+      <SettingsItem :title="$t('settings.module_sidebar')" :desc="$t('settings.module_sidebar_desc')" right-width="auto">
+        <Radio v-model="settings.enableSideBar" />
+      </SettingsItem>
+      <SettingsItem v-if="settings.enableSideBar" :title="$t('settings.sidebar_position')" right-width="auto">
         <Select v-model="settings.sidebarPosition" :options="sidebarPositions" w="160px" />
       </SettingsItem>
-      <SettingsItem :title="$t('settings.auto_hide_sidebar')" right-width="auto">
+      <SettingsItem v-if="settings.enableSideBar" :title="$t('settings.auto_hide_sidebar')" right-width="auto">
         <Radio v-model="settings.autoHideSidebar" />
       </SettingsItem>
     </SettingsItemGroup>

@@ -17,9 +17,6 @@ importers:
       flv.js:
         specifier: ^1.6.2
         version: 1.6.2
-      hls.js:
-        specifier: ^1.6.14
-        version: 1.6.14
       md5:
         specifier: ^2.3.0
         version: 2.3.0
@@ -3176,9 +3173,6 @@ packages:
 
   highlight.js@10.7.3:
     resolution: {integrity: sha512-tzcUFauisWKNHaRkN4Wjl/ZA07gENAjFl3J/c480dprkGTg5EQstgaNFqBfUqCq54kZRIEcreTsAgF/m2quD7A==}
-
-  hls.js@1.6.14:
-    resolution: {integrity: sha512-CSpT2aXsv71HST8C5ETeVo+6YybqCpHBiYrCRQSn3U5QUZuLTSsvtq/bj+zuvjLVADeKxoebzo16OkH8m1+65Q==}
 
   hookable@5.5.3:
     resolution: {integrity: sha512-Yc+BQe8SvoXH1643Qez1zqLRmbA5rCL+sSmk6TVos0LWVfNIB7PGncdlId77WzLGSIB5KaWgTaNTs2lNVEI6VQ==}
@@ -9166,8 +9160,6 @@ snapshots:
   he@1.2.0: {}
 
   highlight.js@10.7.3: {}
-
-  hls.js@1.6.14: {}
 
   hookable@5.5.3: {}
 

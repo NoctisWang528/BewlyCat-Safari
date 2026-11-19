@@ -7,14 +7,14 @@ import { DEFAULT_SEARCH_BAR_CHARACTER } from '~/constants/imgs'
 import type { HomeSubPage } from '~/contentScripts/views/Home/types'
 import type { AppPage } from '~/enums/appEnums'
 import { VideoPageTopBarConfig } from '~/enums/appEnums'
+import type { AmbilightDiffusionMode, AmbilightDiffusionQuality } from '~/utils/ambilight/types'
 import {
   MOBILE_LIST_LAYOUT_BREAKPOINT,
   normalizeListLayoutBreakpoint,
 } from '~/utils/gridLayout'
+import { normalizeKeyboardVolumeStep } from '~/utils/keyboardVolume'
 import { normalizePlaybackRateStep } from '~/utils/playbackRate'
 import { normalizeWheelVolumeStep } from '~/utils/wheelVolume'
-
-export const storageDemo = useStorageLocal('webext-demo', 'Storage Demo')
 
 export type { AppAuthTokens } from './appAuthStorage'
 export { appAuthTokens, defaultAppAuthTokens, resetAppAuthTokens } from './appAuthStorage'
@@ -30,21 +30,14 @@ export const noCookieForYouRecommendationState = useStorageLocal<NoCookieForYouR
   { mergeDefaults: true, writeDefaults: false },
 )
 
-export interface MomentsWantedUser {
+export interface MomentsPinnedUser {
   mid: string
   name: string
   face: string
 }
 
-/** Bewly 动态页“想看”分组；缓存用户资料以避免每次进入页面重复请求。 */
-export const momentsWantedUsers = useStorageLocal<MomentsWantedUser[]>(
-  'momentsWantedUsers',
-  [],
-  { writeDefaults: false },
-)
-
-/** Bewly 动态页横向栏右侧“固定 UP”；与想看名单独立存储。 */
-export const momentsPinnedUsers = useStorageLocal<MomentsWantedUser[]>(
+/** Bewly 动态页横向栏右侧“固定 UP”名单；缓存用户资料以避免每次进入页面重复请求。 */
+export const momentsPinnedUsers = useStorageLocal<MomentsPinnedUser[]>(
   'momentsPinnedUsers',
   [],
   { writeDefaults: false },
@@ -100,7 +93,6 @@ export interface ShortcutsSettings {
   turnOffLight?: BaseShortcutSetting // I
   caption?: BaseShortcutSetting // C
   videoScreenshot?: BaseShortcutSetting // Shift+S
-  listenVideo?: BaseShortcutSetting // Shift+M
   increasePlaybackRate?: BaseShortcutSetting // +
   decreasePlaybackRate?: BaseShortcutSetting // -
   resetPlaybackRate?: BaseShortcutSetting // 0
@@ -172,10 +164,6 @@ export type CustomPlayOrderOverrides = Record<CustomPlayOrderContext, CustomPlay
 export type CollectedSeasonPlayAllMode = 'beginning' | 'latest' | 'lastWatched'
 export type DefaultVideoPlayerMode = 'default' | 'webFullscreen' | 'widescreen' | 'bewlyWidescreen'
 export type VideoPlayerScrollMode = 'sendingBar' | 'playerCenter'
-export type ListenVideoCoverShape = 'circle' | 'square' | 'rectangle'
-export type ListenVideoGlowMode = 'none' | 'static' | 'breathe'
-export type ListenVideoGlowColor = 'theme' | 'cover'
-export type ListenVideoBackgroundMode = 'solid' | 'blur'
 export type BewlyWidescreenSidebarPosition = 'left' | 'right'
 export type BewlyWidescreenSidebarPriority = 'video' | 'sidebar'
 export type PlayerDefaultState = 'system' | 'remember' | 'on' | 'off'
@@ -201,11 +189,6 @@ export type CommentReplyTreeMode = 'lineCollapseMain' | 'lineKeepMain' | 'indent
 export type CommentReplyPaginationMode = 'loadMore' | 'pagination'
 export type MomentsCardOpenMode = 'dialog' | 'newTab' | 'background'
 export type MomentsVideoCardOpenMode = MomentsCardOpenMode | 'inherit' | 'currentTab'
-
-export interface ShadowCurvePoint {
-  position: number
-  opacity: number
-}
 
 // 本地存储配置接口（不同步到云端的配置）
 export interface LocalSettings {
@@ -269,6 +252,8 @@ export const videoCardContextMenuKeys = [
   'viewOriginalCover',
   'followUser',
   'blockUser',
+  // 菜单末尾跳转到本菜单设置的入口；不算作卡片操作，见 hasVisibleVideoCardMenuAction
+  'customizeMenu',
 ] as const
 
 export type VideoCardContextMenuKey = typeof videoCardContextMenuKeys[number]
@@ -280,6 +265,11 @@ export interface VideoCardContextMenuConfigItem {
 
 export const defaultVideoCardContextMenuConfig: VideoCardContextMenuConfigItem[]
   = videoCardContextMenuKeys.map(key => ({ key, visible: true }))
+
+/** 是否还有可见的卡片操作；只剩「自定义菜单」时不显示更多按钮 */
+export function hasVisibleVideoCardMenuAction(config: VideoCardContextMenuConfigItem[]) {
+  return config.some(item => item.visible && item.key !== 'customizeMenu')
+}
 
 export interface FavoriteOrganizerUp {
   mid: string
@@ -306,13 +296,21 @@ export type AmbilightPreset = 'soft' | 'cinema' | 'vivid'
 export interface Settings {
   ambilightEnabled: boolean
   ambilightPreset: AmbilightPreset
+  ambilightDiffusion: AmbilightDiffusionMode
+  ambilightDiffusionQuality: AmbilightDiffusionQuality
+  ambilightDiffusionDecay: number
+  ambilightDiffusionIterations: number
+  ambilightDiffusionFeather: number
   ambilightStrength: number
   ambilightSpread: number
   ambilightSmoothing: number
   ambilightBlur: number
   ambilightSaturation: number
   ambilightFps: number
-  showPlayerAdjustmentButton: boolean
+  /** 画面与声音调整面板的画面项（旋转、镜像） */
+  playerPictureAdjustmentEnabled: boolean
+  /** 画面与声音调整面板的音画同步项；音量均衡项跟随 localLoudnessEnabled，三项均关闭时不显示按钮 */
+  playerAudioDelayEnabled: boolean
   localLoudnessEnabled: boolean
   localLoudnessTarget: number
   localLoudnessStrength: number
@@ -331,6 +329,7 @@ export interface Settings {
   commentReplyTreeContainerHeight: number // 回复容器高度（px）
   adjustCommentImageHeight: boolean // 调整评论区图片高度以匹配实际比例
   hideCommentImageScrollbar: boolean // 评论区图片预览时隐藏页面滚动条
+  imageViewerCloseAtBottom: boolean // 图片查看器的关闭按钮放在底部居中
   enlargeFavoriteDialog: boolean // 视频页收藏夹放大样式增强
   enableSidebarCoverBlur: boolean // 页面侧栏封面高斯渐变背景
   externalWatchLaterButton: boolean // 稍后再看按钮外置
@@ -368,6 +367,7 @@ export interface Settings {
   topBarLinkOpenMode: 'currentTab' | 'currentTabIfNotHomepage' | 'currentTabIfHomepage' | 'newTab' | 'background'
   searchBarLinkOpenMode: 'currentTab' | 'currentTabIfNotHomepage' | 'currentTabIfHomepage' | 'newTab' | 'background'
   closeDrawerWithoutPressingEscAgain: boolean
+  hideDrawerEscHint: boolean
 
   blockAds: boolean
   blockTopSearchPageAds: boolean
@@ -408,8 +408,6 @@ export interface Settings {
   showBewlyOrBiliPageSwitcher: boolean
   showBewlyOrBiliPageSwitcherOnMorePages: boolean
   topBarLogoStyle: TopBarLogoStyle
-  topBarIconBadges: 'number' | 'dot' | 'none'
-  showWatchLaterBadge: boolean
   topBarComponentsConfig: { key: string, visible: boolean, badgeType: 'number' | 'dot' | 'none' }[]
   topBarPinnedChannels: string[]
   openNotificationsPageAsDrawer: boolean
@@ -451,7 +449,8 @@ export interface Settings {
   momentsOnlyCoverVideoPreview: boolean
   /** Bewly 动态页期望列数；窄屏会自动降列 */
   momentsGridColumns: MomentsGridColumns
-  momentsEnableWantedFilter: boolean
+  /** Bewly 动态页标签栏右侧显示动态过滤入口 */
+  momentsShowFilterEntry: boolean
   momentsFilterUpRecommendation: boolean
   momentsHideChargeExclusive: boolean
   momentsHideVideoReservation: boolean
@@ -483,8 +482,10 @@ export interface Settings {
   dockPosition: 'left' | 'right' | 'bottom'
   dockItemsConfig: { page: AppPage, visible: boolean, openInNewTab: boolean, useOriginalBiliPage: boolean }[]
   disableDockGlowingEffect: boolean
+  disableDockIconAnimation: boolean
   disableLightDarkModeSwitcherOnDock: boolean
   disableBackToTopButtonOnDock: boolean
+  disableRefreshButtonOnDock: boolean
   backToTopAndRefreshButtonsAreSeparated: boolean
   alwaysShowDockActionsWhenAutoHide: boolean
   enableUndoRefreshButton: boolean // 添加撤销刷新按钮配置项
@@ -496,6 +497,8 @@ export interface Settings {
   themeScheduleStart: string
   themeScheduleEnd: string
   videoPageDarkMode: boolean
+  videoPageGlassStyle: boolean
+  roundedVideoPlayer: boolean
   themeColor: string
   darkModeBaseColor: string // 深色模式基准颜色
   useLinearGradientThemeColorBackground: boolean
@@ -549,6 +552,7 @@ export interface Settings {
   autoSwitchRecommendationMode: boolean
 
   // filter setting
+  showRecommendationFilterEntry: boolean // 首页个性推荐标签栏右侧显示推荐过滤入口
   showRecommendationFilterRiskWarning: boolean
   disableFilterForFollowedUser: boolean
   filterOutVerticalVideos: boolean
@@ -574,14 +578,9 @@ export interface Settings {
 
   homePageTabVisibilityList: { page: HomeSubPage, visible: boolean }[]
   homeTabsPosition: TabsPosition
-  alwaysShowTabsOnHomePage: boolean
   fixedHomeTabsOnHomePage: boolean
   enableVersionReminder: boolean
   lastAcknowledgedVersion: string
-  // Title font size for cards (px); when auto is enabled, this is ignored
-  homeAdaptiveTitleFontSize: number
-  // Auto adjust title font size based on grid width
-  homeAdaptiveTitleAutoSize: boolean
   // Video card title font size token
   videoCardTitleFontSize: VideoCardFontSizeSetting
   // Video card author (UP) font size token
@@ -590,16 +589,25 @@ export interface Settings {
   videoCardMetaFontSize: VideoCardFontSizeSetting
   // Preferred video card layout
   videoCardLayout: VideoCardLayoutSetting
-  // Video card shadow customization (modern layout only)
-  videoCardShadowCurve: ShadowCurvePoint[]
-  videoCardShadowHeight: number // 1.0-3.0
   useSearchPageModeOnHomePage: boolean
   searchPageModeWallpaperFixed: boolean
   preserveForYouState: boolean
   rememberNoCookieRecommendationState: boolean
 
   adaptToOtherPageStyles: boolean
+  /** 顶栏模块总开关，关闭后插件不再隐藏、托管或改写任何顶栏 */
+  enableTopBarModule: boolean
   enableTopBar: boolean
+  /** Dock 与悬浮侧栏模块总开关；Bewly 页面开启时强制开启，关闭时 Dock 直接跳转 B 站原站页面 */
+  enableDock: boolean
+  /** 悬浮侧栏开关；仅在 Dock 模块开启且当前页面不显示 Dock 时生效 */
+  enableSideBar: boolean
+  /** 原站评论区增强总开关，关闭后各评论子项不生效 */
+  enableCommentEnhancements: boolean
+  /** 原站播放器增强总开关，关闭后播放器相关子项不生效，刷新页面后生效 */
+  enablePlayerEnhancements: boolean
+  /** 模块开关的旧设置迁移是否已完成 */
+  pluginModulesMigrated: boolean
   useOriginalBilibiliTopBar: boolean
   useOriginalBilibiliHomepage: boolean
   preventMobileRedirect: boolean
@@ -619,17 +627,9 @@ export interface Settings {
   enableVideoPlayerModeOverrides: boolean // 启用按场景覆盖播放器显示模式
   videoPlayerModeOverrides: VideoPlayerModeOverrides // 不同播放场景的显示模式覆盖
   autoExitFullscreenOnEnd: boolean // 全屏播放完毕后自动退出
-  autoExitFullscreenExcludeAutoPlay: boolean // 全屏自动退出时排除自动连播
-  showVerticalVideoZoomButton: boolean // 显示竖屏视频放大按钮
   showBewlyWidescreenButton: boolean // 显示播放器 Bewly 宽屏按钮
   showVideoScreenshotButton: boolean // 显示播放器截图按钮
   showVideoPipButton: boolean // 显示播放器画中画按钮
-  enableListenVideo: boolean // 听视频功能总开关
-  showListenVideoButton: boolean // 显示播放器听视频按钮
-  listenVideoCoverShape: ListenVideoCoverShape // 听视频封面形状（圆形唱片旋转，方/矩形静止）
-  listenVideoGlow: ListenVideoGlowMode // 听视频封面背景光晕
-  listenVideoGlowColor: ListenVideoGlowColor // 听视频光晕颜色来源
-  listenVideoBackground: ListenVideoBackgroundMode // 听视频背景样式（纯色或封面模糊）
 
   // 自动连播总开关
   useBilibiliDefaultAutoPlay: boolean // 使用B站默认自动播放行为（总开关）
@@ -653,6 +653,8 @@ export interface Settings {
   playbackRateStep: number // 倍速快捷键每次调节的幅度 (0.01-1)
   customFullscreenWheelVolume: boolean // 全屏时接管滚轮音量调节
   fullscreenWheelVolumeStep: number // 全屏滚轮每格调节的音量 (1-50)
+  customKeyboardVolume: boolean // 接管播放器上下方向键的音量调节
+  keyboardVolumeStep: number // 方向键每按一次调节的音量 (1-50)，B 站默认为 10
 
   // 清晰度记忆设置
   rememberVideoQuality: boolean
@@ -682,13 +684,19 @@ export const originalLocalSettings: LocalSettings = {
 export const originalSettings: Settings = {
   ambilightEnabled: false,
   ambilightPreset: 'cinema',
+  ambilightDiffusion: 'gaussian',
+  ambilightDiffusionQuality: 'medium',
+  ambilightDiffusionDecay: 60,
+  ambilightDiffusionIterations: 12,
+  ambilightDiffusionFeather: 2,
   ambilightStrength: 80,
   ambilightSpread: 100,
   ambilightSmoothing: 65,
   ambilightBlur: 72,
   ambilightSaturation: 130,
   ambilightFps: 24,
-  showPlayerAdjustmentButton: true,
+  playerPictureAdjustmentEnabled: true,
+  playerAudioDelayEnabled: true,
   localLoudnessEnabled: false,
   localLoudnessTarget: -18,
   localLoudnessStrength: 75,
@@ -707,6 +715,7 @@ export const originalSettings: Settings = {
   commentReplyTreeContainerHeight: COMMENT_REPLY_TREE_CONTAINER_DEFAULT_HEIGHT, // 默认容器高度
   adjustCommentImageHeight: true, // 默认启用评论图片高度调整
   hideCommentImageScrollbar: false, // 默认不隐藏评论图片预览时的页面滚动条
+  imageViewerCloseAtBottom: false, // 默认保留图片查看器顶部的关闭按钮
   enlargeFavoriteDialog: false, // 默认关闭收藏夹放大样式
   enableSidebarCoverBlur: true, // 默认启用页面侧栏封面高斯渐变背景
   externalWatchLaterButton: true, // 默认开启稍后再看按钮外置
@@ -737,6 +746,7 @@ export const originalSettings: Settings = {
   topBarLinkOpenMode: 'currentTabIfNotHomepage',
   searchBarLinkOpenMode: 'currentTabIfNotHomepage',
   closeDrawerWithoutPressingEscAgain: false,
+  hideDrawerEscHint: false,
 
   blockAds: false,
   blockTopSearchPageAds: false,
@@ -777,8 +787,6 @@ export const originalSettings: Settings = {
   showBewlyOrBiliPageSwitcher: true,
   showBewlyOrBiliPageSwitcherOnMorePages: false,
   topBarLogoStyle: 'icon',
-  topBarIconBadges: 'number',
-  showWatchLaterBadge: false,
   topBarComponentsConfig: [
     { key: 'moments', visible: true, badgeType: 'number' },
     { key: 'favorites', visible: true, badgeType: 'none' },
@@ -826,7 +834,7 @@ export const originalSettings: Settings = {
   momentsVideoPreviewDelayed: false,
   momentsOnlyCoverVideoPreview: true,
   momentsGridColumns: '2',
-  momentsEnableWantedFilter: true,
+  momentsShowFilterEntry: true,
   momentsFilterUpRecommendation: false,
   momentsHideChargeExclusive: false,
   momentsHideVideoReservation: false,
@@ -849,8 +857,10 @@ export const originalSettings: Settings = {
   dockPosition: 'right',
   dockItemsConfig: [],
   disableDockGlowingEffect: false,
+  disableDockIconAnimation: false,
   disableLightDarkModeSwitcherOnDock: false,
   disableBackToTopButtonOnDock: false,
+  disableRefreshButtonOnDock: false,
   backToTopAndRefreshButtonsAreSeparated: true,
   alwaysShowDockActionsWhenAutoHide: false,
   enableUndoRefreshButton: true, // 默认开启撤销刷新按钮
@@ -862,6 +872,8 @@ export const originalSettings: Settings = {
   themeScheduleStart: '06:00',
   themeScheduleEnd: '18:00',
   videoPageDarkMode: false,
+  videoPageGlassStyle: false,
+  roundedVideoPlayer: false,
   themeColor: '#00a1d6',
   darkModeBaseColor: '#2a2d32', // 默认深色模式基准颜色
   useLinearGradientThemeColorBackground: false,
@@ -915,6 +927,7 @@ export const originalSettings: Settings = {
   autoSwitchRecommendationMode: true,
 
   // filter setting
+  showRecommendationFilterEntry: true,
   showRecommendationFilterRiskWarning: true,
   disableFilterForFollowedUser: false,
   filterOutVerticalVideos: false,
@@ -940,29 +953,26 @@ export const originalSettings: Settings = {
 
   homePageTabVisibilityList: [],
   homeTabsPosition: 'left',
-  alwaysShowTabsOnHomePage: false,
   fixedHomeTabsOnHomePage: false,
   enableVersionReminder: true,
   lastAcknowledgedVersion: '',
-  homeAdaptiveTitleFontSize: 16,
-  homeAdaptiveTitleAutoSize: true,
   videoCardTitleFontSize: 'base',
   videoCardAuthorFontSize: 'sm',
   videoCardMetaFontSize: 'xs',
   videoCardLayout: 'modern',
-  videoCardShadowCurve: [
-    { position: 0, opacity: 80 },
-    { position: 30, opacity: 70 },
-    { position: 100, opacity: 0 },
-  ],
-  videoCardShadowHeight: 1.0,
   useSearchPageModeOnHomePage: false,
   searchPageModeWallpaperFixed: false,
   preserveForYouState: false,
   rememberNoCookieRecommendationState: true,
 
   adaptToOtherPageStyles: true,
+  enableTopBarModule: true,
   enableTopBar: true,
+  enableDock: true,
+  enableSideBar: true,
+  enableCommentEnhancements: true,
+  enablePlayerEnhancements: true,
+  pluginModulesMigrated: false,
   useOriginalBilibiliTopBar: false,
   useOriginalBilibiliHomepage: false,
   preventMobileRedirect: false,
@@ -989,17 +999,9 @@ export const originalSettings: Settings = {
     momentsDialog: 'inherit',
   },
   autoExitFullscreenOnEnd: false, // 全屏播放完毕后自动退出，默认关闭
-  autoExitFullscreenExcludeAutoPlay: false, // 全屏自动退出时排除自动连播，默认关闭
-  showVerticalVideoZoomButton: true, // 默认显示竖屏视频放大按钮
   showBewlyWidescreenButton: true, // 默认显示播放器 Bewly 宽屏按钮
   showVideoScreenshotButton: true, // 默认显示播放器截图按钮
   showVideoPipButton: true, // 默认显示播放器画中画按钮
-  enableListenVideo: false, // 默认关闭听视频功能，需在设置中手动开启
-  showListenVideoButton: true, // 默认显示播放器听视频按钮
-  listenVideoCoverShape: 'circle', // 默认圆形唱片并保持旋转
-  listenVideoGlow: 'none', // 默认关闭光晕，保持原有听视频外观
-  listenVideoGlowColor: 'theme', // 默认光晕使用主题色
-  listenVideoBackground: 'solid', // 默认纯色背景
 
   // 自动连播总开关
   useBilibiliDefaultAutoPlay: true, // 使用B站默认自动播放行为（总开关），默认开启
@@ -1029,7 +1031,6 @@ export const originalSettings: Settings = {
     turnOffLight: { key: 'I', enabled: true },
     caption: { key: 'C', enabled: true },
     videoScreenshot: { key: 'Shift+S', enabled: true },
-    listenVideo: { key: 'Shift+M', enabled: true },
     increasePlaybackRate: { key: '+', enabled: true },
     decreasePlaybackRate: { key: '-', enabled: true },
     resetPlaybackRate: { key: '0', enabled: true },
@@ -1052,6 +1053,8 @@ export const originalSettings: Settings = {
   playbackRateStep: 0.25,
   customFullscreenWheelVolume: false,
   fullscreenWheelVolumeStep: 5,
+  customKeyboardVolume: false,
+  keyboardVolumeStep: 10,
 
   // 清晰度记忆设置
   rememberVideoQuality: false,
@@ -1158,6 +1161,7 @@ export const settings = useSettingsStorage(originalSettings, {
     const record = value as Record<string, any>
     record.playbackRateStep = normalizePlaybackRateStep(record.playbackRateStep)
     record.fullscreenWheelVolumeStep = normalizeWheelVolumeStep(record.fullscreenWheelVolumeStep)
+    record.keyboardVolumeStep = normalizeKeyboardVolumeStep(record.keyboardVolumeStep)
 
     // 旧配置也补齐新入口，保持菜单按钮与各项的默认可见状态一致。
     const menuConfig = record.videoCardContextMenuConfig
@@ -1167,6 +1171,8 @@ export const settings = useSettingsStorage(originalSettings, {
       const drawerIndex = menuConfig.findIndex(item => item.key === 'openInDrawer')
       menuConfig.splice(drawerIndex === -1 ? menuConfig.length : drawerIndex + 1, 0, { key: 'openInDialog', visible: true })
     }
+    if (Array.isArray(menuConfig) && !menuConfig.some(item => item.key === 'customizeMenu'))
+      menuConfig.push({ key: 'customizeMenu', visible: true })
 
     // 旧私信开关同时控制两类私信，拆分后保留原有选择。
     if (typeof record.showPrivateMessageUnreadCount === 'boolean') {
@@ -1190,6 +1196,17 @@ export const settings = useSettingsStorage(originalSettings, {
       Reflect.deleteProperty(record, 'enableFavoriteCoverBlur')
     }
 
+    // 原版首页用户此前看不到 Dock，引入独立开关后保持原有界面。
+    if (!record.pluginModulesMigrated) {
+      if (record.useOriginalBilibiliHomepage === true)
+        record.enableDock = false
+      record.pluginModulesMigrated = true
+    }
+
+    // Bewly 页面依赖 Dock 导航，启用 Bewly 页面时必须保持 Dock 模块开启。
+    if (record.useOriginalBilibiliHomepage !== true)
+      record.enableDock = true
+
     record.favoriteOrganizerFolders = normalizeFavoriteOrganizerFolders(record.favoriteOrganizerFolders)
     record.recommendationModeSwitcherOptions = normalizeRecommendationModeSwitcherOptions(record.recommendationModeSwitcherOptions)
 
@@ -1197,6 +1214,12 @@ export const settings = useSettingsStorage(originalSettings, {
     Reflect.deleteProperty(record, 'showBewlyOrBiliTopBarSwitcher')
     Reflect.deleteProperty(record, 'enableHomeGridVirtualization')
     Reflect.deleteProperty(record, 'releaseOffscreenVideoCardImages')
+    Reflect.deleteProperty(record, 'topBarIconBadges')
+    Reflect.deleteProperty(record, 'showWatchLaterBadge')
+    Reflect.deleteProperty(record, 'alwaysShowTabsOnHomePage')
+    Reflect.deleteProperty(record, 'autoExitFullscreenExcludeAutoPlay')
+    Reflect.deleteProperty(record, 'homeAdaptiveTitleFontSize')
+    Reflect.deleteProperty(record, 'homeAdaptiveTitleAutoSize')
 
     const validTabsPositions: TabsPosition[] = ['left', 'center']
     if (!validTabsPositions.includes(record.homeTabsPosition))
@@ -1213,7 +1236,18 @@ export const settings = useSettingsStorage(originalSettings, {
     if (!validAmbilightPresets.includes(record.ambilightPreset))
       record.ambilightPreset = 'cinema'
 
+    const validAmbilightDiffusions: AmbilightDiffusionMode[] = ['gaussian', 'poisson']
+    if (!validAmbilightDiffusions.includes(record.ambilightDiffusion))
+      record.ambilightDiffusion = originalSettings.ambilightDiffusion
+
+    const validAmbilightDiffusionQualities: AmbilightDiffusionQuality[] = ['ultra-low', 'low', 'medium', 'high', 'ultra-high']
+    if (!validAmbilightDiffusionQualities.includes(record.ambilightDiffusionQuality))
+      record.ambilightDiffusionQuality = originalSettings.ambilightDiffusionQuality
+
     for (const [key, min, max, fallback] of [
+      ['ambilightDiffusionDecay', 0, 100, 60],
+      ['ambilightDiffusionIterations', 4, 32, 12],
+      ['ambilightDiffusionFeather', 0, 4, 2],
       ['ambilightStrength', 0, 150, 80],
       ['ambilightSpread', 30, 400, 100],
       ['ambilightSmoothing', 0, 95, 65],
@@ -1228,8 +1262,18 @@ export const settings = useSettingsStorage(originalSettings, {
 
     // 音量均衡按钮已扩展为画面与声音调整按钮，旧显示开关不再沿用。
     Reflect.deleteProperty(record, 'showLocalLoudnessButton')
-    if (typeof record.showPlayerAdjustmentButton !== 'boolean')
-      record.showPlayerAdjustmentButton = true
+    // 整体显示开关拆分为画面与音画同步两项；旧版关闭了按钮的用户两项一并关闭。
+    if (typeof record.showPlayerAdjustmentButton === 'boolean') {
+      if (!record.showPlayerAdjustmentButton) {
+        record.playerPictureAdjustmentEnabled = false
+        record.playerAudioDelayEnabled = false
+      }
+      Reflect.deleteProperty(record, 'showPlayerAdjustmentButton')
+    }
+    for (const key of ['playerPictureAdjustmentEnabled', 'playerAudioDelayEnabled'] as const) {
+      if (typeof record[key] !== 'boolean')
+        record[key] = true
+    }
     if (typeof record.localLoudnessEnabled !== 'boolean')
       record.localLoudnessEnabled = false
     for (const [key, min, max, fallback] of [
@@ -1307,6 +1351,11 @@ export const settings = useSettingsStorage(originalSettings, {
     if (typeof record.showLayoutEditButton !== 'boolean')
       record.showLayoutEditButton = originalSettings.showLayoutEditButton
 
+    if (typeof record.videoPageGlassStyle !== 'boolean')
+      record.videoPageGlassStyle = originalSettings.videoPageGlassStyle
+    if (typeof record.roundedVideoPlayer !== 'boolean')
+      record.roundedVideoPlayer = originalSettings.roundedVideoPlayer
+
     // Native range inputs and older cloud snapshots may contain a numeric
     // string. Canonicalize it instead of treating values such as "10" as
     // invalid and snapping the control back to the default intensity of 20.
@@ -1368,6 +1417,26 @@ export const settings = useSettingsStorage(originalSettings, {
 
     Reflect.deleteProperty(record, 'enableIndependentAutoPlay')
     Reflect.deleteProperty(record, 'independentAutoPlayStates')
+
+    // 听视频功能已移除，清理旧版本保存的设置与快捷键。
+    for (const key of [
+      'enableListenVideo',
+      'showListenVideoButton',
+      'listenVideoCoverShape',
+      'listenVideoGlow',
+      'listenVideoGlowColor',
+      'listenVideoBackground',
+    ]) {
+      Reflect.deleteProperty(record, key)
+    }
+    if (record.shortcuts)
+      Reflect.deleteProperty(record.shortcuts, 'listenVideo')
+
+    // 竖屏放大功能已移除，清理旧版本保存的显示开关。
+    Reflect.deleteProperty(record, 'showVerticalVideoZoomButton')
+
+    // 「想看」分组已移除，清理旧版本保存的开关。
+    Reflect.deleteProperty(record, 'momentsEnableWantedFilter')
 
     const legacyRandomPlayOrder = record.randomPlayOrder
     if (
@@ -1449,13 +1518,6 @@ export const settings = useSettingsStorage(originalSettings, {
       record.shortcuts = {
         ...record.shortcuts,
         videoScreenshot: { ...originalSettings.shortcuts.videoScreenshot },
-      }
-    }
-
-    if (!record.shortcuts?.listenVideo) {
-      record.shortcuts = {
-        ...record.shortcuts,
-        listenVideo: { ...originalSettings.shortcuts.listenVideo },
       }
     }
 
@@ -1572,7 +1634,7 @@ export const settings = useSettingsStorage(originalSettings, {
   },
 })
 
-void browser.storage.local.remove(['gridBreakpoints']).catch(() => {})
+void browser.storage.local.remove(['gridBreakpoints', 'momentsWantedUsers', 'momentsFeedCache']).catch(() => {})
 
 export type GridLayoutType = 'adaptive' | 'twoColumns' | 'oneColumn'
 

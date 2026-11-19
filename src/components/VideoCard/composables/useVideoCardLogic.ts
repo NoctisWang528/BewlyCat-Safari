@@ -8,6 +8,7 @@ import type { VideoPreviewResult } from '~/models/video/videoPreview'
 import { useTopBarStore } from '~/stores/topBarStore'
 import api from '~/utils/api'
 import { ensureFreshAppAccessToken, requestAppClient } from '~/utils/authProvider'
+import { localizeBilibiliUrl } from '~/utils/bilibiliLocale'
 import { calcCurrentTime, numFormatter, parseStatNumber } from '~/utils/dataFormatter'
 import { computeFloatingMenuPosition } from '~/utils/floatingMenu'
 import { removeHttpFromUrl } from '~/utils/main'
@@ -15,7 +16,7 @@ import { openLinkInBackground } from '~/utils/tabs'
 
 import type { Video, VideoCardState } from '../types'
 import { createVideoCardState } from '../types'
-import { getCurrentTime, getCurrentVideoUrl } from '../utils'
+import { getCurrentVideoUrl } from '../utils'
 import { releaseVideoPreviewCacheEntry, retainVideoPreviewCacheEntry } from './videoPreviewCache'
 
 interface VideoCardProps {
@@ -52,7 +53,6 @@ export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps
   const mouseEnterTimeOut = ref<number | null>(null)
   const mouseLeaveTimeOut = ref<number | null>(null)
   const previewVideoUrl = ref<string>('')
-  const videoElement = ref<HTMLVideoElement | null>(null)
   const cardRootRef = ref<HTMLElement | null>(null)
   const isDisposed = ref<boolean>(false) // 跟踪组件是否已卸载
   const isActive = ref(true)
@@ -113,7 +113,7 @@ export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps
       if (!urlObj.pathname.endsWith('/')) {
         urlObj.pathname += '/'
       }
-      return urlObj.toString()
+      return localizeBilibiliUrl(urlObj.toString())
     }
     catch {
       return url
@@ -344,7 +344,6 @@ export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps
   }
 
   function handleClick(event: MouseEvent) {
-    videoCurrentTime.value = getCurrentTime(videoElement) ?? videoCurrentTime.value
     if (settings.value.videoCardLinkOpenMode === 'background' && videoUrl.value && !event.ctrlKey && !event.metaKey) {
       event.preventDefault()
       openLinkInBackground(videoUrl.value)
@@ -420,7 +419,6 @@ export function useVideoCardLogic(propsOrGetter: MaybeRefOrGetter<VideoCardProps
     isHover,
     isPreviewFullscreen,
     previewVideoUrl,
-    videoElement,
     cardRootRef,
 
     // Computed

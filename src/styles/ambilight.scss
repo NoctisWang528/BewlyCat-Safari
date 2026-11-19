@@ -1,13 +1,15 @@
 // BewlyCat 视频环境光（Ambilight）层级与穿透样式
+@use "./videoPageSurfaces" as surfaces;
 
 .bewly-ambilight-host {
-  position: fixed;
-  inset: 0;
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
   pointer-events: none !important;
   z-index: -1;
   overflow: hidden;
-  contain: layout style;
-  transform: translate3d(0, 0, 0);
   opacity: 1;
   visibility: visible;
   transition:
@@ -22,8 +24,9 @@
 
   canvas {
     position: absolute;
+    left: 0;
+    top: 0;
     pointer-events: none;
-    transform-origin: center;
   }
 }
 
@@ -59,74 +62,85 @@ html[data-bewly-ambilight] {
     background-color: var(--bew-bg) !important;
   }
 
-  // 点播播放页包裹层与播放器背景透明化
-  #app,
-  #video-page-app {
-    background-color: transparent !important;
+  @include surfaces.transparent-video-page-surfaces;
+  @include surfaces.transparent-bangumi-page-surfaces;
+
+  // 带海报的电影/番剧页（.home-container.special）：隐藏静态海报头图及底部白色渐变遮罩，
+  // 并收起默认模式下为海报预留的大幅顶部留白，避免遮挡光晕或透入宽银幕上下留白区域
+  .home-container .special-cover,
+  :is(.home-container, #__next, #app) > :is([class*="specialCover"], [class*="special_cover"]) {
+    display: none !important;
   }
 
-  .bpx-player-video-area,
-  .bpx-player-video-perch,
-  .bpx-player-video-wrap {
+  .home-container.special:not(.wide) .main-container {
+    margin-top: var(--bew-space-5) !important;
+  }
+
+  // 海报隐藏后，原版顶栏未吸顶时将原白字入口改为随环境光自适应的文字色
+  &:has(.home-container.special):not(.remove-top-bar):not(.remove-top-bar-without-placeholder)
+    .bili-header
+    > .bili-header__bar:not(.slide-down) {
+    :is(.left-entry__item-trigger, .right-entry__item-trigger) {
+      color: var(--text1) !important;
+
+      .trigger-icon {
+        color: inherit !important;
+      }
+    }
+
+    > .left-entry > li > :is(a, .default-entry, .entry-title),
+    > .left-entry > li > .entry-title > .mini-header__title,
+    > .left-entry > .mini-header__logo,
+    > .left-entry > .download-entry > .download-entry__title,
+    > .right-entry > .right-entry-item > .right-entry__outside,
+    > .right-entry > .right-entry-item > .right-entry__outside > :is(.right-entry-icon, .right-entry-text) {
+      color: var(--text1) !important;
+    }
+  }
+
+  // 播放器背景透明化（小窗保持实底防下方评论透字；番剧全屏/网页全屏保留黑底）
+  .bpx-player-container:not(:fullscreen):not([data-screen="full"]):not([data-screen="web"]):not([data-screen="mini"]) {
+    .bpx-player-primary-area,
+    .bpx-player-video-area,
+    .bpx-player-video-perch,
+    .bpx-player-video-wrap {
+      background: transparent !important;
+    }
+  }
+
+  .bilibili-player-video-area,
+  .bilibili-player-video-wrap,
+  #player_module:not(.player-fullscreen-fix) {
     background: transparent !important;
   }
 
-  #bilibili-player-placeholder,
-  #bilibili-player-placeholder-top,
-  #bilibili-player-placeholder-bottom,
-  #bilibili-player-placeholder-bottom-left,
-  #bilibili-player-placeholder-bottom-right {
+  #bilibili-player-wrap:not(:has([data-screen="full"], [data-screen="web"], [class*="video_playerFullScreen"])) {
     background: transparent !important;
     box-shadow: none !important;
+
+    :is(
+        .video_playerInner,
+        [class*="video_playerInner"],
+        [class*="NanoPlayer_nonoPlayerContainer"],
+        [class*="NanoPlayer_nonoPlayerPrimaryArea"],
+        [class*="NanoPlayer_nanoDocker"]
+      ):not([class*="Mini"]):not([class*="mini"]) {
+      background: transparent !important;
+      box-shadow: none !important;
+    }
   }
 
+  // 播放器占位层与发送弹幕区域透明穿透
+  @include surfaces.transparent-player-sending-area;
+
+  #bilibili-player-wrap,
+  #player_module,
   #playerWrap,
   #bilibili-player,
   .bpx-docker-major,
   .bpx-player-container,
   .bpx-player-video-area {
     box-shadow: none !important;
-  }
-
-  // 右侧栏、UP主信息卡、简介栏与发送弹幕区域透明穿透
-  .right-container,
-  .right-container-inner,
-  .up-info-container,
-  .video-desc-container,
-  .bpx-player-sending-area,
-  .bpx-player-sending-bar,
-  .bpx-player-sending-bar-left,
-  .bpx-player-sending-bar-right,
-  .bpx-player-video-info,
-  .bpx-player-dm-root,
-  .bpx-player-dm-input,
-  .bpx-player-dm-switch,
-  .bpx-player-dm-setting,
-  .bpx-player-video-inputbar-wrap,
-  .bpx-player-dm-wrap,
-  .bpx-player-sending-area::before,
-  .bpx-player-sending-area::after,
-  #danmukuBox,
-  .danmaku-wrap,
-  .bpx-docker-minor,
-  .bpx-player-auxiliary,
-  .bpx-player-collapse,
-  .bpx-player-collapse .bui-collapse-header,
-  .bpx-player-collapse .bui-collapse-body,
-  .bpx-player-dm-management,
-  .bpx-player-dm-function,
-  .bpx-player-dm-load-status,
-  .bpx-player-dm-wrap-child {
-    background: transparent !important;
-    box-shadow: none !important;
-  }
-
-  // 弹幕列表底部与历史记录按钮透明化
-  .bpx-player-dm-btn-footer,
-  .bpx-player-dm-btn-history {
-    background: transparent !important;
-    box-shadow: none !important;
-    border-color: transparent !important;
   }
 
   // UP主信息区操作按钮（充电、关注）透明穿透与幽灵蓝框适配
@@ -202,23 +216,51 @@ html[data-bewly-ambilight] {
     }
   }
 
-  // 视频选集（多P、合集面板）全层级透明化，保持文字颜色与播放指示图标
-  .video-pod,
-  .video-pod__header,
-  .video-pod__body,
-  .video-pod__list,
-  .video-pod__item,
-  .video-pod .single-p,
-  .video-pod .multi-p,
-  .video-pod .page-list,
-  .video-pod .simple-base-item {
-    background: transparent !important;
-    box-shadow: none !important;
-  }
-
+  // 视频选集透明后保持文字颜色与播放指示图标
   .video-pod__item.active,
   .video-pod .simple-base-item.active {
     color: var(--brand_blue, #00aeec) !important;
+  }
+
+  // 番剧与电影页实色子卡片、选集格子与已追番按钮改为半透明填充，避免在光晕上形成白块
+  [class*="numberListItem_number_list_item"]:not([class*="numberListItem_select"]) {
+    --bg1: var(--bew-fill-1);
+
+    &:hover {
+      --bg1: var(--bew-fill-2);
+    }
+  }
+
+  [class*="EpisodeVirtualList_numberItem"]:not([class*="EpisodeVirtualList_activeNumber"]) {
+    background: var(--bew-fill-1) !important;
+    border-color: transparent !important;
+
+    &:hover {
+      background: var(--bew-fill-2) !important;
+    }
+  }
+
+  [class*="upinfo_upInfoCard"],
+  [class*="rankList_sponsor_rank_item"][class*="rankList_pos_rank_module"]
+    [class*="rankList_sp_right"]
+    [class*="rankList_sp_msg"],
+  .sponsor-rank-item.pos-rank-module .sp-right .sp-msg,
+  .main-container .review-module .review-list .review-item .review-body,
+  .main-container .season-list .ss-list-wrapper .expand-more,
+  .main-container .media-info .media-right .media-tool-bar .btn-rating,
+  .main-container .ep-list-wrapper .list-wrapper.simple ul .ep-item:not(.cursor):not(:hover) {
+    background: var(--bew-fill-1) !important;
+    border-color: var(--bew-border-color) !important;
+    box-shadow: none !important;
+  }
+
+  [class*="follow_btnFollow"][class*="follow_followed"] {
+    background: var(--bew-fill-1) !important;
+    box-shadow: none !important;
+
+    &:hover {
+      background: var(--bew-fill-2) !important;
+    }
   }
 
   // 推荐列表与标签容器透明化
@@ -230,8 +272,24 @@ html[data-bewly-ambilight] {
     border-color: transparent !important;
   }
 
+  // 标签栏与番剧模块上下分隔线原为固定浅灰，叠在光晕上像突兀的白线；改为随环境光文字灰阶的淡线
+  .video-tag-container,
+  .plp-l .toolbar,
+  [class*="toolbar_toolbar"],
+  [class*="mediainfo_mediaInfo"],
+  [class*="recommend_wrap"],
+  [class*="sponsor_sponsor_module"],
+  .main-container .tool-bar,
+  .main-container .media-info,
+  .main-container .review-module,
+  .main-container .sponsor-module,
+  .main-container .plp-l .split-line {
+    border-color: color-mix(in srgb, var(--text3) 16%, transparent) !important;
+  }
+
   // 弹幕输入框以浅填充示意可输入区域；发送按钮保留主题色底，白字不会落在光晕上
-  .bpx-player-video-inputbar {
+  .bpx-player-video-inputbar,
+  .bilibili-player-video-inputbar {
     background: var(--bew-fill-1) !important;
     border-color: transparent !important;
   }
@@ -242,44 +300,5 @@ html[data-bewly-ambilight] {
     &::placeholder {
       color: var(--text3) !important;
     }
-  }
-
-  // 稍后再看与播放列表播放页透明穿透
-  .playlist-app
-    :is(
-      .video-info-container,
-      #playlistToolbar,
-      .playlist-container--right,
-      .up-panel-container,
-      .recommend-list-container,
-      .action-list-container,
-      .action-list-header,
-      .action-list-body,
-      .action-list-body-top,
-      .action-list-body-bottom,
-      .action-list,
-      .action-list-inner,
-      .action-list-content,
-      .action-list-item-wrap,
-      .action-list-item,
-      .singlep-list-item-inner,
-      .multip-list-item-inner,
-      .multip-list,
-      .multip-list-item
-    ) {
-    background: transparent !important;
-    box-shadow: none !important;
-  }
-
-  // 评论区原生底色（吸底评论框、展开回复的吸底收起栏等）改为半透明，不再以实色块遮住光晕；
-  // 保留部分底色，滚动经过的评论内容不会与吸底栏文字重叠。浮层使用 --bg1_float，不受影响
-  :is(bili-comments, .bb-comment, .comment-bilibili-fold) {
-    --bg1: color-mix(in oklab, var(--bew-bg), transparent 28%) !important;
-  }
-
-  .bb-comment,
-  .comment-bilibili-fold,
-  .comment-wrapper .comment-m {
-    background-color: transparent !important;
   }
 }

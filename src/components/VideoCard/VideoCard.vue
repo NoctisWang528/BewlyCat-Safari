@@ -4,7 +4,7 @@ import { computed, ref, watchEffect } from 'vue'
 import { useBewlyApp } from '~/composables/useAppProvider'
 import { useUserRelationScope } from '~/composables/useUserRelationScope'
 import { useVideoCardSharedStyles } from '~/composables/useVideoCardSharedStyles'
-import { settings } from '~/logic'
+import { hasVisibleVideoCardMenuAction, settings } from '~/logic'
 import type { VideoCardLayoutSetting } from '~/logic/storage'
 import { calcCurrentTime, numFormatter } from '~/utils/dataFormatter'
 import { recordVideoVisit } from '~/utils/videoVisitHistory'
@@ -51,7 +51,7 @@ const layout = computed((): VideoCardLayoutSetting => {
 const showMoreButton = computed(() =>
   props.moreBtn
   && settings.value.showVideoCardMoreButton
-  && settings.value.videoCardContextMenuConfig.some(item => item.visible),
+  && hasVisibleVideoCardMenuAction(settings.value.videoCardContextMenuConfig),
 )
 
 // 包括接口自带关注状态的卡片，保留同屏关注操作的共享结果。
@@ -174,7 +174,7 @@ const hoverPreviewOnCoverOnly = computed(() =>
   previewEnabled.value && settings.value.onlyCoverVideoPreview,
 )
 
-function handleLinkClick(event: MouseEvent) {
+function handleLinkActivate(event: MouseEvent) {
   // 移除遮罩期间卡片不再作为链接响应
   if (props.removedState) {
     event.preventDefault()
@@ -189,11 +189,18 @@ function handleLinkClick(event: MouseEvent) {
   catch (error) {
     console.error('Video card click observer failed:', error)
   }
+}
+
+function handleLinkClick(event: MouseEvent) {
+  if (props.removedState)
+    return
+
   const clickHandler = props.customClickHandler || logic.handleClick
   clickHandler(event)
 }
 
 const linkEvents = computed(() => ({
+  activate: handleLinkActivate,
   click: handleLinkClick,
   ...(hoverPreviewOnCoverOnly.value
     ? {}
@@ -392,7 +399,6 @@ provide('getVideoType', () => props.type!)
           v-on="coverSkeleton ? {} : coverEvents"
         >
           <VideoCardCover
-            v-model:video-element="logic.videoElement.value"
             v-model:preview-time="logic.videoCurrentTime.value"
             :skeleton="coverSkeleton"
             :video="props.video"
@@ -402,6 +408,7 @@ provide('getVideoType', () => props.type!)
             :removed-message="props.removedState?.message"
             :removed-pending="props.removedState?.pending"
             :removed-confirming="props.removedState?.confirming"
+            :removed-dismissable="Boolean(props.removedState?.onDismiss)"
             :is-hover="logic.isHover.value"
             :should-hide-overlay-elements="Boolean(logic.shouldHideOverlayElements.value)"
             :preview-video-url="logic.previewVideoUrl.value || ''"
@@ -417,6 +424,7 @@ provide('getVideoType', () => props.type!)
             @undo="handleUndo"
             @confirm-removed="props.removedState?.onConfirm?.()"
             @cancel-removed="props.removedState?.onCancel?.()"
+            @dismiss-removed="props.removedState?.onDismiss?.()"
             @preview-fullscreen-change="logic.handlePreviewFullscreenChange"
           >
             <template #coverTopLeft>
@@ -575,7 +583,6 @@ provide('getVideoType', () => props.type!)
 :deep(.video-card-stats) {
   --video-card-stats-font-size: var(--bew-font-size-control);
   --video-card-stats-line-height: var(--bew-line-height-control);
-  --video-card-stats-overlay-scale: 1.4;
   --video-card-stats-icon-size: 0.825rem;
 }
 </style>

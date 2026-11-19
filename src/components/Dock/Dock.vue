@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useElementSize, useWindowSize } from '@vueuse/core'
+import { useElementSize, useEventListener, useWindowSize } from '@vueuse/core'
 import type { CSSProperties } from 'vue'
 import { computed, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -14,6 +14,8 @@ import { AppPage } from '~/enums/appEnums'
 import { settings } from '~/logic'
 import type { DockItem } from '~/stores/mainStore'
 import { useMainStore } from '~/stores/mainStore'
+import { stripBilibiliLocaleUrl } from '~/utils/bilibiliLocale'
+import { getNativeBiliAppPage } from '~/utils/bilibiliNativePages'
 import { isHomePage, openLinkToNewTab } from '~/utils/main'
 import { matchesShortcutKey } from '~/utils/shortcutKeys'
 
@@ -297,14 +299,15 @@ const clockHandMaskId = `dock-clock-hand-mask-${useId()}`
 const animeEyeMaskId = `dock-anime-eye-mask-${useId()}`
 
 const backToTopButtonEnabled = computed((): boolean => !settings.value.disableBackToTopButtonOnDock)
+const refreshButtonEnabled = computed((): boolean => !settings.value.disableRefreshButtonOnDock)
 
 const dockEditActions = computed(() => [
   {
     key: 'refresh' as const,
     label: t('common.operation.refresh'),
     icon: 'tabler:reload',
-    settingsTitleKey: 'settings.back_to_top_and_refresh_buttons_are_separated',
-    hidden: false,
+    settingsTitleKey: 'settings.disable_refresh_button_on_dock',
+    hidden: !refreshButtonEnabled.value,
   },
   {
     key: 'backToTop' as const,
@@ -329,6 +332,10 @@ const tooltipPlacement = computed(() => {
  * Whether to show the back to top or refresh button
  */
 const showBackToTopOrRefreshButton = computed((): boolean => {
+  // 这些操作只作用于插件页面，原站页面由浏览器自身处理。
+  if (settings.value.useOriginalBilibiliHomepage)
+    return false
+
   const dockItemConfig = settings.value.dockItemsConfig.find(e => e.page === props.activatedPage)
   if (dockItemConfig && dockItemConfig.useOriginalBiliPage) {
     return false
@@ -342,11 +349,14 @@ const canRefreshCurrentPage = computed((): boolean => {
   if (props.activatedPage === AppPage.Search || props.activatedPage === AppPage.SearchResults)
     return false
 
-  return props.activatedPage !== AppPage.Home || homeActivatedPage.value === HomeSubPage.ForYou || canRefreshHomeSubPage.value
+  return props.activatedPage !== AppPage.Home || homeActivatedPage.value !== HomeSubPage.Following || canRefreshHomeSubPage.value
 })
 
+// 刷新按钮可单独隐藏；快捷键刷新仍按 canRefreshCurrentPage 判断，不受按钮显隐影响
+const showRefreshButton = computed((): boolean => refreshButtonEnabled.value && canRefreshCurrentPage.value)
+
 const showBackToTopOrRefreshActions = computed((): boolean => {
-  return showBackToTopOrRefreshButton.value && (canRefreshCurrentPage.value || (backToTopButtonEnabled.value && !reachTop.value))
+  return showBackToTopOrRefreshButton.value && (showRefreshButton.value || (backToTopButtonEnabled.value && !reachTop.value))
 })
 
 /**
@@ -354,6 +364,9 @@ const showBackToTopOrRefreshActions = computed((): boolean => {
  * Only show on Home page when current sub-page is ForYou
  */
 const shouldShowUndoForwardButtons = computed((): boolean => {
+  if (settings.value.useOriginalBilibiliHomepage)
+    return false
+
   return props.activatedPage === AppPage.Home && homeActivatedPage.value === HomeSubPage.ForYou
 })
 
@@ -510,7 +523,7 @@ function openDockItemInNewTab(dockItem: DockItem, event?: MouseEvent) {
     return
 
   triggerDockIconClickFeedback(dockItem.page, event)
-  openLinkToNewTab(`https://www.bilibili.com/?page=${dockItem.page}`)
+  openLinkToNewTab(settings.value.useOriginalBilibiliHomepage ? dockItem.url : `https://www.bilibili.com/?page=${dockItem.page}`)
 }
 
 function handleDockEditClick(event: MouseEvent) {
@@ -530,7 +543,7 @@ function handleBackToTopOrRefresh(action: 'backToTop' | 'refresh' | 'auto' = 'au
     }
   }
   else {
-    if ((reachTop.value || !backToTopButtonEnabled.value) && canRefreshCurrentPage.value) {
+    if ((reachTop.value || !backToTopButtonEnabled.value) && showRefreshButton.value) {
       emit('refresh')
       pulseDockAction('refresh')
     }
@@ -565,12 +578,36 @@ function handleHistoryNavigation() {
   }
 }
 
-function isDockItemActivated(dockItem: DockItem): boolean {
-  // SearchResults 页面时也激活 Search 按钮
-  if (props.activatedPage === AppPage.SearchResults && dockItem.page === AppPage.Search) {
-    return isHomePage()
+const currentLocationHref = ref(window.location.href)
+useEventListener(window, ['pushstate', 'replacestate', 'popstate', 'hashchange', 'pageshow'], () => {
+  // Injected history notifications can arrive before the native history call.
+  queueMicrotask(() => {
+    currentLocationHref.value = window.location.href
+  })
+})
+
+const activeDockPage = computed(() => {
+  if (isHomePage(currentLocationHref.value)) {
+    if (settings.value.useOriginalBilibiliHomepage)
+      return AppPage.Home
+
+    return props.activatedPage === AppPage.SearchResults ? AppPage.Search : props.activatedPage
   }
-  return props.activatedPage === dockItem.page && isHomePage()
+
+  const currentUrl = stripBilibiliLocaleUrl(currentLocationHref.value)
+  const nativePage = getNativeBiliAppPage(currentUrl)
+  if (nativePage === AppPage.Favorites) {
+    // The Dock destination is the signed-in user's favorites, not any space.
+    const favorites = mainStore.dockItems.find(item => item.page === AppPage.Favorites)
+    if (!favorites || new URL(currentUrl).pathname.replace(/\/+$/, '') !== new URL(favorites.url).pathname)
+      return undefined
+  }
+
+  return nativePage
+})
+
+function isDockItemActivated(dockItem: DockItem): boolean {
+  return activeDockPage.value === dockItem.page
 }
 
 const { width: windowWidth, height: windowHeight } = useWindowSize()
@@ -629,14 +666,14 @@ const dockScale = computed((): number => {
   if (settings.value.dockPosition === 'bottom') {
     const maxButtonCount = isLayoutEditing.value
       ? 2
-      : (settings.value.backToTopAndRefreshButtonsAreSeparated && backToTopButtonEnabled.value ? 2 : 1)
+      : (settings.value.backToTopAndRefreshButtonsAreSeparated && backToTopButtonEnabled.value && refreshButtonEnabled.value ? 2 : 1)
     const maxUndoForwardButtonCount = settings.value.enableUndoRefreshButton ? 1 : 0
     additionalWidth = (maxButtonCount + maxUndoForwardButtonCount) * buttonSize + maxButtonCount * buttonGap
   }
   else {
     const maxButtonCount = isLayoutEditing.value
       ? 2
-      : (settings.value.backToTopAndRefreshButtonsAreSeparated && backToTopButtonEnabled.value ? 2 : 1)
+      : (settings.value.backToTopAndRefreshButtonsAreSeparated && backToTopButtonEnabled.value && refreshButtonEnabled.value ? 2 : 1)
     const maxUndoForwardButtonCount = settings.value.enableUndoRefreshButton ? 1 : 0
     additionalHeight = (maxButtonCount + maxUndoForwardButtonCount) * buttonSize + maxButtonCount * buttonGap
   }
@@ -820,6 +857,7 @@ onUnmounted(() => {
         'half-hide': settings.halfHideDock && !isLayoutEditing,
         'hover': dockContentHover,
         'ready': dockReady,
+        'disable-icon-animation': settings.disableDockIconAnimation,
       }"
       :style="dockTransformStyle"
       @mouseenter="handleDockAreaEnter"
@@ -1167,7 +1205,7 @@ onUnmounted(() => {
           <template v-for="key in 2" :key="key">
             <Transition name="fade">
               <button
-                v-if="(key === 1 && canRefreshCurrentPage) || (key === 2 && backToTopButtonEnabled && !reachTop)"
+                v-if="(key === 1 && showRefreshButton) || (key === 2 && backToTopButtonEnabled && !reachTop)"
                 class="back-to-top-or-refresh-btn"
                 :class="{
                   'inactive': hoveringDockItem.themeMode && isDark,
@@ -1194,7 +1232,7 @@ onUnmounted(() => {
         </template>
         <template v-else>
           <button
-            v-if="backToTopButtonEnabled || canRefreshCurrentPage"
+            v-if="backToTopButtonEnabled || showRefreshButton"
             class="back-to-top-or-refresh-btn"
             :class="{
               'inactive': hoveringDockItem.themeMode && isDark,
@@ -1205,7 +1243,7 @@ onUnmounted(() => {
           >
             <Transition name="fade">
               <Icon
-                v-if="(reachTop || !backToTopButtonEnabled) && canRefreshCurrentPage"
+                v-if="(reachTop || !backToTopButtonEnabled) && showRefreshButton"
                 icon="tabler:reload"
                 class="dock-action-icon"
                 shrink-0 absolute text="size-$bew-icon-size-lg"
@@ -1258,13 +1296,14 @@ onUnmounted(() => {
     width: 0;
   }
 
+  // 首页滚动条在内部容器中，右侧与底部 Dock 需让出它的槽位；原版页面中该值为 0。
   &--right {
-    inset: 0 0 0 auto;
+    inset: 0 var(--bew-page-scrollbar-gutter, 0px) 0 auto;
     width: 0;
   }
 
   &--bottom {
-    inset: auto 0 0 0;
+    inset: auto var(--bew-page-scrollbar-gutter, 0px) 0 0;
     height: 0;
   }
 
@@ -1353,7 +1392,9 @@ onUnmounted(() => {
   }
 
   &.right {
-    --uno: "right-2 after:left--4px";
+    --uno: "after:left--4px";
+    // 右侧紧邻滚动条时只保留内层外边距，避免与窗口边缘的距离明显大于左侧 Dock。
+    right: max(0px, calc(var(--bew-space-2) - var(--bew-page-scrollbar-size, 0px)));
   }
   &.right.hide:not(.hover) {
     --uno: "opacity-0 !translate-x-100%";
@@ -1890,7 +1931,8 @@ onUnmounted(() => {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
+// 悬停/聚焦时的图标动画：设置项与系统「减少动效」共用同一份开关列表
+@mixin dock-icon-hover-animation-off {
   .dock-item:hover .dock-item-icon,
   .dock-item:focus-visible .dock-item-icon,
   .dock-item:hover .dock-clock-hand,
@@ -1904,7 +1946,14 @@ onUnmounted(() => {
   .dock-item:hover .dock-favorites-sparkle,
   .dock-item:focus-visible .dock-favorites-sparkle,
   .dock-edit-button:hover .dock-edit-icon,
-  .dock-edit-button:focus-visible .dock-edit-icon,
+  .dock-edit-button:focus-visible .dock-edit-icon {
+    animation: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @include dock-icon-hover-animation-off;
+
   .back-to-top-or-refresh-btn.dock-action-pulse-refresh .dock-action-icon,
   .back-to-top-or-refresh-btn.dock-action-pulse-back-to-top .dock-action-icon,
   .back-to-top-or-refresh-btn.dock-action-pulse-history .dock-action-icon,
@@ -1913,5 +1962,10 @@ onUnmounted(() => {
   .dock-edit-button.dock-icon-click-rebound .dock-edit-icon {
     animation: none !important;
   }
+}
+
+// 设置项：只关闭悬停/聚焦动画，点击回弹与操作按钮脉冲保留
+.dock-content.disable-icon-animation {
+  @include dock-icon-hover-animation-off;
 }
 </style>

@@ -20,10 +20,9 @@ import { GET_BROWSER_INFO_MESSAGE, getBrowserInfo } from '~/utils/browserInfo'
 import { sendMessage } from '~/utils/messaging'
 
 import licenseText from '../../../../LICENSE?raw'
-import Maintenance from '../Advanced/Maintenance.vue'
 import SettingsItem from '../components/SettingsItem.vue'
 import SettingsItemGroup from '../components/SettingsItemGroup.vue'
-import SettingsSectionHeading from '../components/SettingsSectionHeading.vue'
+import { useSettingsSearchNode } from '../composables/useSettingsSearchFilter'
 
 interface ThirdPartyLicense {
   name: string
@@ -47,6 +46,7 @@ const showThirdPartyLicenseDialog = ref(false)
 const thirdPartyLicenses = ref<ThirdPartyLicense[] | null>(null)
 const thirdPartyLicensesFailed = ref(false)
 const { t } = useI18n()
+const licenseSection = useSettingsSearchNode(() => t('settings.open_source_license'))
 const toast = useToast()
 
 const isDev = computed((): boolean => import.meta.env.DEV)
@@ -202,14 +202,6 @@ async function handleCopyEnvironmentInfo() {
             <Radio v-model="settings.enableVersionReminder" />
           </SettingsItem>
         </SettingsItemGroup>
-
-        <SettingsSectionHeading
-          class="maintenance-heading"
-          :title="$t('settings.maintenance.title')"
-          :desc="$t('settings.category_advanced_maintenance_desc')"
-          icon="i-mingcute:save-2-fill"
-        />
-        <Maintenance />
       </section>
 
       <section
@@ -275,7 +267,13 @@ async function handleCopyEnvironmentInfo() {
             >
           </a>
         </section>
-        <section w-full data-settings-key="settings.open_source_license" :data-settings-title="$t('settings.open_source_license')">
+        <section
+          v-show="licenseSection.visible"
+          w-full
+          data-settings-key="settings.open_source_license"
+          :data-settings-title="$t('settings.open_source_license')"
+          :class="{ 'settings-search-match': licenseSection.selfMatch }"
+        >
           <h3 class="title">
             {{ $t('settings.open_source_license') }}
           </h3>
@@ -394,10 +392,6 @@ async function handleCopyEnvironmentInfo() {
 
 .about-maintenance {
   margin-top: var(--bew-space-6);
-}
-
-.maintenance-heading {
-  margin-top: var(--bew-space-8);
 }
 
 .contributors-error {

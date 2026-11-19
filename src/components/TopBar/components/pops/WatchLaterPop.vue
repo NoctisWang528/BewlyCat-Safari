@@ -5,10 +5,12 @@ import Empty from '~/components/Empty.vue'
 import Loading from '~/components/Loading.vue'
 import Progress from '~/components/Progress.vue'
 import { getAuthorJumpUrl } from '~/components/VideoCard/utils'
+import WatchLaterRemovedMask from '~/components/WatchLaterRemovedMask.vue'
 import { useOptimizedScroll } from '~/composables/useOptimizedScroll'
 import { settings } from '~/logic'
 import type { List as WatchLaterItem } from '~/models/video/watchLater'
 import { useTopBarStore } from '~/stores/topBarStore'
+import { localizeBilibiliUrl } from '~/utils/bilibiliLocale'
 import { calcCurrentTime } from '~/utils/dataFormatter'
 import { isActualHomepage, isHomePage, isInIframe, removeHttpFromUrl } from '~/utils/main'
 import { openLinkInBackground } from '~/utils/tabs'
@@ -25,16 +27,16 @@ const viewAllUrl = computed((): string => {
   return 'https://www.bilibili.com/watchlater/list'
 })
 const playAllUrl = computed((): string => {
-  return 'https://www.bilibili.com/list/watchlater'
+  return localizeBilibiliUrl('https://www.bilibili.com/list/watchlater')
 })
 
 const scrollContainer = ref<HTMLElement>()
 
 /**
- * 删除遮罩状态：confirming 等待确认（尚未调用接口），removing 删除中，
- * removed 已删除但保留原位可还原，restoring 还原中；index 为确认删除时在展示列表中的位置
+ * 删除遮罩状态：removing 删除中，removed 已删除但保留原位可还原，restoring 还原中；
+ * index 为点击删除时在展示列表中的位置。点击即删除，误删由撤销兜底。
  */
-type RemoveStatus = 'confirming' | 'removing' | 'removed' | 'restoring'
+type RemoveStatus = 'removing' | 'removed' | 'restoring'
 const removeStatuses = reactive(new Map<number, { item: WatchLaterItem, index: number, status: RemoveStatus }>())
 
 // store 删除后条目会从列表移除，这里按原位置插回以保留卡片
@@ -72,11 +74,11 @@ onMounted(async () => {
 })
 
 function getVideoPageUrl(bvid: string): string {
-  return `https://www.bilibili.com/video/${bvid}/`
+  return localizeBilibiliUrl(`https://www.bilibili.com/video/${bvid}/`)
 }
 
 function getWatchLaterVideoUrl(bvid: string): string {
-  return `https://www.bilibili.com/list/watchlater?bvid=${bvid}`
+  return localizeBilibiliUrl(`https://www.bilibili.com/list/watchlater?bvid=${bvid}`)
 }
 
 function openVideoPage(url: string) {
@@ -111,34 +113,20 @@ function deleteWatchLaterItem(index: number, aid: number) {
   topBarStore.deleteWatchLaterItem(index, aid)
 }
 
-// 删除先在卡片上二次确认，确认后才调用接口
-function removeWatchLaterItem(item: WatchLaterItem, index: number) {
-  if (!removeStatuses.has(item.aid))
-    removeStatuses.set(item.aid, { item, index, status: 'confirming' })
-}
-
-function cancelRemoveWatchLaterItem(aid: number) {
-  if (removeStatuses.get(aid)?.status === 'confirming')
-    removeStatuses.delete(aid)
-}
-
-async function confirmRemoveWatchLaterItem(aid: number) {
-  const entry = removeStatuses.get(aid)
-  if (!entry || entry.status !== 'confirming')
+// 点击即删除，卡片保留在原位并显示可撤销遮罩
+async function removeWatchLaterItem(item: WatchLaterItem, index: number) {
+  if (removeStatuses.has(item.aid))
     return
 
-  // 等待确认期间列表可能刷新，以确认时的位置为准
-  const index = displayWatchLaterList.value.findIndex(item => item.aid === aid)
-  if (index !== -1)
-    entry.index = index
-  entry.status = 'removing'
-  const success = await topBarStore.deleteWatchLaterItem(entry.index, aid)
-  if (removeStatuses.get(aid) !== entry)
+  const entry: { item: WatchLaterItem, index: number, status: RemoveStatus } = { item, index, status: 'removing' }
+  removeStatuses.set(item.aid, entry)
+  const success = await topBarStore.deleteWatchLaterItem(index, item.aid)
+  if (removeStatuses.get(item.aid) !== entry)
     return
   if (success)
     entry.status = 'removed'
   else
-    removeStatuses.delete(aid)
+    removeStatuses.delete(item.aid)
 }
 
 async function restoreWatchLaterItem(aid: number) {
@@ -163,8 +151,10 @@ async function restoreWatchLaterItem(aid: number) {
     entry.status = 'removed'
 }
 
-function isRemoveConfirming(status: RemoveStatus | undefined) {
-  return status === 'confirming' || status === 'removing'
+// 收起已移除的占位卡片：条目已从服务器删除，这里仅移出展示集合，触发 removable-list 离场动画
+function dismissRemovedItem(aid: number) {
+  if (removeStatuses.get(aid)?.status === 'removed')
+    removeStatuses.delete(aid)
 }
 
 /** progress = -1 表示已看完，直接展示总时长；角标文案形如「12:34 / 45:00」。 */
@@ -356,51 +346,14 @@ function handleOpenVideoPageAndRemove(index: number, aid: number, bvid: string) 
             </template>
           </PopMediaCard>
 
-          <!-- 删除遮罩：拦截链接点击；确认前未调用接口，删除后可还原 -->
-          <div
+          <!-- 删除遮罩：拦截链接点击，删除后可撤销；右上角 × 可收起占位卡片 -->
+          <WatchLaterRemovedMask
             v-if="removeStatuses.has(item.aid)"
-            class="watch-later-removed-mask"
-            @click.prevent.stop
-          >
-            <template v-if="isRemoveConfirming(removeStatuses.get(item.aid)?.status)">
-              <span>{{ $t('watch_later.remove_confirm') }}</span>
-              <div flex="~ gap-2 items-center">
-                <Button
-                  color="rgba(255,255,255,.35)" text-color="white" size="small"
-                  :disabled="removeStatuses.get(item.aid)?.status === 'removing'"
-                  @click.prevent.stop="confirmRemoveWatchLaterItem(item.aid)"
-                >
-                  <template #left>
-                    <div i-mingcute-check-line />
-                  </template>
-                  {{ $t('common.operation.confirm') }}
-                </Button>
-                <Button
-                  color="rgba(255,255,255,.35)" text-color="white" size="small"
-                  :disabled="removeStatuses.get(item.aid)?.status === 'removing'"
-                  @click.prevent.stop="cancelRemoveWatchLaterItem(item.aid)"
-                >
-                  <template #left>
-                    <div i-mingcute-close-line />
-                  </template>
-                  {{ $t('common.operation.cancel') }}
-                </Button>
-              </div>
-            </template>
-            <template v-else>
-              <span>{{ $t('watch_later.removed') }}</span>
-              <Button
-                color="rgba(255,255,255,.35)" text-color="white" size="small"
-                :disabled="removeStatuses.get(item.aid)?.status === 'restoring'"
-                @click.prevent.stop="restoreWatchLaterItem(item.aid)"
-              >
-                <template #left>
-                  <div i-mingcute-back-line />
-                </template>
-                {{ $t('common.undo') }}
-              </Button>
-            </template>
-          </div>
+            :message="$t('watch_later.removed')"
+            :pending="removeStatuses.get(item.aid)?.status !== 'removed'"
+            @undo="restoreWatchLaterItem(item.aid)"
+            @dismiss="dismissRemovedItem(item.aid)"
+          />
         </ALink>
       </TransitionGroup>
 
@@ -422,23 +375,6 @@ function handleOpenVideoPageAndRemove(index: number, aid: number, bvid: string) 
 </template>
 
 <style scoped lang="scss">
-.watch-later-removed-mask {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--bew-space-2);
-  border-radius: inherit;
-  background: var(--bew-fill-4);
-  backdrop-filter: blur(20px);
-  color: white;
-  font-size: var(--bew-font-size-control);
-  cursor: default;
-}
-
 .watch-later-header-action {
   display: inline-flex;
   align-items: center;

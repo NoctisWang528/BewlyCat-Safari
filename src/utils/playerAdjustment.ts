@@ -1,4 +1,4 @@
-import { reactive } from 'vue'
+import { reactive, ref } from 'vue'
 
 // 旋转、镜像与音画同步只针对当前视频：换视频或分 P 时重置，切换清晰度时保留。
 export const playerAdjustment = reactive({
@@ -8,16 +8,23 @@ export const playerAdjustment = reactive({
   audioDelay: 0,
 })
 
+// 面板开关只临时关闭本页的音量均衡，不写入设置；刷新页面后恢复。
+export const loudnessTemporarilyOff = ref(false)
+
 let currentVideoKey = ''
 
 function getVideoKey() {
   return `${location.pathname}?p=${new URLSearchParams(location.search).get('p') ?? ''}`
 }
 
-export function resetPlayerAdjustment() {
+export function resetPictureAdjustment() {
   playerAdjustment.rotation = 0
   playerAdjustment.flipX = false
   playerAdjustment.flipY = false
+}
+
+export function resetPlayerAdjustment() {
+  resetPictureAdjustment()
   playerAdjustment.audioDelay = 0
 }
 

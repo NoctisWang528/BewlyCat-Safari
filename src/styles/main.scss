@@ -7,6 +7,11 @@
   // outline-offset: 2px;
 }
 
+:host(.settings-open) {
+  position: relative;
+  z-index: var(--bew-z-settings-host);
+}
+
 :host(.dark),
 .bewly-wrapper.dark,
 .bewly-design.dark {
@@ -38,9 +43,9 @@
   }
 }
 
+// 页面主滚动条沿用系统宽度，与 B 站原版页面及首页滚动容器一致，只调整颜色。
 :host,
 :root.bewly-design {
-  scrollbar-width: thin;
   scrollbar-color: rgba(120, 120, 140, 0.44) transparent;
 }
 
@@ -332,13 +337,6 @@ html.dark.bewly-design {
   }
 }
 
-// Keep the settings modal above body-level Teleports (for example, the
-// top-bar switcher) even though the modal itself lives inside this Shadow DOM.
-:host(.settings-open) {
-  position: relative;
-  z-index: var(--bew-z-settings-host);
-}
-
 // Note: View Transition styles for theme toggle are injected dynamically via JS in useDark.ts
 // because this file is loaded in Shadow DOM and cannot affect document-level ::view-transition pseudo-elements
 
@@ -466,6 +464,32 @@ html.dark.bewly-design {
   display: inline-flex;
   align-items: center;
   padding-inline: var(--bew-space-3);
+}
+
+// 工具栏搜索框 suffix 槽内的标准清除按钮（关注流与收藏页共用）。
+.bew-toolbar-search-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: var(--bew-control-item-height);
+  height: var(--bew-control-item-height);
+  color: var(--bew-text-2);
+  font-size: var(--bew-icon-size-sm);
+  border-radius: var(--bew-interactive-radius);
+  cursor: pointer;
+  transition:
+    color var(--bew-duration-fast) var(--bew-ease-standard),
+    background-color var(--bew-duration-fast) var(--bew-ease-standard);
+
+  &:hover {
+    color: var(--bew-text-1);
+    background: var(--bew-fill-2);
+  }
+
+  &:active {
+    background: var(--bew-fill-3);
+  }
 }
 
 .bew-page-sidebar {

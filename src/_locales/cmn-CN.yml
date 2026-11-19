@@ -4,6 +4,7 @@ common:
   loading: 加载中...
   search: 搜索
   undo: 还原
+  dismiss: 收起
   days: 天
   view: '{count}次'
   viewWithoutNum: 次
@@ -40,6 +41,16 @@ common:
   load_failed: 加载失败
   no_more_content: 没有更多内容了
   load_more: 加载更多
+  api_error:
+    request_failed: 请求失败，请稍后刷新重试
+    details: 查看错误详情
+    title: 错误详情
+    desc: 登录信息和签名已替换为 *，可复制后用于反馈问题
+    risk_hint: 检测到疑似风控响应。可以稍后再试、降低刷新频率，或检查下方诊断信息中的请求方式和过滤设置。
+    no_records: 没有捕获到失败的接口请求，可能是扩展刚刚更新或后台暂时不可用。
+    copy: 复制错误信息
+    copied: 错误信息已复制
+    copy_failed: 复制失败，请手动选择文本复制
   operation:
     add: 新增
     edit: 编辑
@@ -69,7 +80,7 @@ common:
     bottom: 底部
 layout_editor:
   finish: 完成
-  edit_dock: 编辑 Dock
+  edit_dock: 编辑模式
   edit_sidebar: 编辑模式
   back_to_top: 回到顶部
   click_to_adjust: 点击你想要调整的元素
@@ -116,10 +127,6 @@ player_screenshot:
   saved: 截图已保存
   failed: 截图失败
   video_unavailable: 当前视频画面不可用
-player_listen:
-  enter: 听视频
-  exit: 恢复视频画面
-  listening: 正在收听
 settings:
   ambilight:
     title: 视频环境光
@@ -131,11 +138,26 @@ settings:
     preset_vivid: 绚彩
     strength: 光线强度
     spread: 扩散范围
+    diffusion: 扩散方式
+    diffusion_gaussian: 高斯柔化
+    diffusion_poisson: 泊松扩散
+    diffusion_decay: 衰减速度
+    diffusion_decay_desc: 数值越低，扩散越远。
+    diffusion_quality: 求解精度
+    diffusion_quality_desc: 精度越高，扩散细节越清晰，但会增加 CPU 开销。
+    diffusion_quality_ultra_low: 超低
+    diffusion_quality_low: 低
+    diffusion_quality_medium: 中
+    diffusion_quality_high: 高
+    diffusion_quality_ultra_high: 超高
+    diffusion_iterations: 求解迭代
+    diffusion_iterations_desc: 数值越高边界越精确，但会增加每帧 CPU 开销。
+    diffusion_feather: 边缘羽化
+    diffusion_feather_desc: 光晕最外圈的淡出格数；0 关闭，2 为默认。
     smoothing: 过渡平滑
     blur: 柔化程度
     saturation: 色彩饱和度
-    subgroup_effects: 光效调节
-    subgroup_effects_desc: 调整光线发光强度、扩散范围与色彩过渡质感。
+    subgroup_algorithm: 算法
     subgroup_performance: 渲染性能
     subgroup_performance_desc: 限制环境光采样与绘制刷新率，较低帧率可降低功耗与显卡占用。
     fps: 渲染帧率上限
@@ -144,14 +166,14 @@ settings:
     fps_30: 30 fps · 流畅
   local_loudness:
     gain_history: 均衡增益变化 · 近 60 秒
-    summary: 平衡不同视频之间的音量，减少切换视频时的大小声差异。
+    summary: 平衡不同视频之间的响度，同时平滑同一个视频内的大小声。
     title: 音量均衡
     enable: 启用局部音量均衡
-    description: 平衡不同视频之间的音量，减少切换视频时的大小声差异。启用后会关闭 B 站原生均衡（关闭本功能后不会自动恢复），最高提升 6 dB。
+    description: 平衡不同视频之间的响度，并在播放中实时调整增益，因此同一个视频内的大小声也会被平滑；强度越高，对原有动态的影响越大。启用后会关闭 B 站原生均衡（关闭本功能后不会自动恢复），最高提升 6 dB。
     target: 目标响度
     target_desc: 建议从 -18 LUFS 开始。数值越低越安静；播放器音量仍可单独调整。
     strength: 均衡强度
-    strength_desc: 强度越高，大小声差异越小，也会更多改变音乐和电影的动态。
+    strength_desc: 强度越高，视频之间与视频内的大小声差异越小，也会更多改变音乐和电影的动态。
     status: 运行状态
     states:
       off: 已关闭
@@ -162,8 +184,11 @@ settings:
       unsupported: 当前音源无法安全接入，保持原声。
   player_adjustment:
     title: 画面与声音调整
-    show_button: 显示播放器画面与声音调整按钮
-    show_button_desc: 在视频控制栏显示按钮，悬停可旋转、镜像画面，调整音画同步；开启音量均衡后也可在此调整均衡参数。旋转、镜像和音画同步只对当前视频生效；隐藏按钮会重置这些调整，但不会关闭音量均衡。
+    desc: 在视频控制栏显示调整按钮，悬停打开面板。以下两项可单独关闭，音量均衡项随上方「启用局部音量均衡」显示；三项都关闭时不显示按钮。
+    show_picture: 画面旋转与镜像
+    show_picture_desc: 在面板中旋转、镜像画面，仅对当前视频生效；关闭后会重置当前画面调整。
+    show_audio_delay: 音画同步
+    show_audio_delay_desc: 在面板中调整声音延后，仅对当前视频生效；关闭后不再接管声音。
     picture: 画面
     rotate_left: 向左旋转
     rotate_right: 向右旋转
@@ -181,6 +206,7 @@ settings:
   following_sort_updated: 按更新时间
   following_sort_group: 按分组
   title: 设置
+  open_in_new_tab: 在新标签页打开设置
   menu_general: 通用
   menu_bewly_pages: Bewly 页面
   menu_bewly_components: Bewly 组件
@@ -192,6 +218,8 @@ settings:
   category_group_pages: 页面
   category_group_components: 组件
   category_group_behavior: 行为
+  category_group_playback: 播放
+  category_group_site: 站内功能
   badge_performance_impact: 性能影响
   badge_advanced: 高级
   badge_irreversible: 不可撤销
@@ -200,29 +228,51 @@ settings:
     placeholder: 搜索设置
     no_results: 没有找到相关设置
     located: 已定位到此设置
-  category_general_desc: 配置语言、交互布局、链接打开方式与抽屉行为。
+    results_title: 搜索结果
+    results_count: 找到 {count} 个设置
+  category_general_desc: 配置语言和交互方式，并按需开启插件的各个部分，可以只保留评论、大会员等单项功能。
   category_appearance_desc: 配置毛玻璃、主题颜色、壁纸、字体、自定义样式和其他页面的适配。
   category_shortcuts_desc: 启用、修改或恢复 BewlyCat 与播放器快捷键。
   breadcrumb: 设置位置
-  usage_guide: 使用帮助：BewlyCat 功能讲解视频合集
-  group_interaction_layout: 交互与布局
+  usage_guide: 使用帮助
+  group_modules_interface: 界面模块
+  group_modules_interface_desc: 关闭后恢复 B 站原有界面，只服务于该模块的设置也会一并隐藏。
+  module_bewly_pages: Bewly 页面
+  module_bewly_pages_desc: 自定义首页、动态、搜索等页面及其视频卡片和壁纸。关闭后使用 B 站原版页面，已打开的首页会自动刷新。
+  module_top_bar: 顶栏
+  module_top_bar_desc: 插件提供的顶栏及原版顶栏托管。关闭后插件不再隐藏或改动任何顶栏，页面显示 B 站自己的顶栏；Bewly 首页整页由插件接管，不显示顶栏。
+  module_dock: Dock 栏
+  module_dock_desc: 页面切换导航与悬浮侧栏。Bewly 页面开启时需保持开启；Bewly 页面关闭时点击直接跳转 B 站原站页面，关闭本模块后可从浏览器工具栏图标打开设置。
+  module_sidebar: 悬浮侧栏
+  module_sidebar_desc: 提供主题切换和设置入口，Dock 显示时不显示。关闭后可从浏览器工具栏图标打开设置。
+  group_modules_enhancements: 功能增强
+  group_modules_enhancements_desc: 不依赖上方界面模块。大会员、收藏夹整理、原版动态和净化功能在「Bilibili」分类中单独设置。
+  module_comments: 评论增强
+  module_comments_desc: 回复树、IP 属地、性别、楼主标识和评论图片优化。
+  module_player: 播放器增强
+  module_player_desc: 显示模式、播放器按钮、音量均衡、环境光和连播控制。刷新页面后生效。
+  module_shortcuts: 键盘快捷键
+  module_shortcuts_desc: 插件提供的播放器和首页快捷键。
+  category_bilibili_moments_desc: 调整原版动态页的模块和评论行为，并过滤动态。
+  group_interaction: 交互
   category_browsing_home_desc: 配置首页推荐、内容过滤、关注页和首页标签。
   category_browsing_video_card_desc: 配置视频卡片的布局、预览、信息展示与打开方式。
   category_browsing_favorites_desc: 按规则整理收藏夹，并在一键三连后自动同步到对应收藏夹。
   category_navigation_link_opening_desc: 统一配置顶栏、视频卡片与搜索栏链接的打开位置和抽屉行为。
   category_navigation_topbar_desc: 统一调整顶栏布局、组件、频道、搜索入口和通知显示。
   category_navigation_dock_desc: 配置 Dock 栏与侧栏的位置、显隐和快捷操作。
+  category_navigation_interaction_desc: 配置链接打开方式、抽屉行为和列表滚动。
   category_navigation_search_desc: 配置搜索页外观、搜索建议、历史、热搜与结果页。
   category_navigation_moments_desc: 配置插件动态页的左侧组件和动态卡片打开方式。
   category_playback_player_desc: 配置播放器模式、滚动行为、弹幕、字幕和播放状态。
   category_playback_autoplay_desc: 配置自动连播与自定义播放行为。
   category_bilibili_comments_desc: 增强评论区的用户信息与内容显示。
   category_bilibili_vip_desc: 配置大会员权益相关的提醒功能。
-  category_bilibili_listen_video_desc: 隐藏视频画面仅保留声音，以封面和标题组成音频播放界面。
-  category_bilibili_volume_balance_desc: 在本地均衡不同视频的响度，减少音量忽大忽小。
+  category_bilibili_volume_balance_desc: 在本地平衡不同视频的响度，并平滑视频内的大小声。
   category_bilibili_ambilight_desc: 在播放器四周投射随画面变化的柔和环境光。
-  category_advanced_compatibility_desc: 配置原版页面、第三方扩展和其他页面的兼容行为。
+  category_advanced_compatibility_desc: 拦截广告、净化链接，并配置原版页面和其他页面的兼容行为。
   category_advanced_maintenance_desc: 导出备份、导入设置或恢复 BewlyCat 默认配置。
+  category_data_desc: 开启浏览器云同步，导出备份、导入设置或恢复 BewlyCat 默认配置。
   maintenance:
     title: 备份与重置
     backup_title: 设置备份
@@ -231,6 +281,7 @@ settings:
     import_failed: 设置文件无法读取，请确认它是有效的 JSON 备份。
     import_no_matches: 备份中没有可导入的设置项。
     import_success: 导入成功：已应用 {imported} 项，忽略 {ignored} 项未知设置。
+    import_wallpaper_failed: 设置已导入，但背景图片未能恢复，可能是备份内容无效或存储空间不足。当前背景图片不变。
     migrate_legacy_title: 设置迁移
     migrate_legacy_action: 一键迁移
     migrate_legacy_item: '· {name}'
@@ -246,7 +297,8 @@ settings:
   menu_plugin_components_and_pages: BewlyCat界面
   menu_bilibili_features_enhancement: Bilibili 功能
   menu_appearance: 外观
-  menu_compatibility: 兼容性
+  menu_compatibility: 净化与兼容
+  menu_data: 数据与同步
   menu_about: 关于
   menu_changelog: 更新日志
   experimental: 实验性
@@ -261,15 +313,17 @@ settings:
     moments: 动态页
     favorites: 收藏
     search: 搜索页
+    interaction: 交互行为
 
   # Bilibili 功能增强 子菜单
   bilibili_features:
     comments: 评论
+    moments: 动态增强
+    favorite_organizer: 收藏夹整理
     video_playback: 播放器
     auto_play: 播放行为
     vip_features: 大会员
     vip_features_placeholder: 大会员功能增强将在未来版本中添加。
-    listen_video: 听视频
     volume_balance: 音量均衡
     ambilight: 视频环境光
 
@@ -277,6 +331,7 @@ settings:
 
   group_common: 通用
   group_drawer_behavior: 抽屉行为
+  group_list_scrolling: 列表滚动
   group_language: 语言
   group_ad_blocking: 广告拦截
   group_comments: 评论
@@ -292,6 +347,7 @@ settings:
   video_card_context_menu_region_opening: 打开
   video_card_context_menu_region_copying: 复制
   video_card_context_menu_region_user: 用户
+  video_card_context_menu_region_other: 其他
   video_card_context_menu_follow_user: 关注或取消关注
   video_card_content_region_stats: 数据
   video_card_content_region_tags: 标签
@@ -391,6 +447,8 @@ settings:
   moments_visible_components: 显示组件
   moments_visible_components_original_desc: 控制 Bilibili 原版动态页侧栏与横幅等组件是否显示。主题色表示显示，灰色表示隐藏。
   moments_visible_components_plugin_desc: 控制 Bewly 动态页侧栏与顶部组件是否显示。主题色表示显示，灰色表示隐藏。
+  moments_show_filter_entry: 显示动态过滤入口
+  moments_show_filter_entry_desc: 在 Bewly 动态页标签栏右侧显示过滤按钮，可直接调整显示的动态类型与屏蔽关键词；关闭面板后按新条件刷新动态。
   moments_filtered_types: 过滤动态
   moments_filtered_types_desc: 控制各类动态是否出现在 Bewly 动态流中，选中表示显示。过滤较多时可能需要手动加载更多。
   moments_enable_live_preview: 直播动态悬停预览
@@ -433,11 +491,6 @@ settings:
   moments_video_card_open_mode_desc: 单独控制视频投稿动态卡片的打开位置；选择“跟随动态卡片”时使用上方设置。
   moments_video_card_open_mode_opt:
     inherit: 跟随动态卡片
-  group_moments_wanted_users: 想看分组
-  group_moments_wanted_users_desc: 管理想看的 UP 主；支持输入 UID 或昵称，名单仅保存在本地。
-  moments_enable_wanted_filter: 显示“想看”按钮
-  moments_enable_wanted_filter_desc: 在动态页横向栏显示“想看”按钮，用于只查看名单内 UP 主的动态。
-  moments_wanted_users: 想看的 UP 主
   group_moments_pinned_users: 固定 UP 主
   group_moments_pinned_users_desc: 管理固定在动态栏右侧的 UP 主；支持输入 UID 或昵称，名单仅保存在本地。
   moments_pinned_users: 固定的 UP 主
@@ -508,6 +561,8 @@ settings:
   video_card_link_opening_behavior_desc: 控制点击视频卡片和番剧卡片后的打开位置。窗口较窄时弹窗会改为新标签页打开。
   search_bar_link_opening_behavior: 搜索栏链接打开行为
   close_drawer_without_pressing_esc_again: 关闭抽屉时不用再次按 <kbd>Esc</kbd> 关闭
+  hide_drawer_esc_hint: 隐藏抽屉的 Esc 快捷键提示
+  hide_drawer_esc_hint_desc: 隐藏抽屉关闭按钮上的按键标识和通知抽屉的按键提示，Esc 快捷键仍可使用
   block_ads: 屏蔽广告
   block_top_search_page_ads: 屏蔽 Bilibili 搜索页上方的广告
   block_top_search_page_ads_desc: |
@@ -565,36 +620,12 @@ settings:
   enlarge_favorite_dialog_desc: 启用后，视频页收藏弹窗将以更大的尺寸显示，方便查看和管理收藏夹。
   external_watch_later_button: 稍后再看按钮外置
   external_watch_later_button_desc: 启用后，视频页工具栏会显示独立的稍后再看按钮；按钮会显示当前视频状态，可点击添加或移除。
-  show_vertical_video_zoom_button: 竖屏放大按钮
-  show_vertical_video_zoom_button_desc: 在竖屏视频播放器中显示放大/缩小按钮和画面位置调节控件
   show_bewly_widescreen_button: 显示播放器 Bewly 宽屏按钮
   show_bewly_widescreen_button_desc: 启用后，在视频播放器控制栏中显示 Bewly 宽屏按钮。
   show_video_screenshot_button: 显示播放器截图按钮
   show_video_screenshot_button_desc: 在播放器控制栏显示截图按钮。关闭后仍可使用快捷键截图。
   show_video_pip_button: 显示播放器画中画按钮
   show_video_pip_button_desc: 在播放器控制栏显示画中画按钮。关闭后仍可使用快捷键切换。
-  enable_listen_video: 启用听视频功能
-  enable_listen_video_desc: 开启后可通过播放器按钮或快捷键进入听视频。仅隐藏画面，视频流仍会正常加载。
-  show_listen_video_button: 显示播放器「听视频」按钮
-  show_listen_video_button_desc: 在播放器控制栏显示听视频按钮。关闭后仍可使用快捷键切换。
-  listen_video_cover_shape: 听视频封面形状
-  listen_video_cover_shape_desc: 圆形唱片会随播放旋转，正方形与长方形保持静止。
-  listen_video_cover_shape_circle: 圆形唱片
-  listen_video_cover_shape_square: 正方形
-  listen_video_cover_shape_rectangle: 长方形
-  listen_video_glow: 听视频封面光晕
-  listen_video_glow_desc: 在封面背后叠加一层光晕；呼吸模式会随播放轻微脉动，暂停时一同静止。
-  listen_video_glow_none: 关闭
-  listen_video_glow_static: 常亮
-  listen_video_glow_breathe: 呼吸
-  listen_video_glow_color: 听视频光晕颜色
-  listen_video_glow_color_desc: 跟随封面时取封面主色作为光晕颜色，无法取色时使用主题色。
-  listen_video_glow_color_theme: 主题色
-  listen_video_glow_color_cover: 跟随封面
-  listen_video_background: 听视频背景样式
-  listen_video_background_desc: 封面模糊会将当前封面高斯模糊后铺满整个背景，纯色为深色背景。
-  listen_video_background_solid: 纯色
-  listen_video_background_blur: 封面模糊
   keep_collection_video_default_mode: 合集视频保持默认模式
   keep_collection_video_default_mode_desc: 当启用时，合集视频将始终使用默认播放器模式，不会应用宽屏或全屏设置
   keep_watch_later_video_default_mode: 稍后再看保持默认模式
@@ -602,15 +633,19 @@ settings:
   remember_playback_rate: 记住倍速
   remember_playback_rate_desc: 启用后，播放器会记住您上次设置的倍速，并在下次打开视频时自动应用
   custom_playback_rate: 自定义播放倍速
-  custom_playback_rate_desc: 输入 0.25–5 倍，应用到当前视频。开启「记住倍速」后会保存此值。
-  custom_playback_rate_apply: 应用到当前视频
-  custom_playback_rate_no_video: 当前页面没有可控制的视频，请在视频播放页打开此设置。
+  custom_playback_rate_desc: 输入 0.25–5 倍，应用到最近访问的视频标签页。开启「记住倍速」后会保存此值。
+  custom_playback_rate_apply: 应用到视频
+  custom_playback_rate_no_video: 没有找到可控制的视频，请先在其他标签页打开视频。
   playback_rate_step: 倍速快捷键调节幅度
   playback_rate_step_desc: 每次增减 0.01–1 倍；默认 0.25。快捷键可在「快捷键」设置中修改。
   fullscreen_wheel_volume: 全屏滚轮调节音量
   fullscreen_wheel_volume_desc: 全屏播放时用插件接管滚轮调音，每滚一格按固定幅度调节，替代 B 站原生不规律的调节幅度。
   fullscreen_wheel_volume_step: 滚轮音量调节幅度
   fullscreen_wheel_volume_step_desc: 每格增减 1–50；默认 5。
+  keyboard_volume: 方向键音量调节
+  keyboard_volume_desc: 播放器内按上下方向键时由插件接管，按下方幅度调节；关闭时沿用 B 站默认（每次 10）。
+  keyboard_volume_step: 方向键音量调节幅度
+  keyboard_volume_step_desc: 每按一次增减 1–50；B 站默认为 10。
   remember_video_quality: 记住清晰度
   remember_video_quality_desc: 启用后自动恢复上次选择的清晰度，不可用时沿用当前清晰度。
   remember_video_quality_confirm_title: 确认开启记住清晰度？
@@ -619,8 +654,6 @@ settings:
   remember_video_aspect_ratio_desc: 启用后，播放器会记住您上次选择的视频比例，并在下次打开视频时自动应用
   auto_exit_fullscreen_on_end: 全屏/网页全屏播放完毕后自动退出
   auto_exit_fullscreen_on_end_desc: 启用后，当视频播放结束且没有单集循环、随机播放、自动连播等后续播放行为时，会自动退出全屏模式
-  auto_exit_fullscreen_exclude_auto_play: 自动连播下除外
-  auto_exit_fullscreen_exclude_auto_play_desc: 启用后，在自动连播下播放结束时不会自动退出全屏，方便连续观看
   use_bilibili_default_auto_play: 使用 Bilibili 默认自动播放行为
   use_bilibili_default_auto_play_desc: 启用后由 Bilibili 决定播放结束行为，不应用下方按视频类型设置。
   auto_play_watch_later: 稍后再看
@@ -724,12 +757,10 @@ settings:
   sync_cloud_status_failed: 无法读取云端同步状态
   sync_cloud_enable_failed: 开启云同步失败
   sync_cloud_incompatible: 云端数据由更新版本的扩展写入，请先升级扩展再开启同步
-  top_bar_icon_badges: 图标角标
   top_bar_icon_badges_opt:
     number: 数字
     dot: 圆点
     none: 不显示
-  show_watch_later_badge: 显示稍后再看角标
   show_bcoin_receive_reminder: 大会员B币领取提醒
   auto_receive_bcoin_coupon: 大会员B币自动领取
   auto_receive_bcoin_coupon_desc: 启用后，当检测到有未领取的B币券时将自动领取
@@ -767,12 +798,6 @@ settings:
   video_card_author_font_size_desc: 控制视频卡片上 UP 主昵称的字号。
   video_card_meta_font_size: 标签与时间字号
   video_card_meta_font_size_desc: 控制标题下方标签与时间信息的字号。
-  video_card_shadow_curve: 阴影渐变曲线
-  video_card_shadow_curve_desc: 自定义视频卡片底部阴影的渐变效果
-  video_card_shadow_curve_hint: 拖拽线条创建控制点，右键删除
-  video_card_shadow_height: 阴影高度
-  video_card_shadow_height_desc: 调整阴影覆盖封面的高度比例
-  video_card_shadow_reset: 重置阴影设置
   video_card_layout: 视频卡片布局
   video_card_layout_desc: 在新版与旧版视频卡片显示样式之间切换。
   video_card_layout_option:
@@ -842,8 +867,11 @@ settings:
   dock_item_open_in_new_tab: 在新标签页打开
   dock_item_use_original_bili_web_page: 使用原版 Bilibili 网页
   disable_dock_glowing_effect: 关闭 Dock 栏发光效果
+  disable_dock_icon_animation: 关闭 Dock 图标悬停动画
+  disable_dock_icon_animation_desc: 关闭后 Dock 图标在悬停、聚焦时不再播放弹跳、旋转等动画；点击回弹与操作按钮脉冲不受影响。
   disable_light_dark_mode_switcher: 禁用亮/暗色模式切换按钮
   disable_back_to_top_button_on_dock: 禁用 Dock 栏回到顶部按钮
+  disable_refresh_button_on_dock: 禁用 Dock 栏刷新按钮
   back_to_top_and_refresh_buttons_are_separated: 分离回到顶部和刷新按钮
   always_show_dock_actions_when_auto_hide: 自动隐藏 Dock 栏时始终显示操作按钮
   sidebar_position: 侧边栏位置
@@ -910,7 +938,6 @@ settings:
   enable_search_history_desc: 启用后，搜索栏将记录和显示您的搜索历史记录。关闭后将清除所有历史记录
   use_plugin_search_results_page: 使用插件搜索结果页
   use_plugin_search_results_page_desc: 启用后，搜索时将使用插件内置的搜索结果页面，支持分类筛选等功能
-  use_plugin_search_results_page_disabled_by_original_homepage: 使用原版 bilibili 首页时，搜索将使用 bilibili 原版结果页
   depersonalize_search_results: 去个性化搜索
   depersonalize_search_results_desc: 启用后以未登录状态搜索，结果不受个人偏好影响。
   show_search_identity_switcher: 显示登录 / 游客快速切换按钮组
@@ -949,6 +976,8 @@ settings:
     授权使用后能在首页推送 bilibili App 端算法的推荐视频，授权 key 有效期约为一个月，过后记得重新授权获取 access key。
   authorize_app_more_info_access_key: 关于 access key
   scan_qrcode_desc: 使用 Bilibili 移动应用程序扫描此二维码，以授权获取 access key。
+  show_recommendation_filter_entry: 显示推荐过滤入口
+  show_recommendation_filter_entry_desc: 选中首页“个性推荐”时，在顶部标签栏右侧显示过滤按钮，可直接调整过滤条件；关闭面板后按新条件刷新推荐。
   show_recommendation_filter_risk_warning: 显示过滤风控警告
   show_recommendation_filter_risk_warning_desc: 过滤掉的推荐过多时，提示频繁请求可能触发风控。
   disable_filters_for_followed_users: 关注的用户不受过滤条件限制
@@ -1020,7 +1049,7 @@ settings:
     title_keyword_placeholder: 输入关键词后按回车，不区分大小写
     triple_synced: 已同步到收藏夹：{folders}
     triple_sync_failed: 三连后同步收藏夹失败
-  wanted_users:
+  up_picker:
     no_results: 没有找到相关 UP 主，请尝试其他昵称
     search_failed: 搜索 UP 主失败，请稍后重试
     invalid_uid: 请输入有效的 UP 主 UID
@@ -1029,19 +1058,12 @@ settings:
     info_failed: 获取 UP 主信息失败，请稍后重试
     placeholder: 输入 UP 主 UID 或昵称
     pinned_already: 该 UP 主已经在“固定 UP”中
-    wanted_already: 该 UP 主已经在“想看”分组中
     pinned_need_follow: 必须先关注 {name}，才能将其加入“固定 UP”
-    wanted_need_follow: 必须先关注 {name}，才能将其加入“想看”分组
     pinned_added: 已将 {name} 固定到动态栏
-    wanted_added: 已将 {name} 加入“想看”
     pinned_removed: 已取消固定 {name}
-    wanted_removed: 已将 {name} 移出“想看”
     remove_pinned: 取消固定 {name}
-    remove_wanted: 将 {name} 移出想看
     remove_pinned_title: 取消固定
-    remove_wanted_title: 移出想看
     pinned_empty: 尚未添加固定 UP 主。添加后会显示在动态栏右侧。
-    wanted_empty: 尚未添加 UP 主。添加后可在 Bewly 动态页的“想看”中筛选。
   authorization_success: 授权成功
   filter_by_title: 按标题筛选
   filter_by_title_desc: >
@@ -1078,12 +1100,9 @@ settings:
   home_tabs_adjustment: 标签栏调整
   home_tabs_adjustment_desc: 第一个激活的标签项是默认界面
   home_tabs_position: 首页标签栏位置
-  always_show_tabs_on_home_page: 滚动隐藏首页标签栏
   fixed_home_tabs_on_home_page: 固定首页标签栏
   topbar_visibility: 顶栏可见性
   topbar_visibility_desc: 开启后显示 BewlyCat 或 B 站原版顶栏；关闭后隐藏两者，交给 Bilibili Evolved 等第三方顶栏。
-  use_original_bilibili_homepage: 使用原版 Bilibili 首页
-  use_original_bilibili_homepage_desc: 在您更改此设置后，如果在首页上，页面将自动刷新！
   use_original_bilibili_topbar: 使用原版 Bilibili 顶栏
   use_original_bilibili_topbar_desc: 仅在「顶栏可见性」开启时生效。开启后使用 B 站原版顶栏，关闭后使用 BewlyCat 顶栏。
   top_bar_mode: 顶栏类型
@@ -1094,6 +1113,10 @@ settings:
   adapt_to_other_page_styles_desc: 适应一些常见页面，以与 BewlyCat 主题相匹配。
   disable_background: 关闭背景
   disable_background_desc: 彻底关闭插件页面的纯色背景、渐变背景和壁纸（含搜索页壁纸），显示 B 站原页面背景。
+  video_page_glass_style: 视频页玻璃风格
+  video_page_glass_style_desc: 在视频与番剧播放页（含 Bewly 宽屏）显示背景，整页铺一层毛玻璃使内容直接融入。壁纸、遮罩、渐变和模糊强度沿用外观设置，不含课程页。
+  rounded_video_player: 视频播放器圆角
+  rounded_video_player_desc: 为视频与番剧页播放器添加圆角，全屏、网页全屏与小窗下保持直角。
   prevent_mobile_redirect: 防止跳转移动端
   prevent_mobile_redirect_desc: 开启后，避免访问 www.bilibili.com 时被跳转到移动版页面。
   enable_firefox_scrollbar_repaint: Firefox 滚动条重绘
@@ -1105,7 +1128,7 @@ settings:
   upstream_github: 上游 GitHub
   import_settings: 导入设置
   export_settings: 导出设置
-  export_settings_desc: 一些敏感的数据，例如 access key，可能需要重新获取。
+  export_settings_desc: 一些敏感的数据，例如 access key，可能需要重新获取。本地上传的背景图片会一并导出。
   reset_settings: 重置设置
   reset_settings_confirm: |-
     重置设置？
@@ -1192,8 +1215,6 @@ settings:
     caption_desc: 打开/关闭字幕
     video_screenshot: 视频截图
     video_screenshot_desc: 将当前视频画面保存为 PNG 图片，关闭播放器截图按钮后仍可使用。
-    listen_video: 听视频
-    listen_video_desc: 切换听视频模式，隐藏视频画面、仅保留声音播放。
     increase_playback_rate: 加速播放
     increase_playback_rate_desc: 提高播放速度
     decrease_playback_rate: 减速播放
@@ -1265,6 +1286,8 @@ settings:
   adjust_comment_image_height_desc: 自动调整评论区图片高度以匹配实际长宽比，避免图片变形
   hide_comment_image_scrollbar: 评论图片预览时隐藏页面滚动条
   hide_comment_image_scrollbar_desc: 打开评论区图片预览时隐藏页面右侧滚动条，避免滚动条显示在遮罩右侧
+  image_viewer_close_at_bottom: 图片查看器关闭按钮置于底部居中
+  image_viewer_close_at_bottom_desc: 将评论区和动态图片查看器的关闭按钮从顶部移到底部居中
   group_fonts: 字体
   group_visual_effects: 视觉效果
 auth:
@@ -1404,6 +1427,7 @@ video_card:
     follow_user: 关注用户
     unfollow_user: 取消关注
     block_user: 拉黑用户
+    customize_menu: 自定义菜单
     more_options: 更多操作
     scroll_top: 滚动到顶部
     scroll_bottom: 滚动到底部
@@ -1440,6 +1464,7 @@ home:
   following_group_name: '分组 {id}'
   following_groups_load_failed: 分组加载失败，暂按更新时间展示
   following_groups_retry: 重试
+  following_list_load_failed: 关注列表加载失败
   following_move_group: 移动分组
   following_remove_special: 取消特别关注
   following_add_special: 设为特别关注
@@ -1454,6 +1479,15 @@ home:
   app_authorization_required: App 模式的 access token 已缺失或过期，请重新授权后继续使用个性推荐
   reauthorize_app: 重新授权
   recommendation_filter_risk_warning: 当前过滤条件在 {total} 条有效推荐中仅保留了 {count} 条，容易频繁请求并触发接口风控，建议适当放宽过滤条件。
+  recommendation_filter:
+    entry: 推荐过滤
+    entry_active: 推荐过滤（已启用 {count} 项）
+    title: 推荐过滤
+    more_settings: 更多设置
+    vertical_videos: 过滤竖屏视频
+    rule_count: '{count} 条规则'
+    manage: 管理
+    apply_hint: 关闭面板后按新条件刷新推荐。
   tell_us_why: 为什么这么做...
   not_interested_desc: >
     你可以使用 <kbd>↑</kbd> 和 <kbd>↓</kbd> 来选择原因，或者直接使用数字键选择原因，按 <kbd>Enter</kbd>
@@ -1486,6 +1520,18 @@ home:
   immersive_previous: 上一个
   immersive_next: 下一个
   recommendations_retry: 首页推荐接口连续请求失败，请刷新后重试
+  recommendation_failed: 首页推荐加载失败：{reason}
+  app_recommendation_failed: App 推荐数据加载失败：{reason}
+  recommendation_failure_reason:
+    background: 扩展后台连接已中断，请刷新页面；仍然失败时请在扩展管理页重新启用 BewlyCat
+    offline: 网络已断开，请恢复联网后刷新重试
+    timeout: 请求超时，可能是网络较慢，或代理、IPv6 线路异常，请检查网络后刷新重试
+    network: 无法连接 B 站服务器，请检查网络和代理设置，并确认广告拦截等扩展没有拦截 B 站接口
+    http: B 站服务器返回 HTTP {status}，服务可能暂时异常，请稍后刷新重试
+    invalid_response: 返回内容无法解析，可能被代理、网关或网络环境改写，请检查网络环境后重试
+    api: 接口返回错误（{detail}），请稍后刷新重试
+    empty: 接口连续返回空列表，B 站可能暂时限制了推荐，请稍后再试
+    risk_control: 请求触发了 B 站风控，请降低刷新频率并稍后再试
   weekly_issue: 第{number}期
   select_issue: 选择期号
   search_issue: 搜索期号…
@@ -1567,6 +1613,7 @@ favorites:
     该操作无法撤销，你确定要取消收藏这些视频吗？
   search_current_folder: 当前
   search_all_folders: 全部
+  clear_search: 清空搜索
   search_placeholder: 搜索当前收藏夹
   global_search_placeholder: 搜索全部收藏夹
   global_search_hint: 请输入关键词以搜索全部收藏夹
@@ -1628,7 +1675,6 @@ watch_later:
   play_in_watch_later: 列表播放
   remove_from_watch_later: 移除
   removed: 已移出稍后再看
-  remove_confirm: 确定移出稍后再看？
   layout_list: 列表视图
   layout_grid: 网格视图
 search_bar:
@@ -1711,12 +1757,19 @@ search:
   match_upcoming: 未开始
   match_live: 进行中
 moments:
+  filter_panel:
+    entry: 动态过滤
+    entry_active: 动态过滤（已启用 {count} 项）
+    more_settings: 更多设置
+    shown_types: 选中的类型会显示在动态流中
+    apply_hint: 关闭面板后按新条件刷新动态。
   filter_all: 全部
   filter_video: 视频投稿
   filter_pgc: 追番追剧
   filter_article: 专栏
   last_seen: 上次看到这里
   newer_above: 上方还有更新的动态
+  released_above: 上方部分动态已释放
   jump_to_latest: 回到最新
   jump_to_last_seen: 跳到上次看到的位置
   emoji: 表情
@@ -1739,6 +1792,8 @@ moments:
   vote_submit: 投票
   vote_submitted: 已投票
   vote_selected: 你选择了此项
+  vote_expand_options: 展开剩余 {count} 个选项
+  vote_collapse_options: 收起选项
   vote_time_day: '{count}天'
   vote_time_hour: '{count}小时'
   vote_time_minute: '{count}分钟'
@@ -1774,19 +1829,12 @@ moments:
   live_now: 直播中
   group_label: 动态分组
   all_posts: 全部动态
-  wanted_only: 只看想看的 UP 主
-  cancel_wanted_only: 取消只看想看的 UP 主
-  wanted_scope_hint: 仅适用于全部和视频投稿
-  wanted: 想看
   scroll_left: 向左滚动经常访问列表
   scroll_right: 向右滚动经常访问列表
   frequent_uploaders: 经常访问的 UP 主
   has_updates: 有更新
   pin_uploader: 固定 UP 主
-  no_recent_updates: 近期无更新
-  add_wanted_first: 请先在设置中添加想看的 UP 主
   empty: 暂时没有可展示的动态
-  recheck: 重新检查
   reload: 重新加载
   loading_more: 正在加载并准备更多动态…
   new_tab: 新建标签页打开
@@ -1954,10 +2002,6 @@ player_state:
   volume: '音量 {volume}%'
   on: 开
   off: 关
-vertical_video:
-  zoom_in: 放大
-  zoom_out: 缩小
-  adjust_area: 调整竖屏放大区域
 favorite_dialog:
   clear_selected: 清空已选
   folder_full: 该收藏夹已满，无法添加

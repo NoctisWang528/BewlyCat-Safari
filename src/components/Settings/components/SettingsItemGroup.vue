@@ -1,22 +1,33 @@
 <script setup lang="ts">
+import { useSettingsSearchNode } from '../composables/useSettingsSearchFilter'
+
 defineProps<{
   title?: string
   desc?: string
   warningDesc?: boolean
   icon?: string
 }>()
+
+const { visible } = useSettingsSearchNode(() => undefined)
 </script>
 
 <template>
-  <div class="b-settings-item-group" :data-settings-title="title">
-    <template v-if="title || desc">
-      <p class="group-title" text="$bew-text-1">
-        <i v-if="icon" :class="icon" />
-        {{ title }}
-      </p>
-      <p v-if="desc" class="group-desc" text="$bew-text-2" :class="{ 'warning-desc': warningDesc }">
-        {{ desc }}
-      </p>
+  <div v-show="visible" class="b-settings-item-group" :data-settings-title="title">
+    <template v-if="title || desc || $slots.action">
+      <div class="group-heading">
+        <div class="group-heading-main">
+          <p v-if="title" class="group-title" text="$bew-text-1">
+            <i v-if="icon" :class="icon" />
+            {{ title }}
+          </p>
+          <p v-if="desc" class="group-desc" text="$bew-text-2" :class="{ 'warning-desc': warningDesc }">
+            {{ desc }}
+          </p>
+        </div>
+        <div v-if="$slots.action" class="group-heading-action">
+          <slot name="action" />
+        </div>
+      </div>
     </template>
 
     <main
@@ -33,6 +44,24 @@ defineProps<{
 <style lang="scss" scoped>
 .b-settings-item-group + .b-settings-item-group {
   --uno: "mt-6";
+}
+
+.group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--bew-space-4);
+  width: 100%;
+  min-width: 0;
+}
+
+.group-heading-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.group-heading-action {
+  flex-shrink: 0;
 }
 
 .group-title {

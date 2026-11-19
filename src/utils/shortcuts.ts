@@ -1,4 +1,5 @@
-import { toggleListenVideo } from '~/contentScripts/listenVideoFeature'
+import { watch } from 'vue'
+
 import { settings } from '~/logic'
 import type { BaseShortcutSetting } from '~/logic/storage'
 import { applyBewlyWidescreen, exitBewlyWidescreen, isBewlyWidescreenActive, isBewlyWidescreenEngaged } from '~/utils/bewlyWidescreen'
@@ -21,7 +22,7 @@ import {
   webFullscreenClick,
   widescreenClick,
 } from '~/utils/player'
-import { getShortcutKeyCandidates, normalizeShortcutKey } from '~/utils/shortcutKeys'
+import { getShortcutKeyCandidates, normalizeShortcutKey, resolveEffectiveShortcutSetting } from '~/utils/shortcutKeys'
 import { captureVideoScreenshot } from '~/utils/videoScreenshot'
 
 // 定义快捷键处理器类型
@@ -82,20 +83,11 @@ export function getShortcutHandler(id: string): ShortcutHandler | undefined {
   return shortcutHandlers[id]
 }
 
-// 放大视频旧默认为 Shift++ 并启用，现已默认未绑定。按新格式 Shift++ 等同 +，会在关闭倍速快捷键后抢占 + 键。
-// 新录制不会产生 Shift++，仍是该值即为未改动的旧默认，运行时按未绑定处理，不改写用户设置。
-const LEGACY_DEFAULT_SHORTCUT_KEYS: Record<string, string> = {
-  increaseVideoSize: 'Shift++',
-}
-
 /**
  * 实际生效的快捷键配置；未改动的旧默认绑定视为未绑定。
  */
 export function getEffectiveShortcutSetting(id: string): BaseShortcutSetting | undefined {
-  const shortcutConfig = settings.value.shortcuts?.[id]
-  if (shortcutConfig && LEGACY_DEFAULT_SHORTCUT_KEYS[id] === shortcutConfig.key)
-    return { key: '', enabled: false }
-  return shortcutConfig
+  return resolveEffectiveShortcutSetting(id, settings.value.shortcuts)
 }
 
 // 缓存快捷键配置：标准化后的按键 -> 快捷键 ID，配置靠前的快捷键优先
@@ -146,13 +138,11 @@ function findShortcutId(e: KeyboardEvent): string | null {
     const id = cachedShortcutIds.get(candidate.toLowerCase())
     if (!id || !shortcutHandlers[id])
       continue
-    // 截图与听视频只在视频播放页响应，避免拦截其他页面或输入法的按键。
-    if ((id === 'videoScreenshot' || id === 'listenVideo')
+    // 截图只在视频播放页响应，避免拦截其他页面或输入法的按键。
+    if (id === 'videoScreenshot'
       && (e.isComposing || !(isVideoPlaybackPage() || isVideoOrBangumiPage()))) {
       continue
     }
-    if (id === 'listenVideo' && !settings.value.enableListenVideo)
-      continue
     // 视频尺寸属于全屏模式快捷键，非全屏时不占用按键，避免抢走其他扩展（如倍速插件）的同名按键。
     if (fullscreenOnlyShortcutIds.has(id) && !isPlayerFullscreen())
       continue
@@ -162,6 +152,7 @@ function findShortcutId(e: KeyboardEvent): string | null {
 }
 
 function shouldIgnoreShortcutEvent(e: KeyboardEvent): boolean {
+  // 设置浮层打开时不响应快捷键，避免与浮层内的输入冲突。
   if (document.getElementById('bewly')?.classList.contains('settings-open'))
     return true
 
@@ -238,6 +229,14 @@ export function installShortcutListener() {
   window.addEventListener('keydown', handleShortcutKeydown, true)
   window.addEventListener('keypress', handleShortcutKeypress, true)
   window.addEventListener('keyup', handleShortcutKeyup, true)
+  watch(
+    () => settings.value.shortcuts,
+    () => {
+      lastSettingsUpdate = 0
+      cachedShortcutIds = null
+    },
+    { deep: true },
+  )
 }
 
 export function setupShortcutHandlers() {
@@ -348,14 +347,6 @@ export function registerDefaultHandlers(): void {
       return
 
     void captureVideoScreenshot()
-  })
-
-  // 听视频模式独立于控制栏按钮开关，长按时不重复切换。
-  registerShortcutHandler('listenVideo', (event) => {
-    if (event.repeat)
-      return
-
-    void toggleListenVideo()
   })
 
   // 增加播放速度

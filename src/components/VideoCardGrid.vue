@@ -4,18 +4,19 @@ import { useDebounceFn } from '@vueuse/core'
 import type { Video, VideoCardRemovedState, VideoCardState } from '~/components/VideoCard/types'
 import { createVideoCardState } from '~/components/VideoCard/types'
 import { isBangumiVideo } from '~/components/VideoCard/utils'
+import { openApiErrorDetails } from '~/composables/useApiErrorDetails'
 import type { BewlyAppProvider } from '~/composables/useAppProvider'
 import type { CardWindowSnapshot } from '~/composables/useCardWindow'
 import { useCardWindow } from '~/composables/useCardWindow'
 import { useGridLayout } from '~/composables/useGridLayout'
 import { useHomeTabViewState } from '~/composables/useHomeTabState'
 import { useUserRelationScope } from '~/composables/useUserRelationScope'
-import { useVideoCardShadowStyle } from '~/composables/useVideoCardShadowStyle'
 import { OVERLAY_SCROLL_BAR_SCROLL } from '~/constants/globalEvents'
 import type { GridLayoutType } from '~/logic'
 import { originalSettings, settings } from '~/logic'
 import { normalizeVideoCardCoverRatio } from '~/logic/storage'
 import { useUserRelationStore } from '~/stores/userRelationStore'
+import type { ApiErrorReportSource } from '~/utils/apiDiagnostics'
 import { getAdaptiveGridColumnCount, getListGridColumnCount } from '~/utils/gridLayout'
 import emitter from '~/utils/mitt'
 
@@ -146,6 +147,11 @@ interface VideoCardGridProps<T = any> {
   emptyDescription?: string
 
   /**
+   * 请求失败时的说明，未提供时使用通用的失败提示
+   */
+  requestFailedDescription?: string
+
+  /**
    * 登录按钮文本
    */
   loginButtonText?: string
@@ -200,6 +206,11 @@ interface VideoCardGridProps<T = any> {
    * @default false
    */
   requestFailed?: boolean
+
+  /**
+   * 请求失败时错误详情弹窗使用的页面信息；未传入时不显示详情按钮。
+   */
+  errorReportSource?: ApiErrorReportSource
 }
 
 const props = withDefaults(defineProps<VideoCardGridProps<T>>(), {
@@ -243,14 +254,15 @@ interface GridSnapshot {
   exposedKeys: (string | number)[]
 }
 const restoredGrid = tabState?.take<GridSnapshot | undefined>(gridStateKey, undefined)
+// Search page tab switches keep the current viewport instead of the old tab's anchor.
+const restoredWindow = restoredGrid?.window && tabState?.preserveScrollOnEntry
+  ? { ...restoredGrid.window, anchor: undefined }
+  : restoredGrid?.window
 let detachGridSnapshot: (() => void) | undefined
 onBeforeUnmount(() => detachGridSnapshot?.())
 
 // 使用共享的 Grid 布局 composable（CSS 媒体查询驱动，无 JS 计算开销）
 const { gridClass, gridCssVars } = useGridLayout(() => props.gridLayout)
-
-// 获取 shadow 样式变量（避免依赖外部传入）
-const { shadowStyleVars } = useVideoCardShadowStyle()
 
 // 首屏骨架数量固定为目标数量，避免 ref 挂载后重新计算列数导致骨架数量变化。
 const dynamicSkeletonCount = computed(() => {
@@ -877,9 +889,8 @@ const horizontalCoverRatio = computed(() => {
   return normalizeVideoCardCoverRatio(value, fallback)
 })
 
-// 合并 shadow、grid 列数和横向卡片宽度分配变量。
+// 合并 grid 列数和横向卡片宽度分配变量。
 const gridContainerStyle = computed(() => ({
-  ...shadowStyleVars.value,
   ...gridCssVars.value,
   '--video-card-cover-flex': horizontalCoverRatio.value,
   '--video-card-info-flex': 100 - horizontalCoverRatio.value,
@@ -890,9 +901,20 @@ const renderedGridClass = computed(() => [
   ...(isAutoSwitchSingleColumn.value ? ['grid-list-auto-switch-single'] : []),
 ])
 
-// 判断是否应该显示空状态（确认无更多内容且数据为空）
+// 判断是否应该显示空状态（确认无更多内容或请求失败，且数据为空）
 const showEmptyState = computed(() => {
-  return !props.loading && props.noMoreContent && props.items.length === 0 && !props.needToLoginFirst
+  return !props.loading
+    && (props.noMoreContent || props.requestFailed)
+    && props.items.length === 0
+    && !props.needToLoginFirst
+})
+
+// 列表底部的结束提示；请求失败时即使还有下一页也要给出说明和重试入口。
+const showListEndState = computed(() => {
+  return props.showNoMoreContent
+    && (props.noMoreContent || (props.requestFailed && !props.loading))
+    && props.items.length > 0
+    && !props.needToLoginFirst
 })
 
 function normalizePositiveInt(value: unknown, fallback: number): number {
@@ -1136,8 +1158,9 @@ const cardWindow = useCardWindow({
   estimatedHeight: estimatedCardHeight,
   layout: cardLayoutKey,
   canRelease: key => mountedCards.get(key)?.canRecycle !== false,
-  snapshot: restoredGrid?.window,
+  snapshot: restoredWindow,
   restoreScroll: tabState?.restoreScroll,
+  afterAnchorRestore: tabState?.keepContentInView,
 })
 detachGridSnapshot = tabState?.capture(gridStateKey, (): GridSnapshot => ({
   window: cardWindow.captureSnapshot(),
@@ -1356,11 +1379,16 @@ function getUniqueKey(item: T, index: number): string | number {
     <Empty
       v-else-if="showEmptyState"
       mt-6
-      :description="emptyDescription || $t('common.no_more_content')"
+      :description="emptyDescription || (requestFailed ? requestFailedDescription || $t('common.api_error.request_failed') : $t('common.no_more_content'))"
     >
-      <Button type="primary" @click="handleRefresh">
-        {{ refreshButtonText || $t('common.operation.refresh') }}
-      </Button>
+      <div class="grid-state-actions">
+        <Button type="primary" @click="handleRefresh">
+          {{ refreshButtonText || $t('common.operation.refresh') }}
+        </Button>
+        <Button v-if="requestFailed && errorReportSource" type="secondary" @click="openApiErrorDetails(errorReportSource)">
+          {{ $t('common.api_error.details') }}
+        </Button>
+      </div>
     </Empty>
 
     <!-- 统一的 Grid 容器 - 保持 ref 稳定 -->
@@ -1409,11 +1437,16 @@ function getUniqueKey(item: T, index: number): string | number {
       :min-height="loadMoreIndicatorHeight"
     />
 
-    <!-- 无更多内容提示（仅在有数据时显示，避免与空列表提示重复） -->
-    <Empty v-if="showNoMoreContent && noMoreContent && !needToLoginFirst && items.length > 0" class="pb-4" :description="$t('common.no_more_content')">
-      <Button type="primary" @click="handleRefresh">
-        {{ refreshButtonText || $t('common.operation.refresh') }}
-      </Button>
+    <!-- 无更多内容或请求失败提示（仅在有数据时显示，避免与空列表提示重复） -->
+    <Empty v-if="showListEndState" class="pb-4" :description="requestFailed ? requestFailedDescription || $t('common.api_error.request_failed') : $t('common.no_more_content')">
+      <div class="grid-state-actions">
+        <Button type="primary" @click="handleRefresh">
+          {{ refreshButtonText || $t('common.operation.refresh') }}
+        </Button>
+        <Button v-if="requestFailed && errorReportSource" type="secondary" @click="openApiErrorDetails(errorReportSource)">
+          {{ $t('common.api_error.details') }}
+        </Button>
+      </div>
     </Empty>
   </div>
 </template>
@@ -1421,6 +1454,13 @@ function getUniqueKey(item: T, index: number): string | number {
 <style lang="scss" scoped>
 .video-card-grid-root {
   container-type: inline-size;
+}
+
+.grid-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--bew-space-2);
 }
 
 .video-card-slot {

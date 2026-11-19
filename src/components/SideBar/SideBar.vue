@@ -177,12 +177,18 @@ function toggleHideSidebar(hide: boolean) {
   }
 }
 
+.sidebar-edit-button.active {
+  // 与首页 Dock 的完成态一致，并保持悬停时的高亮。
+  --uno: "important-bg-$bew-theme-color text-white !dark:bg-white !dark:text-black";
+}
+
 .left-side {
   --uno: "left-0";
 }
 
 .right-side {
-  --uno: "right-0";
+  // 与右侧 Dock 一致，让出首页滚动条槽位。
+  right: var(--bew-page-scrollbar-gutter, 0px);
 }
 
 .sidebar-edge {

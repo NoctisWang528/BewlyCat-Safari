@@ -1,10 +1,10 @@
-// generate stub index.html files for dev entry
 import { execSync } from 'node:child_process'
 import process from 'node:process'
 
 import chokidar from 'chokidar'
 import fs from 'fs-extra'
 
+import { compressContributorsSvg, isCompressedContributorsSvg } from './compressContributorsSvg'
 import { isDev, isFirefox, isSafari, log, r } from './utils'
 
 const extensionDirectory = isFirefox
@@ -14,36 +14,18 @@ const contributorsImageUrl = 'https://contrib.rocks/image?repo=keleus/BewlyCat'
 const contributorsImageCachePath = r('.cache/bewlycat/contributors.svg')
 const contributorsImagePath = r(extensionDirectory, 'assets/contributors.svg')
 
-/**
- * Stub index.html to use Vite in development
- */
-async function stubIndexHtml() {
-  const views = [
-    'options',
-    'popup',
-  ]
-
-  for (const view of views) {
-    await fs.ensureDir(r(
-      isFirefox
-        ? `extension-firefox/dist/${view}`
-        : isSafari ? `extension-safari/dist/${view}` : `extension/dist/${view}`,
-    ))
-    let data = await fs.readFile(r(`src/${view}/index.html`), 'utf-8')
-    data = data
-      .replace('"./main.ts"', `"/${view}/main.ts.js"`)
-      .replace('<div id="app"></div>', '<div id="app">Vite server did not start</div>')
-    await fs.writeFile(r(
-      isFirefox
-        ? `extension-firefox/dist/${view}/index.html`
-        : isSafari ? `extension-safari/dist/${view}/index.html` : `extension/dist/${view}/index.html`,
-    ), data, 'utf-8')
-    log('PRE', `stub ${view}`)
-  }
-}
-
 function writeManifest() {
   execSync('esno ./scripts/manifest.ts', { stdio: 'inherit' })
+}
+
+async function hasUsableImage(path: string): Promise<boolean> {
+  try {
+    const stats = await fs.stat(path)
+    return stats.isFile() && stats.size > 0
+  }
+  catch {
+    return false
+  }
 }
 
 async function downloadContributorsImage() {
@@ -71,38 +53,69 @@ async function downloadContributorsImage() {
     await fs.ensureDir(r('.cache/bewlycat'))
     await fs.writeFile(temporaryPath, image)
     await fs.move(temporaryPath, contributorsImageCachePath, { overwrite: true })
-    await fs.copy(contributorsImageCachePath, contributorsImagePath, { overwrite: true })
-    log('PRE', 'download contributors image')
+    return true
   }
   catch (error) {
     await fs.remove(temporaryPath)
 
-    if (await fs.pathExists(contributorsImageCachePath)) {
-      await fs.copy(contributorsImageCachePath, contributorsImagePath, { overwrite: true })
-      log('PRE', 'use cached contributors image')
-      return
-    }
-
     const message = error instanceof Error ? error.message : String(error)
-    console.warn(`[PRE] no cached contributors image available; use the cloud image at runtime: ${message}`)
+    console.warn(`[PRE] could not download contributors image; About page will use the cloud image: ${message}`)
+    return false
   }
   finally {
     clearTimeout(timeout)
   }
 }
 
+async function syncCompressedContributorsImage() {
+  let svg = await fs.readFile(contributorsImageCachePath, 'utf-8')
+  if (!isCompressedContributorsSvg(svg)) {
+    const temporaryPath = `${contributorsImageCachePath}.${process.pid}.tmp`
+    try {
+      const compressed = compressContributorsSvg(svg)
+      if (compressed.length > 0 && compressed.length <= svg.length) {
+        await fs.writeFile(temporaryPath, compressed, 'utf-8')
+        await fs.move(temporaryPath, contributorsImageCachePath, { overwrite: true })
+        svg = compressed
+      }
+    }
+    catch (error) {
+      await fs.remove(temporaryPath)
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(`[PRE] could not compress contributors image, using original: ${message}`)
+    }
+  }
+
+  await fs.outputFile(contributorsImagePath, svg, 'utf-8')
+}
+
+// 开发模式不联网：有缓存就直接用，没有则留给「关于」页在运行时回退到云端图片。
+// 生产构建只在本地没有可用图片时才下载，避免每次打包都等待网络。
+async function prepareContributorsImage() {
+  if (await hasUsableImage(contributorsImageCachePath)) {
+    await syncCompressedContributorsImage()
+    log('PRE', 'use cached contributors image')
+    return
+  }
+
+  if (isDev) {
+    log('PRE', 'skip contributors image download in dev; About page will use the cloud image')
+    return
+  }
+
+  if (await downloadContributorsImage()) {
+    await syncCompressedContributorsImage()
+    log('PRE', 'download contributors image')
+  }
+}
+
 async function prepare() {
   fs.ensureDirSync(r(extensionDirectory))
   fs.copySync(r('assets'), r(extensionDirectory, 'assets'))
-  await downloadContributorsImage()
+  await prepareContributorsImage()
   writeManifest()
 
   if (isDev) {
-    await stubIndexHtml()
-    chokidar.watch(r('src/**/*.html'))
-      .on('change', () => {
-        stubIndexHtml()
-      })
     chokidar.watch([r('src/manifest.ts'), r('package.json')])
       .on('change', () => {
         writeManifest()

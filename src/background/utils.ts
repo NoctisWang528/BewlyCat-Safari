@@ -7,10 +7,12 @@ import browser from 'webextension-polyfill'
 
 import { waitWithSignal } from '~/utils/abort'
 
+import type { ApiRequestAttempt } from './apiDiagnostics'
+import { captureApiResponse, isApiResponseFailure, reportApiFailure } from './apiDiagnostics'
 import { createApiResponseCache } from './apiResponseCache'
 import { withRequestTimeout } from './requestTimeout'
 import { requestWithSafariCompat } from './requestWithSafariCompat'
-import { addWbiSign, clearWbiKeys, getWbiKeys, initWbiKeys, isBilibiliNavUrl, needsWbiSign, storeWbiKeys } from './wbiSign'
+import { addWbiSign, clearWbiKeys, getWbiKeys, initWbiKeys, isBilibiliNavUrl, needsWbiSign, parseBilibiliApiUrl, storeWbiKeys } from './wbiSign'
 
 const cacheApiResponse = createApiResponseCache()
 
@@ -23,11 +25,26 @@ export class ApiRiskControlError extends Error {
 
 type FetchAfterHandler = ((data: Response) => Promise<any>) | ((data: any) => any)
 
+/**
+ * 响应不是可解析的 JSON。消息中的 `HTTP xxx` 会经消息通道保留下来，
+ * 页面据此区分服务端异常与被代理、网关改写的响应。
+ */
+class ApiInvalidResponseError extends Error {
+  constructor(status: number) {
+    super(`Invalid JSON response (HTTP ${status})`)
+    this.name = 'ApiInvalidResponseError'
+  }
+}
+
 async function toJsonHandler(data: Response): Promise<any> {
   const contentType = data.headers.get('content-type')
+  // 5xx 的 HTML 是网关或服务端错误页，不是风控验证页。
+  const isServerError = data.status >= 500
 
   // 检测是否返回了HTML（风控页面）
   if (contentType && contentType.includes('text/html')) {
+    if (isServerError)
+      throw new ApiInvalidResponseError(data.status)
     throw new ApiRiskControlError()
   }
 
@@ -38,13 +55,13 @@ async function toJsonHandler(data: Response): Promise<any> {
   try {
     return await data.json()
   }
-  catch (error) {
+  catch {
     // 如果JSON解析失败，可能也是风控页面
     const text = await fallbackResponse.text()
-    if (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+    if (!isServerError && (text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html'))) {
       throw new ApiRiskControlError()
     }
-    throw error
+    throw new ApiInvalidResponseError(data.status)
   }
 }
 function toData(data: Promise<any>): Promise<any> {
@@ -108,7 +125,7 @@ function apiListenerFactory(API_MAP: APIMAP) {
     // eslint-disable-next-line node/prefer-global/process
     if (process.env.FIREFOX && sender && sender.tab?.id) {
       if (api._fetch.credentials === 'omit' || typedMessage.bewlyNoCookie === true)
-        return await doCachedRequest(typedMessage, api, sender.tab, undefined, signal)
+        return await doCachedRequest(typedMessage, api, sender, sender.tab, undefined, signal)
 
       // 获取tab信息以获取正确的cookieStoreId
       const tab = await browser.tabs.get(sender.tab.id)
@@ -116,22 +133,23 @@ function apiListenerFactory(API_MAP: APIMAP) {
       // Only copy cookies that the API target would receive naturally. Filtering
       // by store alone can mix cookies from unrelated permitted Bilibili hosts.
       const cookies = await browser.cookies.getAll({ url: api.url, storeId })
-      return await doCachedRequest(typedMessage, api, tab, cookies, signal)
+      return await doCachedRequest(typedMessage, api, sender, tab, cookies, signal)
     }
 
-    return await doCachedRequest(typedMessage, api, sender?.tab, undefined, signal)
+    return await doCachedRequest(typedMessage, api, sender, sender?.tab, undefined, signal)
   }
 }
 
 async function doCachedRequest(
   message: Message,
   api: API,
+  sender?: Browser.Runtime.MessageSender,
   tab?: Browser.Tabs.Tab,
   cookies?: Browser.Cookies.Cookie[],
   signal?: AbortSignal,
 ) {
   signal?.throwIfAborted()
-  const request = () => doRequest(message, api, cookies, signal)
+  const request = () => doRequest(message, api, sender, cookies, signal)
 
   if (!api.cacheMaxAge || api._fetch.method.toLowerCase() !== 'get')
     return request()
@@ -150,26 +168,30 @@ async function doCachedRequest(
   ])
   // 缓存中的网络请求由所有等待者共享；一个页面取消只退出自己的等待。
   signal?.throwIfAborted()
-  return waitWithSignal(cacheApiResponse(key, api.cacheMaxAge, () => doRequest(message, api, cookies, signal)), signal)
+  return waitWithSignal(cacheApiResponse(key, api.cacheMaxAge, () => doRequest(message, api, sender, cookies)), signal)
 }
 
 function hasRequestValue(value: unknown) {
   return value !== undefined && value !== null && value !== ''
 }
 
-async function doRequest(message: Message, api: API, cookies?: Browser.Cookies.Cookie[], signal?: AbortSignal) {
-  if (api._fetch.method.toLowerCase() === 'get') {
-    return withRequestTimeout(
-      requestSignal => performApiRequest(message, api, cookies, requestSignal),
-      signal,
-    )
-  }
-  return performApiRequest(message, api, cookies, signal)
+function doRequest(message: Message, api: API, sender?: Browser.Runtime.MessageSender, cookies?: Browser.Cookies.Cookie[], signal?: AbortSignal) {
+  if (api._fetch.method.toLowerCase() === 'get')
+    return withRequestTimeout(requestSignal => performApiRequest(message, api, sender, cookies, requestSignal), signal)
+  return performApiRequest(message, api, sender, cookies, signal)
 }
 
-async function performApiRequest(message: Message, api: API, cookies?: Browser.Cookies.Cookie[], signal?: AbortSignal) {
+async function performApiRequest(message: Message, api: API, sender?: Browser.Runtime.MessageSender, cookies?: Browser.Cookies.Cookie[], signal?: AbortSignal) {
+  const startedAt = Date.now()
+  const attempt: ApiRequestAttempt = { url: api.url, method: api._fetch.method }
+  const reportFailure = (failure: { response?: unknown, error?: unknown }) => {
+    // 主动取消不是接口故障；超时同样经 signal 结束，但仍需要记录。
+    if (!signal?.aborted || signal.reason?.name === 'TimeoutError')
+      void reportApiFailure(sender, 'web', message.contentScriptQuery, attempt, startedAt, failure)
+  }
+
   try {
-    let { contentScriptQuery, bewlyNoCookie = false, ...rest } = message
+    let { contentScriptQuery, bewlyNoCookie = false, bewlyLocale, ...rest } = message
     // rest above two part body or params
     rest = rest || {}
 
@@ -195,9 +217,16 @@ async function performApiRequest(message: Message, api: API, cookies?: Browser.C
         targetParams[key] = rest[key]
     })
 
+    // 与 B 站网页一致：内容接口按该参数返回 translated_title，WBI 接口需一并签名，nav 不携带。
+    if (bewlyLocale && isGET && parseBilibiliApiUrl(url) && !isBilibiliNavUrl(url))
+      targetParams['x-bili-locale-json'] = bewlyLocale
+
     const baseUrl = url
     const needsWbi = needsWbiSign(url)
     const wbiKeyOptions = { noCookie: credentials === 'omit' }
+    attempt.credentials = credentials
+    if (needsWbi)
+      attempt.wbi = { signed: false, refreshedKeys: false, fellBackToUnsigned: false }
 
     // 如果需要WBI签名但没有密钥，主动获取密钥
     if (needsWbi && !getWbiKeys(wbiKeyOptions)) {
@@ -265,21 +294,20 @@ async function performApiRequest(message: Message, api: API, cookies?: Browser.C
         requestHeaders.Referer = `https://space.bilibili.com/${targetParams.mid}/`
       }
 
-      // get cant take body
-      const fetchOpt: any = {
-        method,
-        headers: requestHeaders,
-        credentials,
-        signal,
-      }
-      if (!isGET)
-        fetchOpt.body = requestBody
+      // 只记录地址和请求体；请求头含 Firefox 多账户 Cookie，不进入诊断记录。
+      attempt.url = requestUrl
+      attempt.body = isGET ? undefined : requestBody
+      attempt.status = undefined
+      attempt.contentType = undefined
+      attempt.preview = undefined
+      if (attempt.wbi)
+        attempt.wbi.signed = useWbi
 
       return requestWithSafariCompat({
         url: requestUrl,
         method,
         headers: requestHeaders,
-        body: fetchOpt.body ?? null,
+        body: isGET ? null : requestBody ?? null,
         credentials,
         signal,
       })
@@ -301,6 +329,7 @@ async function performApiRequest(message: Message, api: API, cookies?: Browser.C
     // 执行完整请求流程的函数（包括响应处理）
     const executeFullRequest = async (useWbi: boolean) => {
       let response = await performRequest(useWbi)
+      captureApiResponse(attempt, response)
 
       // 如果是获取用户信息的API，在响应后存储WBI密钥
       if (isBilibiliNavUrl(baseUrl)) {
@@ -338,6 +367,8 @@ async function performApiRequest(message: Message, api: API, cookies?: Browser.C
         // 避免把签名失效误判成业务侧的访问权限不足。
         if (needsWbi && !hasRefreshedWbiKeys && isWbiSignatureRejected(response)) {
           hasRefreshedWbiKeys = true
+          if (attempt.wbi)
+            attempt.wbi.refreshedKeys = true
           console.warn('[BewlyCat][WBI] 签名被接口拒绝，刷新密钥后重试', {
             url: baseUrl,
             noCookie: wbiKeyOptions.noCookie,
@@ -372,6 +403,8 @@ async function performApiRequest(message: Message, api: API, cookies?: Browser.C
         // 如果使用了 WBI 签名且失败，尝试不带 WBI 签名重试
         if (needsWbi && !hasTriedWithoutWbi) {
           hasTriedWithoutWbi = true
+          if (attempt.wbi)
+            attempt.wbi.fellBackToUnsigned = true
           const errorRecord = error && typeof error === 'object'
             ? error as Record<string, unknown>
             : undefined
@@ -389,7 +422,12 @@ async function performApiRequest(message: Message, api: API, cookies?: Browser.C
     }
 
     // 执行请求并进行统一错误处理
-    return executeRequestWithRetry().catch((error) => {
+    return executeRequestWithRetry().then((response) => {
+      if (isApiResponseFailure(response))
+        reportFailure({ response })
+      return response
+    }).catch((error) => {
+      reportFailure({ error })
       signal?.throwIfAborted()
       if (error instanceof ApiRiskControlError) {
         // 返回统一的风控错误格式
@@ -410,6 +448,7 @@ async function performApiRequest(message: Message, api: API, cookies?: Browser.C
     })
   }
   catch (e) {
+    reportFailure({ error: e })
     signal?.throwIfAborted()
     const initError = new Error(e instanceof Error ? e.message : '请求初始化失败')
     Object.assign(initError, {

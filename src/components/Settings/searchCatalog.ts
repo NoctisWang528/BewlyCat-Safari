@@ -112,11 +112,23 @@ const dockRoute: SearchRoute = {
   secondaryTitleKey: 'settings.plugin.dock_and_sidebar',
   storageKey: bewlyComponentsStorageKey,
 }
+const interactionRoute: SearchRoute = {
+  menu: MenuType.BewlyComponents,
+  secondaryPage: 'interaction',
+  secondaryTitleKey: 'settings.plugin.interaction',
+  storageKey: bewlyComponentsStorageKey,
+}
 const favoritesRoute: SearchRoute = {
-  menu: MenuType.BewlyPages,
-  secondaryPage: 'favorites',
-  secondaryTitleKey: 'settings.plugin.favorites',
-  storageKey: bewlyPagesStorageKey,
+  menu: MenuType.Bilibili,
+  secondaryPage: 'favorite-organizer',
+  secondaryTitleKey: 'settings.bilibili_features.favorite_organizer',
+  storageKey: bilibiliStorageKey,
+}
+const originalMomentsRoute: SearchRoute = {
+  menu: MenuType.Bilibili,
+  secondaryPage: 'moments',
+  secondaryTitleKey: 'settings.bilibili_features.moments',
+  storageKey: bilibiliStorageKey,
 }
 const searchPageRoute: SearchRoute = {
   menu: MenuType.BewlyPages,
@@ -128,12 +140,6 @@ const playerRoute: SearchRoute = {
   menu: MenuType.Bilibili,
   secondaryPage: 'player',
   secondaryTitleKey: 'settings.bilibili_features.video_playback',
-  storageKey: bilibiliStorageKey,
-}
-const listenVideoRoute: SearchRoute = {
-  menu: MenuType.Bilibili,
-  secondaryPage: 'listen-video',
-  secondaryTitleKey: 'settings.bilibili_features.listen_video',
   storageKey: bilibiliStorageKey,
 }
 const volumeBalanceRoute: SearchRoute = {
@@ -174,6 +180,7 @@ const compatibilityRoute: SearchRoute = {
   storageKey: bilibiliStorageKey,
 }
 const shortcutsRoute: SearchRoute = { menu: MenuType.Shortcuts }
+const dataRoute: SearchRoute = { menu: MenuType.Data }
 const aboutRoute: SearchRoute = { menu: MenuType.About }
 
 const wallpaperTitleKeys = [
@@ -229,26 +236,65 @@ const topBarGlobalTitleKeys = [
   'settings.filter_articles_in_moments',
 ]
 
+/** 只在 Bewly 页面中生效；关闭 Bewly 页面后从搜索结果中隐藏。 */
+export const bewlyPagesOnlyTitleKeys = new Set([
+  ...wallpaperTitleKeys,
+  'settings.disable_background',
+  'settings.sidebar_cover_blur',
+  'settings.gradient_theme_color_background',
+  'settings.always_use_dock',
+  'settings.dock_item_use_original_bili_web_page',
+  'settings.video_card_link_opening_behavior',
+  'settings.group_list_scrolling',
+  'settings.enable_horizontal_scrolling',
+])
+
+/** 视频页玻璃风格同样使用这些外观设置；开启后不随 Bewly 页面一起隐藏。 */
+export const videoPageBackgroundTitleKeys = new Set([
+  ...wallpaperTitleKeys,
+  'settings.gradient_theme_color_background',
+])
+
+/** 只在 Bewly 顶栏中生效；关闭 Bewly 顶栏后从搜索结果中隐藏。 */
+export const bewlyTopBarOnlyTitleKeys = new Set([
+  'settings.top_bar_link_opening_behavior',
+])
+
 const baseSettingsSearchEntries: SettingsSearchEntry[] = [
   ...createEntries(generalRoute, [
     'settings.menu_general',
     'settings.group_language',
     'settings.select_language',
-    'settings.group_interaction_layout',
+    'settings.group_interaction',
     'settings.touch_screen_optimization',
-    'settings.enable_grid_layout_switcher',
+  ]),
+  ...createEntries(interactionRoute, [
+    'settings.plugin.interaction',
+    'settings.group_list_scrolling',
     'settings.enable_horizontal_scrolling',
     'settings.group_drawer_behavior',
     'settings.close_drawer_without_pressing_esc_again',
+    'settings.hide_drawer_esc_hint',
   ]),
-  ...createEntries(generalRoute, [
+  ...createEntries(interactionRoute, [
     'settings.group_link_opening_behavior',
     'settings.top_bar_link_opening_behavior',
     'settings.search_bar_link_opening_behavior',
   ], { keywordKeys: linkOpeningOptionKeys }),
-  ...createEntries(generalRoute, [
+  ...createEntries(interactionRoute, [
     'settings.video_card_link_opening_behavior',
   ], { keywordKeys: videoCardLinkOpeningOptionKeys }),
+  ...createEntries(generalRoute, [
+    'settings.group_modules_interface',
+    'settings.group_modules_enhancements',
+    'settings.module_bewly_pages',
+    'settings.module_top_bar',
+    'settings.module_dock',
+    'settings.adapt_to_other_page_styles',
+    'settings.module_comments',
+    'settings.module_player',
+    'settings.module_shortcuts',
+  ]),
   ...createEntries(homeRoute, [
     'settings.menu_bewly_pages',
   ], { targetTitleKey: 'settings.plugin.home' }),
@@ -261,6 +307,15 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
   }),
   ...createEntries(homeRoute, [
     'settings.plugin.home',
+    'settings.group_search_page_mode',
+    'settings.use_search_page_mode',
+    'settings.settings_shared_with_the_search_page',
+    'settings.search_page_mode_wallpaper_fixed',
+    'settings.group_home_tabs',
+    'settings.home_tabs_adjustment',
+    'settings.home_tabs_position',
+    'settings.fixed_home_tabs_on_home_page',
+    'settings.enable_grid_layout_switcher',
     'settings.group_recommendation_mode',
     'settings.show_recommendation_mode_switcher',
     'settings.recommendation_mode_switcher_options',
@@ -276,6 +331,7 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
     'settings.auto_switch_recommendation_mode',
     'settings.preserve_for_you_state',
     'settings.group_recommendation_filters',
+    'settings.show_recommendation_filter_entry',
     'settings.show_recommendation_filter_risk_warning',
     'settings.disable_filters_for_followed_users',
     'settings.filter_out_vertical_videos',
@@ -290,14 +346,6 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
     'settings.following_tab_show_livestreaming_videos',
     'settings.following_filter_charging_videos',
     'settings.following_filter_dynamic_videos',
-    'settings.group_home_tabs',
-    'settings.home_tabs_adjustment',
-    'settings.home_tabs_position',
-    'settings.fixed_home_tabs_on_home_page',
-    'settings.group_search_page_mode',
-    'settings.use_search_page_mode',
-    'settings.settings_shared_with_the_search_page',
-    'settings.search_page_mode_wallpaper_fixed',
   ]),
   ...createEntries(homeRoute, [
     'settings.recommendation_mode',
@@ -312,14 +360,6 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
   }),
   ...createEntries(momentsRoute, [
     'settings.plugin.moments',
-    'settings.group_original_moments_page',
-    'settings.original_moments_show_user_card',
-    'settings.original_moments_show_live_list',
-    'settings.original_moments_show_community_center',
-    'settings.original_moments_show_hot_search',
-    'settings.original_moments_show_up_list',
-    'settings.original_moments_show_fold_comments_button',
-    'settings.original_moments_click_blank_to_fold_comments',
     'settings.group_new_moments_page',
     'settings.moments_visible_components',
     'settings.moments_filtered_types',
@@ -328,6 +368,7 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
     'settings.moments_show_live',
     'settings.moments_show_hot_search',
     'settings.moments_show_up_list',
+    'settings.moments_grid_columns',
     'settings.moments_tabs_position',
     'settings.moments_start_from_last_seen',
     'settings.moments_enable_live_preview',
@@ -339,6 +380,7 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
     'settings.moments_card_open_mode',
     'settings.moments_video_card_open_mode',
     'settings.group_moments_filters',
+    'settings.moments_show_filter_entry',
     'settings.moments_filter_video_dynamic',
     'settings.moments_filter_draw_dynamic',
     'settings.moments_filter_ugc_season_dynamic',
@@ -350,16 +392,10 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
     'settings.moments_filter_live_reservation',
     'settings.moments_filter_live_dynamic',
     'settings.moments_keyword_filter',
-    'settings.original_moments_use_bewly_filters',
-    'settings.group_moments_wanted_users',
-    'settings.moments_enable_wanted_filter',
-    'settings.moments_wanted_users',
     'settings.group_moments_pinned_users',
     'settings.moments_pinned_users',
   ], {
     contextTitleKeysByTitleKey: {
-      'settings.original_moments_show_user_card': 'settings.group_original_moments_page',
-      'settings.original_moments_show_hot_search': 'settings.group_original_moments_page',
       'settings.moments_show_user_card': 'settings.group_new_moments_page',
       'settings.moments_show_hot_search': 'settings.group_new_moments_page',
     },
@@ -370,13 +406,27 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
   ...createEntries(momentsRoute, [
     'settings.moments_hide_charge_exclusive',
   ], { targetTitleKey: 'settings.moments_filter_charge_dynamic' }),
+  ...createEntries(originalMomentsRoute, [
+    'settings.bilibili_features.moments',
+    'settings.group_original_moments_page',
+    'settings.original_moments_show_user_card',
+    'settings.original_moments_show_live_list',
+    'settings.original_moments_show_community_center',
+    'settings.original_moments_show_hot_search',
+    'settings.original_moments_show_up_list',
+    'settings.original_moments_show_fold_comments_button',
+    'settings.original_moments_click_blank_to_fold_comments',
+    'settings.original_moments_use_bewly_filters',
+    'settings.moments_filtered_types',
+    'settings.moments_keyword_filter',
+  ], { keywordKeys: ['settings.bilibili_features.moments'] }),
   ...createEntries(favoritesRoute, [
-    'settings.plugin.favorites',
+    'settings.bilibili_features.favorite_organizer',
     'settings.group_favorite_organizer',
     'settings.favorite_organizer.sync_after_triple',
     'settings.favorite_organizer.batch_title',
     'settings.favorite_organizer.rules_title',
-  ]),
+  ], { keywordKeys: ['settings.bilibili_features.favorite_organizer'] }),
   ...createEntries(videoCardRoute, [
     'settings.plugin.video_card',
     'settings.group_video_card_grid',
@@ -425,8 +475,7 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
     'video_card.operation.copy_av_number',
     'video_card.operation.view_the_original_cover',
     'video_card.operation.block_user',
-    'settings.video_card_shadow_curve',
-    'settings.video_card_shadow_height',
+    'video_card.operation.customize_menu',
   ]),
   ...createEntries(videoCardRoute, [
     'settings.video_card_title_font_size',
@@ -446,7 +495,7 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
   ...createEntries(topBarRoute, [
     'settings.group_topbar_pinned_channels',
     'settings.topbar_pinned_channels_title',
-  ], { keywordKeys: ['settings.pinned_manager.add', 'settings.pinned_manager.search', 'settings.pinned_manager.undo', 'settings.pinned_manager.categories', 'settings.topbar_pinned_channels_hint'] }),
+  ], { keywordKeys: ['settings.pinned_manager.add', 'settings.pinned_manager.search', 'settings.pinned_manager.undo', 'settings.pinned_manager.categories'] }),
   ...createEntries(topBarRoute, [
     'settings.topbar_switchers',
     'settings.show_bewly_or_bili_page_switcher',
@@ -455,7 +504,6 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
   ...createEntries(topBarRoute, [
     'settings.group_search_bar',
     'settings.show_hot_search_in_top_bar',
-    'settings.show_search_recommendation',
   ]),
   ...createEntries(topBarRoute, [
     'settings.topbar_actions',
@@ -489,30 +537,34 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
       'settings.top_bar_mode',
       'settings.top_bar_mode_opt',
       'settings.use_original_bilibili_topbar',
-      'settings.use_original_bilibili_topbar_desc',
     ],
   }),
 
   ...createEntries(dockRoute, [
     'settings.plugin.dock_and_sidebar',
     'settings.group_dock',
-    'settings.show_layout_edit_button',
+    'settings.dock_position',
     'settings.always_use_dock',
     'settings.auto_hide_dock',
     'settings.always_show_dock_actions_when_auto_hide',
     'settings.half_hide_dock',
     'settings.dock_content_adjustment',
+    'settings.show_layout_edit_button',
     'settings.disable_dock_glowing_effect',
+    'settings.disable_dock_icon_animation',
     'settings.disable_light_dark_mode_switcher',
     'settings.disable_back_to_top_button_on_dock',
+    'settings.disable_refresh_button_on_dock',
     'settings.back_to_top_and_refresh_buttons_are_separated',
     'settings.enable_undo_refresh_button',
     'settings.group_sidebar',
+    'settings.module_sidebar',
     'settings.auto_hide_sidebar',
-  ]),
-  ...createEntries(dockRoute, [
-    'settings.dock_position',
-  ], { keywordKeys: ['common.position.left', 'common.position.right', 'common.position.bottom'] }),
+  ], {
+    keywordKeysByTitleKey: {
+      'settings.dock_position': ['common.position.left', 'common.position.right', 'common.position.bottom'],
+    },
+  }),
   ...createEntries(dockRoute, [
     'settings.sidebar_position',
   ], { keywordKeys: ['common.position.left', 'common.position.right'] }),
@@ -533,7 +585,6 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
     'settings.show_hot_search_in_search_page',
     'settings.group_search_results',
     'settings.use_plugin_search_results_page',
-    'settings.depersonalize_search_results',
     'settings.show_search_identity_switcher',
     'settings.search_results_pagination_mode',
     'settings.individually_set_search_page_wallpaper',
@@ -546,7 +597,8 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
     'settings.local_loudness.target',
     'settings.local_loudness.strength',
     'settings.player_adjustment.title',
-    'settings.player_adjustment.show_button',
+    'settings.player_adjustment.show_picture',
+    'settings.player_adjustment.show_audio_delay',
   ]),
   ...createEntries(ambilightRoute, [
     'settings.ambilight.title',
@@ -554,6 +606,11 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
     'settings.ambilight.preset',
     'settings.ambilight.strength',
     'settings.ambilight.spread',
+    'settings.ambilight.diffusion',
+    'settings.ambilight.diffusion_decay',
+    'settings.ambilight.diffusion_quality',
+    'settings.ambilight.diffusion_iterations',
+    'settings.ambilight.diffusion_feather',
     'settings.ambilight.smoothing',
     'settings.ambilight.blur',
     'settings.ambilight.saturation',
@@ -563,7 +620,6 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
     'settings.bilibili_features.video_playback',
     'settings.group_player_display_mode',
     'settings.video_player_scroll',
-    'settings.auto_exit_fullscreen_on_end',
     'settings.video_player_mode.enable_overrides',
     'settings.video_player_mode.overrides',
     'settings.group_bewly_widescreen',
@@ -579,52 +635,17 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
     'settings.playback_rate_step',
     'settings.fullscreen_wheel_volume',
     'settings.fullscreen_wheel_volume_step',
+    'settings.keyboard_volume',
+    'settings.keyboard_volume_step',
     'settings.remember_playback_rate',
+    'settings.remember_video_quality',
     'settings.remember_video_aspect_ratio',
     'settings.group_video_page_actions',
     'settings.enlarge_favorite_dialog',
     'settings.external_watch_later_button',
-    'settings.show_vertical_video_zoom_button',
     'settings.show_video_screenshot_button',
     'settings.show_video_pip_button',
   ]),
-  ...createEntries(listenVideoRoute, [
-    'settings.enable_listen_video',
-    'settings.show_listen_video_button',
-  ]),
-  ...createEntries(listenVideoRoute, [
-    'settings.listen_video_cover_shape',
-  ], {
-    keywordKeys: [
-      'settings.listen_video_cover_shape_circle',
-      'settings.listen_video_cover_shape_square',
-      'settings.listen_video_cover_shape_rectangle',
-    ],
-  }),
-  ...createEntries(listenVideoRoute, [
-    'settings.listen_video_glow',
-  ], {
-    keywordKeys: [
-      'settings.listen_video_glow_static',
-      'settings.listen_video_glow_breathe',
-    ],
-  }),
-  ...createEntries(listenVideoRoute, [
-    'settings.listen_video_glow_color',
-  ], {
-    keywordKeys: [
-      'settings.listen_video_glow_color_theme',
-      'settings.listen_video_glow_color_cover',
-    ],
-  }),
-  ...createEntries(listenVideoRoute, [
-    'settings.listen_video_background',
-  ], {
-    keywordKeys: [
-      'settings.listen_video_background_solid',
-      'settings.listen_video_background_blur',
-    ],
-  }),
   ...createEntries(playerRoute, [
     'settings.video_player_scroll_mode.title',
   ], {
@@ -659,10 +680,19 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
     'settings.min_videos_for_random',
     'settings.group_playback_end_behavior',
     'settings.auto_remove_watch_later_on_end',
+    'settings.auto_exit_fullscreen_on_end',
     'settings.use_bilibili_default_auto_play',
     'settings.group_video_type_end_behavior',
     'settings.group_playlist_start_behavior',
-  ]),
+  ], {
+    // 该设置已移至连播页，保留原「视频播放」页的检索词以便旧入口习惯的用户仍能搜到。
+    keywordKeysByTitleKey: {
+      'settings.auto_exit_fullscreen_on_end': [
+        'settings.bilibili_features.video_playback',
+        'settings.group_player_display_mode',
+      ],
+    },
+  }),
   ...createEntries(autoPlayRoute, [
     'settings.auto_play_multipart',
     'settings.auto_play_collection',
@@ -707,14 +737,11 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
   ...createEntries(appearanceRoute, [
     'settings.menu_appearance',
     'settings.group_visual_effects',
-    'settings.sidebar_cover_blur',
     'settings.enable_frosted_glass',
     'settings.frosted_glass_blur_intensity',
     'settings.enable_liquid_segment_indicator',
     'settings.disable_shadow',
-    'settings.group_page_style',
-    'settings.adapt_to_other_page_styles',
-    'settings.disable_background',
+    'settings.sidebar_cover_blur',
     'settings.group_color',
     'settings.theme',
     'settings.theme_schedule',
@@ -723,6 +750,10 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
     'settings.dark_mode_base_color',
     'settings.gradient_theme_color_background',
     'settings.follow_bilibili_evolved_color',
+    'settings.group_page_style',
+    'settings.disable_background',
+    'settings.video_page_glass_style',
+    'settings.rounded_video_player',
     'settings.group_fonts',
     'settings.customize_font',
     'settings.remove_the_indent_from_chinese_punctuation',
@@ -748,6 +779,7 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
     'settings.comment_reply_pagination_mode.title',
     'settings.adjust_comment_image_height',
     'settings.hide_comment_image_scrollbar',
+    'settings.image_viewer_close_at_bottom',
   ], {
     keywordKeysByTitleKey: {
       'settings.comment_reply_tree_mode.title': [
@@ -770,8 +802,8 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
   ...createEntries(compatibilityRoute, [
     'settings.menu_compatibility',
     'settings.group_common',
-    'settings.use_original_bilibili_homepage',
     'settings.prevent_mobile_redirect',
+    'settings.depersonalize_search_results',
     ...(isFirefoxBuild ? ['settings.enable_firefox_scrollbar_repaint'] : []),
     'settings.group_ad_blocking',
     'settings.block_ads',
@@ -802,7 +834,6 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
     'settings.shortcuts.turn_off_light',
     'settings.shortcuts.caption',
     'settings.shortcuts.video_screenshot',
-    'settings.shortcuts.listen_video',
     'settings.shortcuts.increase_playback_rate',
     'settings.shortcuts.decrease_playback_rate',
     'settings.shortcuts.reset_playback_rate',
@@ -821,16 +852,23 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
     'settings.shortcuts.group.official_bilibili',
   ]),
 
-  ...createEntries(aboutRoute, [
-    'settings.menu_about',
-    'settings.group_version_reminder',
-    'settings.enable_version_reminder',
-    'settings.maintenance.title',
+  ...createEntries(dataRoute, [
+    'settings.menu_data',
+    // eslint-disable-next-line node/prefer-global/process
+    ...process.env.SAFARI ? [] : ['settings.group_settings_sync', 'settings.enable_settings_sync'],
     'settings.maintenance.backup_title',
     'settings.import_settings',
     'settings.export_settings',
     'settings.maintenance.reset_title',
     'settings.reset_settings',
+  ]),
+
+  ...createEntries(aboutRoute, [
+    'settings.menu_about',
+    'settings.group_environment_info',
+    'settings.copy_environment_info',
+    'settings.group_version_reminder',
+    'settings.enable_version_reminder',
     'settings.open_source_license',
     'settings.third_party_licenses',
   ]),
@@ -840,6 +878,11 @@ const baseSettingsSearchEntries: SettingsSearchEntry[] = [
 const fallbackTargetKeysByTitleKey: Record<string, string> = {
   'settings.always_show_dock_actions_when_auto_hide': 'settings.auto_hide_dock',
   'settings.ambilight.blur': 'settings.ambilight.title',
+  'settings.ambilight.diffusion': 'settings.ambilight.title',
+  'settings.ambilight.diffusion_feather': 'settings.ambilight.title',
+  'settings.ambilight.diffusion_iterations': 'settings.ambilight.title',
+  'settings.ambilight.diffusion_quality': 'settings.ambilight.title',
+  'settings.ambilight.diffusion_decay': 'settings.ambilight.title',
   'settings.ambilight.fps': 'settings.ambilight.title',
   'settings.ambilight.preset': 'settings.ambilight.title',
   'settings.ambilight.saturation': 'settings.ambilight.title',
@@ -847,6 +890,7 @@ const fallbackTargetKeysByTitleKey: Record<string, string> = {
   'settings.ambilight.spread': 'settings.ambilight.title',
   'settings.ambilight.strength': 'settings.ambilight.title',
   'settings.authorize_app': 'settings.recommendation_mode',
+  'settings.auto_hide_sidebar': 'settings.module_sidebar',
   'settings.auto_play_collection': 'settings.use_bilibili_default_auto_play',
   'settings.auto_play_multipart': 'settings.use_bilibili_default_auto_play',
   'settings.auto_play_playlist': 'settings.use_bilibili_default_auto_play',
@@ -870,10 +914,6 @@ const fallbackTargetKeysByTitleKey: Record<string, string> = {
   'settings.immersive_keyboard_switch': 'settings.show_immersive_mode_entry',
   'settings.immersive_preload_next': 'settings.show_immersive_mode_entry',
   'settings.immersive_wheel_switch': 'settings.show_immersive_mode_entry',
-  'settings.listen_video_background': 'settings.enable_listen_video',
-  'settings.listen_video_cover_shape': 'settings.enable_listen_video',
-  'settings.listen_video_glow': 'settings.enable_listen_video',
-  'settings.listen_video_glow_color': 'settings.enable_listen_video',
   'settings.local_loudness.strength': 'settings.local_loudness.enable',
   'settings.local_loudness.target': 'settings.local_loudness.enable',
   'settings.min_videos_for_random': 'settings.enable_random_play',
@@ -885,11 +925,9 @@ const fallbackTargetKeysByTitleKey: Record<string, string> = {
   'settings.search_page_mode_wallpaper_fixed': 'settings.use_search_page_mode',
   'settings.settings_shared_with_the_search_page': 'settings.use_search_page_mode',
   'settings.show_home_button_in_touch_mode': 'settings.topbar_logo_and_channels',
-  'settings.show_listen_video_button': 'settings.enable_listen_video',
+  'settings.sidebar_position': 'settings.module_sidebar',
   'settings.theme_schedule': 'settings.theme',
   'settings.third_party_licenses': 'settings.open_source_license',
-  'settings.video_card_shadow_curve': 'settings.video_card_layout',
-  'settings.video_card_shadow_height': 'settings.video_card_layout',
   'settings.video_player_mode.context_bangumi': 'settings.video_player_mode.enable_overrides',
   'settings.video_player_mode.context_collection': 'settings.video_player_mode.enable_overrides',
   'settings.video_player_mode.context_moments_dialog': 'settings.video_player_mode.enable_overrides',

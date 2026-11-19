@@ -1,3 +1,4 @@
+import { stripBilibiliLocalePathname } from '~/utils/bilibiliLocale'
 import { buildKeywordSearchUrl } from '~/utils/searchNavigation'
 
 import type { Author, Video } from './types'
@@ -29,13 +30,6 @@ export function getTagSearchUrl(tag: string) {
   return buildKeywordSearchUrl(tag)
 }
 
-export function getCurrentTime(videoElement: Ref<HTMLVideoElement | null>) {
-  if (videoElement.value) {
-    return videoElement.value.currentTime
-  }
-  return null
-}
-
 export function getCurrentVideoUrl(video: Video, currentTime: number | null) {
   const baseUrl = video.url || `https://www.bilibili.com/video/${video.bvid ?? `av${video.aid}`}`
   if (!currentTime || !Number.isFinite(currentTime) || currentTime < 1 || video.roomid)
@@ -43,7 +37,7 @@ export function getCurrentVideoUrl(video: Video, currentTime: number | null) {
 
   try {
     const url = new URL(baseUrl)
-    if (url.hostname === 'www.bilibili.com' && /^\/(?:video\/|bangumi\/play\/)/.test(url.pathname))
+    if (url.hostname === 'www.bilibili.com' && /^\/(?:video\/|bangumi\/play\/)/.test(stripBilibiliLocalePathname(url.pathname)))
       url.searchParams.set('t', String(Math.floor(currentTime)))
     return url.toString()
   }

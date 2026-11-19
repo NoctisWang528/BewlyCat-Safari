@@ -10,14 +10,16 @@ import type { Video, VideoCardRemovedState } from '~/components/VideoCard/types'
 import { getAuthorJumpUrl } from '~/components/VideoCard/utils'
 import VideoCardContextMenu from '~/components/VideoCard/VideoCardContextMenu/VideoCardContextMenu.vue'
 import VideoCardGrid from '~/components/VideoCardGrid.vue'
+import WatchLaterRemovedMask from '~/components/WatchLaterRemovedMask.vue'
 import { useBewlyApp } from '~/composables/useAppProvider'
 import { useConfirmDialog } from '~/composables/useConfirmDialog'
 import type { WatchLaterLayout } from '~/logic'
-import { settings, watchLaterLayout } from '~/logic'
+import { hasVisibleVideoCardMenuAction, settings, watchLaterLayout } from '~/logic'
 import { ensureWatchLaterState, markWatchLater, markWatchLaterCleared } from '~/logic/watchLaterState'
 import type { List as VideoItem, WatchLaterResult } from '~/models/video/watchLater'
 import { useTopBarStore } from '~/stores/topBarStore'
 import api from '~/utils/api'
+import { localizeBilibiliUrl } from '~/utils/bilibiliLocale'
 import { calcCurrentTime } from '~/utils/dataFormatter'
 import { computeFloatingMenuPosition } from '~/utils/floatingMenu'
 import { getCSRF, getUserID, openLinkToNewTab, removeHttpFromUrl } from '~/utils/main'
@@ -36,7 +38,7 @@ const moreMenuItem = ref<VideoItem | null>(null)
 const moreMenuTrigger = ref<HTMLButtonElement | null>(null)
 const moreMenuStyles = ref<CSSProperties>({})
 const showMoreButton = computed(() => settings.value.showVideoCardMoreButton
-  && settings.value.videoCardContextMenuConfig.some(item => item.visible))
+  && hasVisibleVideoCardMenuAction(settings.value.videoCardContextMenuConfig))
 
 function openMoreMenu(item: VideoItem, event: MouseEvent) {
   const trigger = event.currentTarget as HTMLButtonElement
@@ -61,10 +63,10 @@ const { handlePageRefresh, handleReachBottom, haveScrollbar } = useBewlyApp()
 const pageSize = ref<number>(20)
 const pendingRemovals = new Set<number>()
 /**
- * 卡片删除遮罩状态：confirming 等待确认（尚未调用接口），removing 删除中，
- * removed 已删除但保留原位可还原，restoring 还原中
+ * 卡片删除遮罩状态：removing 删除中，removed 已删除但保留原位可还原，restoring 还原中。
+ * 点击移除即调用接口，不再二次确认；误删由遮罩上的撤销兜底。
  */
-type RemoveStatus = 'confirming' | 'removing' | 'removed' | 'restoring'
+type RemoveStatus = 'removing' | 'removed' | 'restoring'
 const removeStatuses = reactive(new Map<number, RemoveStatus>())
 let consumedCount = 0
 let requestVersion = 0
@@ -224,25 +226,15 @@ async function deleteWatchLaterItem(aid: number, keepCard = false): Promise<bool
   return false
 }
 
-// 删除先在卡片上二次确认，确认后才调用接口
-function handleRemoveWatchLater(item: VideoItem) {
-  if (!removeStatuses.has(item.aid))
-    removeStatuses.set(item.aid, 'confirming')
-}
-
-function cancelRemoveWatchLater(aid: number) {
-  if (removeStatuses.get(aid) === 'confirming')
-    removeStatuses.delete(aid)
-}
-
-async function confirmRemoveWatchLater(aid: number) {
-  if (removeStatuses.get(aid) !== 'confirming')
+// 点击即删除，卡片保留在原位并显示可撤销遮罩
+async function handleRemoveWatchLater(item: VideoItem) {
+  if (removeStatuses.has(item.aid))
     return
 
-  removeStatuses.set(aid, 'removing')
-  const success = await deleteWatchLaterItem(aid, true)
-  if (!success && removeStatuses.get(aid) === 'removing')
-    removeStatuses.delete(aid)
+  removeStatuses.set(item.aid, 'removing')
+  const success = await deleteWatchLaterItem(item.aid, true)
+  if (!success && removeStatuses.get(item.aid) === 'removing')
+    removeStatuses.delete(item.aid)
 }
 
 async function restoreWatchLater(item: VideoItem) {
@@ -274,8 +266,16 @@ async function restoreWatchLater(item: VideoItem) {
   }
 }
 
-function isRemoveConfirming(status: RemoveStatus | undefined) {
-  return status === 'confirming' || status === 'removing'
+// 收起已移除的占位卡片：条目已从服务器删除，这里移出列表并清除状态，触发 removable-list 离场动画
+// 仅在删除已完成（removed）时可收起：请求进行中收起会让计数与游标漏更新，或在还原后丢失同步
+function dismissRemovedItem(item: VideoItem) {
+  if (removeStatuses.get(item.aid) !== 'removed')
+    return
+
+  const index = currentWatchLaterList.value.findIndex(video => video.aid === item.aid)
+  if (index !== -1)
+    currentWatchLaterList.value.splice(index, 1)
+  removeStatuses.delete(item.aid)
 }
 
 function getWatchLaterRemovedState(item: VideoItem): VideoCardRemovedState | undefined {
@@ -283,14 +283,11 @@ function getWatchLaterRemovedState(item: VideoItem): VideoCardRemovedState | und
   if (!status)
     return undefined
 
-  const confirming = isRemoveConfirming(status)
   return {
-    message: confirming ? t('watch_later.remove_confirm') : t('watch_later.removed'),
-    confirming,
-    pending: status === 'removing' || status === 'restoring',
-    onConfirm: () => void confirmRemoveWatchLater(item.aid),
-    onCancel: () => cancelRemoveWatchLater(item.aid),
+    message: t('watch_later.removed'),
+    pending: status !== 'removed',
     onUndo: () => void restoreWatchLater(item),
+    onDismiss: status === 'removed' ? () => dismissRemovedItem(item) : undefined,
   }
 }
 
@@ -301,7 +298,7 @@ function handlePlayWatchLater(item: VideoItem) {
 function handleWatchLaterCardClick(item: VideoItem, event: MouseEvent) {
   event.preventDefault()
   event.stopPropagation()
-  handleLinkClick(`https://www.bilibili.com/list/watchlater?bvid=${item.bvid}`)
+  handleLinkClick(localizeBilibiliUrl(`https://www.bilibili.com/list/watchlater?bvid=${item.bvid}`))
 }
 
 function transformWatchLaterItem(item: VideoItem): Video {
@@ -363,7 +360,7 @@ async function handleRemoveWatchedVideos() {
 }
 
 function handlePlayAll() {
-  openLinkToNewTab('https://www.bilibili.com/list/watchlater')
+  openLinkToNewTab(localizeBilibiliUrl('https://www.bilibili.com/list/watchlater'))
 }
 
 function handleLinkClick(url: string) {
@@ -389,7 +386,7 @@ function jumpToLoginPage() {
 }
 
 function handleVideoLinkClick(bvid: string) {
-  const videoUrl = `https://www.bilibili.com/video/${bvid}/`
+  const videoUrl = localizeBilibiliUrl(`https://www.bilibili.com/video/${bvid}/`)
   if (settings.value.videoCardLinkOpenMode === 'drawer') {
     openIframeDrawer(videoUrl) // 在抽屉打开
   }
@@ -504,7 +501,7 @@ function getItemKey(item: VideoItem) {
             <ALink
               v-for="item in currentWatchLaterList"
               :key="item.aid"
-              :href="`https://www.bilibili.com/video/${item.bvid}/`"
+              :href="localizeBilibiliUrl(`https://www.bilibili.com/video/${item.bvid}/`)"
               type="videoCard"
               class="group watch-later-list-item"
               flex cursor-pointer
@@ -518,55 +515,14 @@ function getItemKey(item: VideoItem) {
                 p-2 m-1
                 content-visibility-auto
               >
-                <!-- 删除遮罩：覆盖整行并拦截链接点击；确认前未调用接口，删除后可还原 -->
-                <div
+                <!-- 删除遮罩：覆盖整行并拦截链接点击，删除后可撤销；右上角 × 可收起占位卡片 -->
+                <WatchLaterRemovedMask
                   v-if="removeStatuses.has(item.aid)"
-                  class="watch-later-removed-mask"
-                  @click.prevent.stop
-                >
-                  <template v-if="isRemoveConfirming(removeStatuses.get(item.aid))">
-                    <p color-white text-lg>
-                      {{ t('watch_later.remove_confirm') }}
-                    </p>
-                    <div flex="~ gap-2 items-center">
-                      <Button
-                        color="rgba(255,255,255,.35)" text-color="white" size="small"
-                        :disabled="removeStatuses.get(item.aid) === 'removing'"
-                        @click.prevent.stop="confirmRemoveWatchLater(item.aid)"
-                      >
-                        <template #left>
-                          <div i-mingcute-check-line text-lg />
-                        </template>
-                        {{ t('common.operation.confirm') }}
-                      </Button>
-                      <Button
-                        color="rgba(255,255,255,.35)" text-color="white" size="small"
-                        :disabled="removeStatuses.get(item.aid) === 'removing'"
-                        @click.prevent.stop="cancelRemoveWatchLater(item.aid)"
-                      >
-                        <template #left>
-                          <div i-mingcute-close-line text-lg />
-                        </template>
-                        {{ t('common.operation.cancel') }}
-                      </Button>
-                    </div>
-                  </template>
-                  <template v-else>
-                    <p color-white text-lg>
-                      {{ t('watch_later.removed') }}
-                    </p>
-                    <Button
-                      color="rgba(255,255,255,.35)" text-color="white" size="small"
-                      :disabled="removeStatuses.get(item.aid) === 'restoring'"
-                      @click.prevent.stop="restoreWatchLater(item)"
-                    >
-                      <template #left>
-                        <div i-mingcute-back-line text-lg />
-                      </template>
-                      {{ t('common.undo') }}
-                    </Button>
-                  </template>
-                </div>
+                  :message="t('watch_later.removed')"
+                  :pending="removeStatuses.get(item.aid) !== 'removed'"
+                  @undo="restoreWatchLater(item)"
+                  @dismiss="dismissRemovedItem(item)"
+                />
 
                 <!-- Cover -->
                 <div
@@ -693,7 +649,7 @@ function getItemKey(item: VideoItem) {
                         type="button"
                         p-2
                         duration-300
-                        @click.prevent.stop="handleLinkClick(`https://www.bilibili.com/list/watchlater?bvid=${item.bvid}`)"
+                        @click.prevent.stop="handleLinkClick(localizeBilibiliUrl(`https://www.bilibili.com/list/watchlater?bvid=${item.bvid}`))"
                       >
                         <div i-tabler:list-check />
                       </button>
@@ -833,7 +789,7 @@ function getItemKey(item: VideoItem) {
         :key="moreMenuItem.aid"
         :video="{
           ...transformWatchLaterItem(moreMenuItem),
-          url: `https://www.bilibili.com/video/${moreMenuItem.bvid}/`,
+          url: localizeBilibiliUrl(`https://www.bilibili.com/video/${moreMenuItem.bvid}/`),
         }"
         :context-menu-styles="moreMenuStyles"
         :trigger-element="moreMenuTrigger"
@@ -886,21 +842,6 @@ function getItemKey(item: VideoItem) {
   .watch-later-list-action {
     opacity: 1;
   }
-}
-
-.watch-later-removed-mask {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--bew-space-3);
-  border-radius: var(--bew-radius);
-  background: var(--bew-fill-4);
-  backdrop-filter: blur(20px);
-  cursor: default;
 }
 
 .watch-later-sidebar-panel {

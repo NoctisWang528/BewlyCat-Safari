@@ -4,10 +4,12 @@ import VideoCardGrid from '~/components/VideoCardGrid.vue'
 import { useBewlyApp } from '~/composables/useAppProvider'
 import { useHomeTabState } from '~/composables/useHomeTabState'
 import type { GridLayoutType } from '~/logic'
-import { settings } from '~/logic'
 import type { PopularSeriesItem, PopularSeriesListResult, PopularSeriesOneResult, PopularSeriesVideoItem } from '~/models/video/popularSeries'
 import api from '~/utils/api'
+import type { ApiErrorReportSource } from '~/utils/apiDiagnostics'
 import { decodeHtmlEntities } from '~/utils/htmlDecode'
+
+import { getHomeContentScrollTop } from '../homeScroll'
 
 interface VideoElement extends PopularSeriesVideoItem {
   displayData?: Video
@@ -23,7 +25,7 @@ const emit = defineEmits<{
   (e: 'afterLoading'): void
 }>()
 
-const { handleBackToTop, handleReachBottom, handlePageRefresh, mainAppRef } = useBewlyApp()
+const { handleScrollJump, handleReachBottom, handlePageRefresh, mainAppRef } = useBewlyApp()
 const tabState = useHomeTabState({ retainedFields: ['activatedSeriesNumber', 'searchQuery'] })
 
 const seriesList = tabState.ref<PopularSeriesItem[]>('seriesList', [])
@@ -32,6 +34,8 @@ const restoredSeriesNumber = tabState.take<number | undefined>('activatedSeriesN
 tabState.capture('activatedSeriesNumber', () => activatedSeries.value?.number ?? restoredSeriesNumber)
 const videoList = tabState.ref<VideoElement[]>('videoList', [])
 const noMoreContent = tabState.ref<boolean>('noMoreContent', true) // 每周必看没有分页
+const requestFailed = tabState.ref<boolean>('requestFailed', false)
+const errorReportSource: ApiErrorReportSource = { scene: '每周必看', queries: ['getPopularSeriesList', 'getPopularSeriesOne'] }
 const hasLoaded = tabState.ref<boolean>('hasLoaded', false)
 const isLoading = ref<boolean>(!tabState.restored || !hasLoaded.value)
 
@@ -58,8 +62,8 @@ function calculatePosition() {
     return
   const rect = containerRef.value.getBoundingClientRect()
   dropdownPosition.value = {
-    top: rect.bottom + window.scrollY,
-    left: rect.left + window.scrollX,
+    top: rect.bottom,
+    left: rect.left,
     width: rect.width,
   }
 }
@@ -122,7 +126,7 @@ async function refreshHandler() {
   if (!tabState.isCurrent() || isLoading.value)
     return
 
-  await initData()
+  await initData(activatedSeries.value?.number)
 }
 
 async function initData(preferredSeriesNumber?: number) {
@@ -135,6 +139,7 @@ async function initData(preferredSeriesNumber?: number) {
   videoList.value.length = 0
   seriesList.value.length = 0
   activatedSeries.value = null
+  requestFailed.value = false
   hasLoaded.value = false
 
   await loadInitialData(version, preferredSeriesNumber)
@@ -143,8 +148,12 @@ async function initData(preferredSeriesNumber?: number) {
 async function loadInitialData(version: number, preferredSeriesNumber?: number) {
   try {
     const res: PopularSeriesListResult = await api.ranking.getPopularSeriesList()
-    if (!isRequestCurrent(version) || res.code !== 0 || !res.data || !Array.isArray(res.data.list))
+    if (!isRequestCurrent(version))
       return
+    if (res.code !== 0 || !res.data || !Array.isArray(res.data.list)) {
+      requestFailed.value = true
+      return
+    }
 
     // sort by number desc (latest first) if available
     seriesList.value = [...res.data.list].sort((a, b) => (b.number || 0) - (a.number || 0))
@@ -161,11 +170,14 @@ async function loadInitialData(version: number, preferredSeriesNumber?: number) 
 
     const selectedNumber = activatedSeries.value.number
     const loaded = await fetchSeriesOne(version, selectedNumber)
-    if (isRequestCurrent(version, selectedNumber) && loaded)
-      hasLoaded.value = true
+    if (isRequestCurrent(version, selectedNumber)) {
+      requestFailed.value = !loaded
+      hasLoaded.value ||= loaded
+    }
   }
   catch {
-    // 忽略错误
+    if (isRequestCurrent(version))
+      requestFailed.value = true
   }
   finally {
     if (isRequestCurrent(version)) {
@@ -213,11 +225,14 @@ async function getSeriesOne() {
   emit('beforeLoading')
   isLoading.value = true
   hasLoaded.value = false
+  requestFailed.value = false
   videoList.value.length = 0
   try {
     const loaded = await fetchSeriesOne(version, selectedNumber)
-    if (isRequestCurrent(version, selectedNumber) && loaded)
-      hasLoaded.value = true
+    if (isRequestCurrent(version, selectedNumber)) {
+      requestFailed.value = !loaded
+      hasLoaded.value ||= loaded
+    }
   }
   finally {
     if (isRequestCurrent(version, selectedNumber)) {
@@ -234,7 +249,7 @@ function selectSeries(item: PopularSeriesItem) {
   activatedSeries.value = item
   showDropdown.value = false
   searchQuery.value = ''
-  handleBackToTop(settings.value.useSearchPageModeOnHomePage ? 510 : 0)
+  handleScrollJump(getHomeContentScrollTop())
   void getSeriesOne()
 }
 
@@ -251,7 +266,7 @@ function onMouseEnter() {
   window.removeEventListener('click', closeDropdown)
 }
 
-defineExpose({ initData })
+defineExpose({ initData: refreshHandler })
 
 function getItemDisplayData(item: VideoElement) {
   return item.displayData
@@ -310,7 +325,7 @@ function getItemKey(item: VideoElement) {
               width: `${dropdownPosition.width}px`,
               backdropFilter: 'var(--bew-filter-glass-1)',
             }"
-            pos="absolute" bg="$bew-elevated" shadow="$bew-shadow-2"
+            pos="fixed" bg="$bew-elevated" shadow="$bew-shadow-2"
             mt-2 rounded="$bew-radius" z="10004"
             max-h-400px of-hidden
             @mouseenter="onMouseEnter"
@@ -373,10 +388,12 @@ function getItemKey(item: VideoElement) {
         :grid-layout="gridLayout"
         :loading="isLoading"
         :no-more-content="noMoreContent"
+        :request-failed="requestFailed"
+        :error-report-source="errorReportSource"
         :transform-item="getItemDisplayData"
         :get-item-key="getItemKey"
         show-preview
-        @refresh="initData"
+        @refresh="refreshHandler"
         @load-more="() => {}"
       />
     </div>

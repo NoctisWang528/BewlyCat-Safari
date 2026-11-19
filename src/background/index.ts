@@ -11,12 +11,12 @@ import { setupAppAuthScheduler } from './appAuthScheduler'
 import { isAppClientRequestUrl, setupAppClient } from './appClient'
 import { setupContentScriptRecovery } from './contentScriptRecovery'
 import { setupContentScriptRefreshPrompt } from './contentScriptRefreshPrompt'
-import { setupExtensionCacheStore } from './extensionCacheStore'
 import { setupLoginStateWatcher } from './loginStateWatcher'
 import { setupApiMsgListeners } from './messageListeners/api'
 import { setupTabMsgListeners } from './messageListeners/tabs'
 import { setupOptionalBackgroundFeatures } from './platformFeatures'
 import { setupSettingsCloudSync } from './settingsCloudSync'
+import { setupSettingsPage } from './settingsPage'
 import { setupSettingsStorageCoordinator } from './settingsStorageCoordinator'
 import { setupTopBarStateBroker } from './topBarStateBroker'
 import { setupWatchLaterStateBroker } from './watchLaterStateBroker'
@@ -187,8 +187,8 @@ if (isFirefoxBuild) {
 }
 
 // Setup all message listeners
+setupSettingsPage()
 setupSettingsStorageCoordinator({ cloudSyncAvailable: !isSafariBuild })
-setupExtensionCacheStore()
 setupApiMsgListeners()
 setupAppClient()
 setupTabMsgListeners()
@@ -202,3 +202,6 @@ setupOptionalBackgroundFeatures(isSafariBuild, {
   setupSettingsCloudSync,
 })
 onMessage(GET_BROWSER_INFO_MESSAGE, getExtensionBrowserInfo)
+
+// 动态列表缓存已随「想看」移除，清理旧版本留在 IndexedDB 中的缓存。
+indexedDB.deleteDatabase('bewlycat-cache').onerror = () => {}

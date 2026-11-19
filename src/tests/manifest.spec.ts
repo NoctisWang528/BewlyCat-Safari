@@ -59,8 +59,6 @@ describe('safari manifest', () => {
       : []
     expect(webAccessibleFiles).toEqual(expect.arrayContaining([
       'dist/contentScripts/inject.global.js',
-      'dist/contentScripts/listenVideoControl.js',
-      'dist/contentScripts/hlsPlayer.js',
       'dist/contentScripts/flvPlayer.js',
     ]))
     expect(webAccessibleFiles).not.toContain('dist/audioWorklets/volume-normalization.js')

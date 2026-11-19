@@ -3,8 +3,12 @@
  * 将图片base64存储在本地storage的单独项中，设置里只保存引用
  */
 
-import type { StorageRefExtra } from '~/composables/useStorageLocal'
 import { useStorageLocal } from '~/composables/useStorageLocal'
+
+/** 备份文件中存放本地上传壁纸的字段，与设置项并列；旧版本导入时会按未知设置忽略。 */
+export const LOCAL_WALLPAPER_BACKUP_KEY = 'localWallpaperBackup'
+
+const WALLPAPER_DATA_URL_PATTERN = /^data:image\/[\w.+-]+;base64,[A-Z0-9+/]+=*$/i
 
 const MAX_WALLPAPER_BYTES = 1_500_000
 const MAX_WALLPAPER_COUNT = 8
@@ -59,7 +63,7 @@ export const localWallpapersLoaded = new Promise<boolean>((resolve) => {
 })
 
 // 本地壁纸存储
-const localWallpapers: StorageRefExtra<Record<string, LocalWallpaperData>> = useStorageLocal<Record<string, LocalWallpaperData>>('localWallpapers', {}, {
+const localWallpapers = useStorageLocal<Record<string, LocalWallpaperData>>('localWallpapers', {}, {
   onError: (error) => {
     // 读取或补写默认值失败时数据不可信，宁可跳过清理也不误删引用。
     localWallpapersReadFailed = true
@@ -168,7 +172,84 @@ export function getLocalWallpaper(id: string): string | null {
 }
 
 /**
- * 删除本地壁纸（可等待持久化）
+ * 获取本地壁纸的完整数据，用于写入备份
+ * @param id 壁纸ID
+ * @returns 壁纸数据或null
+ */
+export function getLocalWallpaperData(id: string): LocalWallpaperData | null {
+  return localWallpapers.value?.[id] ?? null
+}
+
+function isLocalWallpaperData(value: unknown): value is LocalWallpaperData {
+  if (typeof value !== 'object' || value === null)
+    return false
+
+  const data = value as Partial<LocalWallpaperData>
+  return typeof data.id === 'string'
+    && data.id.startsWith('wallpaper_')
+    && typeof data.name === 'string'
+    && typeof data.base64 === 'string'
+    && WALLPAPER_DATA_URL_PATTERN.test(data.base64)
+    && typeof data.type === 'string'
+    && Number.isFinite(data.size)
+    && Number.isFinite(data.lastModified)
+    && Number.isFinite(data.timestamp)
+}
+
+/**
+ * 转换旧版 locallyUploadedWallpaper。旧版把图片以 data URL 直接保存在该字段中，
+ * 只有引用、没有图片数据的记录无法转换。
+ * @param value 旧版字段的值
+ * @returns 壁纸数据或null
+ */
+export function convertLegacyUploadedWallpaper(value: unknown): LocalWallpaperData | null {
+  if (typeof value !== 'object' || value === null)
+    return null
+
+  const { name, url } = value as { name?: unknown, url?: unknown }
+  if (typeof url !== 'string' || !WALLPAPER_DATA_URL_PATTERN.test(url))
+    return null
+
+  const fileName = typeof name === 'string' && name ? name : 'wallpaper'
+  const timestamp = Date.now()
+  return {
+    id: generateWallpaperId(fileName),
+    name: fileName,
+    base64: url,
+    size: Math.floor((url.length - url.indexOf(',') - 1) * 3 / 4),
+    type: url.slice('data:'.length, url.indexOf(';')),
+    lastModified: timestamp,
+    timestamp,
+  }
+}
+
+/**
+ * 从备份恢复本地壁纸。上传入口只保留一张本地壁纸，这里同样整体替换以释放旧图占用的配额。
+ * 备份内容无效、现有数据未读取成功或存储写入失败时抛出错误，且不改动现有壁纸。
+ * @param value 备份中的壁纸数据
+ * @returns 壁纸引用对象
+ */
+export async function restoreLocalWallpaper(value: unknown): Promise<LocalWallpaperRef> {
+  if (!isLocalWallpaperData(value))
+    throw new TypeError('Invalid local wallpaper backup')
+  if (!await localWallpapersLoaded)
+    throw new Error('Local wallpapers are unavailable')
+
+  if (estimateBase64Bytes(value.base64) > MAX_WALLPAPER_BYTES)
+    throw new WallpaperTooLargeError()
+
+  await enqueueWallpaperMutation(() => localWallpapers.setAndPersist({ [value.id]: value }))
+
+  return {
+    id: value.id,
+    name: value.name,
+    isLocal: true,
+  }
+}
+
+/**
+ * 删除本地壁纸
+ * @param id 壁纸ID
  */
 export async function removeLocalWallpaper(id: string): Promise<void> {
   await enqueueWallpaperMutation(async () => {

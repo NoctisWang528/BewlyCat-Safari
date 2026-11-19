@@ -65,7 +65,10 @@ export function deserializeError(serialized: SerializedError): Error {
   return error
 }
 
-const TRANSIENT_BACKGROUND_MESSAGE_ATTEMPTS = 3
+// 扩展更新、Firefox 后台页重载或慢机器冷启动 service worker 时，接收端可能数秒内都不可用；
+// 退避总计约 2.7 秒，避免把启动慢误报为后台不可达。
+const BACKGROUND_RETRY_DELAYS_MS = [100, 200, 400, 800, 1200]
+const TRANSIENT_BACKGROUND_MESSAGE_ATTEMPTS = BACKGROUND_RETRY_DELAYS_MS.length + 1
 
 function getErrorMessage(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).toLowerCase()
@@ -112,7 +115,7 @@ export async function sendMessage<T = any, R = any>(type: string, data?: T): Pro
       }
       if (!isBackgroundDisconnectedError(error) || attempt === TRANSIENT_BACKGROUND_MESSAGE_ATTEMPTS - 1)
         break
-      await waitForRetry(100 * 2 ** attempt)
+      await waitForRetry(BACKGROUND_RETRY_DELAYS_MS[attempt])
     }
   }
 
@@ -160,7 +163,7 @@ export async function sendAbortableApiMessage(type: string, data: unknown, signa
         promptPageRefreshFromContentScript('background-unreachable', TRANSIENT_BACKGROUND_MESSAGE_ATTEMPTS)
         throw error
       }
-      await waitWithSignal(waitForRetry(100 * 2 ** attempt), signal)
+      await waitWithSignal(waitForRetry(BACKGROUND_RETRY_DELAYS_MS[attempt]), signal)
     }
   }
 }

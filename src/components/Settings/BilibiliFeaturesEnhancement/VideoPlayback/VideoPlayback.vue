@@ -6,11 +6,13 @@ import Radio from '~/components/Radio.vue'
 import Select from '~/components/Select.vue'
 import { settings } from '~/logic'
 import type { PlayerDefaultState, VideoPlayerModeContext, VideoPlayerScrollMode } from '~/logic/storage'
+import { normalizeKeyboardVolumeStep } from '~/utils/keyboardVolume'
 import { normalizeWheelVolumeStep } from '~/utils/wheelVolume'
 
 import SettingsItem from '../../components/SettingsItem.vue'
 import SettingsItemGroup from '../../components/SettingsItemGroup.vue'
 import SettingsItemSubgroup from '../../components/SettingsItemSubgroup.vue'
+import SettingsSearchContainer from '../../components/SettingsSearchContainer.vue'
 import SettingsToggleTag from '../../components/SettingsToggleTag.vue'
 import PlaybackRate from './PlaybackRate.vue'
 
@@ -152,6 +154,15 @@ function saveWheelVolumeStep() {
   wheelVolumeStep.value = settings.value.fullscreenWheelVolumeStep
 }
 
+const keyboardVolumeStep = ref<string | number>(settings.value.keyboardVolumeStep)
+watch(() => settings.value.keyboardVolumeStep, value => keyboardVolumeStep.value = value)
+
+function saveKeyboardVolumeStep() {
+  const value = keyboardVolumeStep.value === '' ? Number.NaN : Number(keyboardVolumeStep.value)
+  settings.value.keyboardVolumeStep = normalizeKeyboardVolumeStep(value)
+  keyboardVolumeStep.value = settings.value.keyboardVolumeStep
+}
+
 const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefaultState }[]>(() => [
   { label: t('settings.video_default_state_opt.system'), value: 'system' },
   { label: t('settings.video_default_state_opt.remember'), value: 'remember' },
@@ -184,14 +195,6 @@ const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefault
         right-width="auto"
       >
         <Select v-model="settings.videoPlayerScrollMode" :options="videoPlayerScrollModeOptions" w="160px" />
-      </SettingsItem>
-
-      <SettingsItem
-        :title="t('settings.auto_exit_fullscreen_on_end')"
-        :desc="t('settings.auto_exit_fullscreen_on_end_desc')"
-        right-width="auto"
-      >
-        <Radio v-model="settings.autoExitFullscreenOnEnd" />
       </SettingsItem>
 
       <SettingsItem
@@ -322,11 +325,33 @@ const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefault
         </SettingsItem>
       </SettingsItemSubgroup>
 
+      <SettingsItemSubgroup :title="t('settings.keyboard_volume')">
+        <SettingsItem
+          :title="t('settings.keyboard_volume')"
+          :desc="t('settings.keyboard_volume_desc')"
+          right-width="auto"
+        >
+          <Radio v-model="settings.customKeyboardVolume" />
+        </SettingsItem>
+        <SettingsItem
+          v-if="settings.customKeyboardVolume"
+          :title="t('settings.keyboard_volume_step')"
+          :desc="t('settings.keyboard_volume_step_desc')"
+          right-width="auto"
+        >
+          <Input
+            v-model="keyboardVolumeStep" type="number" :min="1" :max="50" :step="1"
+            w="100px"
+            :aria-label="t('settings.keyboard_volume_step')" @blur="saveKeyboardVolumeStep" @enter="saveKeyboardVolumeStep"
+          />
+        </SettingsItem>
+      </SettingsItemSubgroup>
+
       <SettingsItemSubgroup
         :title="t('settings.group_playback_memory')"
         :desc="t('settings.group_playback_memory_desc')"
       >
-        <div class="video-setting-tags" role="group" :aria-label="t('settings.group_playback_memory')">
+        <SettingsSearchContainer class="video-setting-tags" role="group" :aria-label="t('settings.group_playback_memory')">
           <SettingsToggleTag
             v-for="option in playbackMemoryOptions"
             :key="option.setting"
@@ -334,9 +359,10 @@ const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefault
             :label="option.label"
             :icon="option.icon"
             :show-state-icon="false"
+            searchable
             @update:model-value="updatePlaybackMemory(option.setting, $event)"
           />
-        </div>
+        </SettingsSearchContainer>
 
         <Dialog
           v-if="showVideoQualityMemoryConfirm"
@@ -370,14 +396,6 @@ const playerDefaultStateOptions = computed<{ label: string, value: PlayerDefault
           right-width="auto"
         >
           <Radio v-model="settings.externalWatchLaterButton" />
-        </SettingsItem>
-
-        <SettingsItem
-          :title="t('settings.show_vertical_video_zoom_button')"
-          :desc="t('settings.show_vertical_video_zoom_button_desc')"
-          right-width="auto"
-        >
-          <Radio v-model="settings.showVerticalVideoZoomButton" />
         </SettingsItem>
 
         <SettingsItem
