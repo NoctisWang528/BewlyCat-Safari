@@ -11,6 +11,13 @@ import SettingsItemGroup from '../components/SettingsItemGroup.vue'
   <div>
     <SettingsItemGroup :title="$t('settings.group_common')">
       <SettingsItem
+        :title="$t('settings.enable_native_home_feed_history')"
+        :desc="$t('settings.enable_native_home_feed_history_desc')"
+        right-width="auto"
+      >
+        <Radio v-model="settings.enableNativeHomeFeedHistory" />
+      </SettingsItem>
+      <SettingsItem
         :title="$t('settings.prevent_mobile_redirect')"
         :desc="$t('settings.prevent_mobile_redirect_desc')"
         right-width="auto"
@@ -40,7 +47,7 @@ import SettingsItemGroup from '../components/SettingsItemGroup.vue'
       <SettingsItem :title="$t('settings.block_top_search_page_ads')" :desc="$t('settings.block_top_search_page_ads_desc')" right-width="auto">
         <Radio v-model="settings.blockTopSearchPageAds" />
       </SettingsItem>
-      <SettingsItem :title="$t('settings.clean_url_argument')" :desc="$t('settings.clean_url_argument_desc')" right-width="auto">
+      <SettingsItem :title="$t('settings.clean_url_argument')" right-width="auto">
         <Radio v-model="settings.cleanUrlArgument" />
       </SettingsItem>
     </SettingsItemGroup>

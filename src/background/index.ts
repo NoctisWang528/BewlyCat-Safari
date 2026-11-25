@@ -11,6 +11,7 @@ import { setupAppAuthScheduler } from './appAuthScheduler'
 import { isAppClientRequestUrl, setupAppClient } from './appClient'
 import { setupContentScriptRecovery } from './contentScriptRecovery'
 import { setupContentScriptRefreshPrompt } from './contentScriptRefreshPrompt'
+import { setupHostPermissionsDiagnostics } from './hostPermissions'
 import { setupLoginStateWatcher } from './loginStateWatcher'
 import { setupApiMsgListeners } from './messageListeners/api'
 import { setupTabMsgListeners } from './messageListeners/tabs'
@@ -196,6 +197,7 @@ setupTopBarStateBroker()
 setupAppAuthScheduler()
 setupWatchLaterStateBroker()
 setupContentScriptRefreshPrompt()
+setupHostPermissionsDiagnostics()
 setupContentScriptRecovery()
 setupOptionalBackgroundFeatures(isSafariBuild, {
   setupLoginStateWatcher,

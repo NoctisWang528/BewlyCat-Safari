@@ -167,8 +167,9 @@ function shouldIgnoreShortcutEvent(e: KeyboardEvent): boolean {
     return true
   }
 
-  // 分隔线使用方向键和 Home/End 调宽，不能被播放器快捷键提前拦截。
-  return !!target?.closest?.('.bewly-widescreen-sidebar-resize-handle')
+  // 分隔线使用方向键和 Home/End 调宽，自定义下拉菜单使用方向键/Home/End/空格/回车导航，
+  // 都不能被播放器快捷键提前拦截。
+  return !!target?.closest?.('.bewly-widescreen-sidebar-resize-handle, .bewly-native-select-trigger, .bewly-native-select-menu')
 }
 
 // 已被插件接管的物理按键，对应的 keypress/keyup 也要拦截，避免 B 站在这些阶段执行原有快捷键。
@@ -184,7 +185,7 @@ function handleShortcutKeydown(e: KeyboardEvent) {
   if (e.code)
     interceptedKeyCodes.delete(e.code)
 
-  if (settings.value.keyboard === false || shouldIgnoreShortcutEvent(e))
+  if (settings.value.keyboard === false || !settings.value.enablePlayerEnhancements || shouldIgnoreShortcutEvent(e))
     return
 
   updateShortcutsCache()
@@ -247,8 +248,8 @@ export function setupShortcutHandlers() {
     delete shortcutHandlers[id]
   })
 
-  // 如果快捷键总开关关闭，不注册处理器
-  if (settings.value.keyboard === false) {
+  // 快捷键总开关或播放器增强总开关关闭时，不注册插件提供的播放器快捷键处理器
+  if (settings.value.keyboard === false || !settings.value.enablePlayerEnhancements) {
     cachedShortcutIds = null
     return
   }

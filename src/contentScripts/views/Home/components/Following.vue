@@ -61,6 +61,7 @@ import { BadgeText } from '~/models/moment/moment'
 import type { UserVideo, UserVideosResult } from '~/models/video/userVideos'
 import api from '~/utils/api'
 import type { ApiErrorReportSource } from '~/utils/apiDiagnostics'
+import { hasMissingHostPermissionFailure } from '~/utils/apiDiagnostics'
 import { getFollowingSettingsDiagnostics } from '~/utils/apiDiagnosticSettings'
 import { calcTimeSince, parseStatNumber } from '~/utils/dataFormatter'
 import type { FollowingGroup, FollowingGroupsResult, FollowingRelationUser } from '~/utils/followingGroups'
@@ -68,6 +69,7 @@ import { getFollowingGroupIds, groupFollowingUploaders } from '~/utils/following
 import { decodeHtmlEntities } from '~/utils/htmlDecode'
 import { jumpScrollTo } from '~/utils/main'
 import emitter from '~/utils/mitt'
+import { resolveMomentAuthor } from '~/utils/momentAuthor'
 
 import { getHomeContentScrollTop, isWithinHomeContentStart } from '../homeScroll'
 import FollowingGroupMenu from './FollowingGroupMenu.vue'
@@ -739,10 +741,12 @@ async function loadAllViewVideos(maxPages: number = 3, token?: number) {
             })
           }
           else {
+            const resolvedAuthor = resolveMomentAuthor(item)
             authors.push({
               name: item.modules?.module_author?.name,
               authorFace: item.modules?.module_author?.face,
-              mid: item.modules?.module_author?.mid,
+              mid: resolvedAuthor.userMid,
+              authorUrl: resolvedAuthor.url || undefined,
             })
           }
 
@@ -934,14 +938,16 @@ async function loadUserMoments(mid: number, maxPages: number = 3, token?: number
             })
           }
           else {
+            const resolvedAuthor = resolveMomentAuthor(item)
             authors.push({
               name: item.modules?.module_author?.name,
               authorFace: item.modules?.module_author?.face,
-              mid: item.modules?.module_author?.mid,
+              mid: resolvedAuthor.userMid,
+              authorUrl: resolvedAuthor.url || undefined,
             })
           }
 
-          const displayData = mapMomentItemToVideo(item, authors)
+          const displayData = mapMomentItemToVideo(item, authors, mid)
           if (displayData) {
             const time = item.modules.module_author.pub_ts * 1000
 
@@ -1305,7 +1311,7 @@ function mapLiveItemToVideo(liveItem: FollowingLiveItem): Video {
 }
 
 // 将moment item转换为Video格式（含合集订阅 ugc_season）
-function mapMomentItemToVideo(item?: MomentItem, authors?: Author[]): Video | undefined {
+function mapMomentItemToVideo(item?: MomentItem, authors?: Author[], sourceUploaderMid?: number): Video | undefined {
   if (!item)
     return undefined
 
@@ -1341,6 +1347,7 @@ function mapMomentItemToVideo(item?: MomentItem, authors?: Author[]): Video | un
 
   return {
     id: Number.isNaN(id) ? 0 : id,
+    sourceUploaderMid,
     durationStr: archive.duration_text,
     title: decodeHtmlEntities(archive.title),
     desc: decodeHtmlEntities(archive.desc),
@@ -1502,7 +1509,6 @@ function getItemKey(item: VideoElement) {
     <!-- Left Panel: Uploader List -->
     <aside
       class="uploader-sidebar"
-      :class="{ 'uploader-sidebar--search-page': settings.fixedHomeTabsOnHomePage && settings.useSearchPageModeOnHomePage }"
       w-200px shrink-0
     >
       <div class="uploader-scroll bew-page-sidebar">
@@ -1718,8 +1724,9 @@ function getItemKey(item: VideoElement) {
         :no-more-content="noMoreContent"
         :need-to-login-first="needToLoginFirst"
         :request-failed="gridRequestFailed"
+        :request-failed-description="videoSearchKeyword && !hasMissingHostPermissionFailure(errorReportSource.queries) ? $t('search.search_failed') : undefined"
         :error-report-source="errorReportSource"
-        :empty-description="videoSearchKeyword ? (requestFailed ? $t('search.search_failed') : $t('home.following_no_search_results')) : undefined"
+        :empty-description="videoSearchKeyword && !requestFailed ? $t('home.following_no_search_results') : undefined"
         :show-loading-more-skeleton="selectedUploader === null"
         :transform-item="transformVideoItem"
         :get-item-key="getItemKey"
@@ -1735,7 +1742,7 @@ function getItemKey(item: VideoElement) {
         class="video-search-pagination"
       >
         <p v-if="requestFailed && videoList.length > 0" role="status">
-          {{ $t('search.search_failed') }}
+          {{ $t(hasMissingHostPermissionFailure(errorReportSource.queries) ? 'common.api_error.host_permission_denied' : 'search.search_failed') }}
         </p>
         <div class="video-search-actions">
           <Button v-if="videoList.length > 0 || !requestFailed" type="secondary" @click="loadMoreSearchVideos">
@@ -1794,19 +1801,24 @@ function getItemKey(item: VideoElement) {
 
 .uploader-sidebar {
   // sticky 顶部偏移与高度使用同一基准，避免侧栏底部越出视口后被回顶/焦点滚动纠正。
-  // 与首页固定标签栏的 10px 顶部偏移一致，并在标签栏下保留标准区块间距。
-  --following-sidebar-top: calc(var(--bew-top-bar-height) + 10px + var(--bew-control-height) + var(--bew-space-4));
+  // 跟随首页固定标签栏的顶部偏移（含顶栏隐藏后的置顶状态），并在标签栏下保留标准区块间距。
+  --following-sidebar-top: calc(
+    var(--home-header-sticky-top, calc(var(--bew-top-bar-height) + 10px)) + var(--bew-control-height) +
+      var(--bew-space-4)
+  );
   position: sticky;
   top: var(--following-sidebar-top);
   align-self: flex-start;
   height: calc(100vh - var(--following-sidebar-top) - var(--bew-space-2));
+  transition:
+    top var(--bew-duration-moderate) var(--bew-ease-standard),
+    height var(--bew-duration-moderate) var(--bew-ease-standard);
 }
 
-.uploader-sidebar--search-page {
-  // 搜索页模式的固定标签栏顶部偏移为 16px，侧栏使用相同基准。
-  --following-sidebar-top: calc(
-    var(--bew-top-bar-height) + var(--bew-space-4) + var(--bew-control-height) + var(--bew-space-4)
-  );
+@media (prefers-reduced-motion: reduce) {
+  .uploader-sidebar {
+    transition: none;
+  }
 }
 
 .uploader-scroll {

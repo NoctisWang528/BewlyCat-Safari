@@ -194,6 +194,7 @@ export type MomentsVideoCardOpenMode = MomentsCardOpenMode | 'inherit' | 'curren
 export interface LocalSettings {
   // 壁纸相关
   locallyUploadedWallpaper: wallpaperItem | null
+  locallyUploadedDarkWallpaper: wallpaperItem | null
 
   // 自定义CSS
   customizeCSS: boolean
@@ -309,8 +310,10 @@ export interface Settings {
   ambilightFps: number
   /** 画面与声音调整面板的画面项（旋转、镜像） */
   playerPictureAdjustmentEnabled: boolean
-  /** 画面与声音调整面板的音画同步项；音量均衡项跟随 localLoudnessEnabled，三项均关闭时不显示按钮 */
+  /** 画面与声音调整面板的音画同步项 */
   playerAudioDelayEnabled: boolean
+  /** 画面与声音调整面板的音量均衡项（三项均不显示时隐藏控制栏按钮）；关闭不影响后台局部音量均衡生效 */
+  showLocalLoudnessControl: boolean
   localLoudnessEnabled: boolean
   localLoudnessTarget: number
   localLoudnessStrength: number
@@ -358,7 +361,7 @@ export interface Settings {
   frostedGlassBlurIntensity: number
   /** 分段控件液态滑动指示器；默认关闭以降低切换动画合成成本 */
   enableLiquidSegmentIndicator: boolean
-  disableShadow: boolean
+  enableShadow: boolean
 
   enableVideoPreview: boolean
 
@@ -367,7 +370,7 @@ export interface Settings {
   topBarLinkOpenMode: 'currentTab' | 'currentTabIfNotHomepage' | 'currentTabIfHomepage' | 'newTab' | 'background'
   searchBarLinkOpenMode: 'currentTab' | 'currentTabIfNotHomepage' | 'currentTabIfHomepage' | 'newTab' | 'background'
   closeDrawerWithoutPressingEscAgain: boolean
-  hideDrawerEscHint: boolean
+  showDrawerEscHint: boolean
 
   blockAds: boolean
   blockTopSearchPageAds: boolean
@@ -417,7 +420,7 @@ export interface Settings {
   showSystemNotificationReminder: boolean
   showFollowedPrivateMessageUnreadCount: boolean
   showUnfollowedPrivateMessageUnreadCount: boolean
-  hideTopBarUserPanelLv6LastLoginLocation: boolean
+  showTopBarUserPanelLv6LastLoginLocation: boolean
   showBCoinReceiveReminder: boolean
   autoReceiveBCoinCoupon: boolean
   autoReceiveVipExp: boolean
@@ -481,14 +484,15 @@ export interface Settings {
   halfHideDock: boolean
   dockPosition: 'left' | 'right' | 'bottom'
   dockItemsConfig: { page: AppPage, visible: boolean, openInNewTab: boolean, useOriginalBiliPage: boolean }[]
-  disableDockGlowingEffect: boolean
-  disableDockIconAnimation: boolean
-  disableLightDarkModeSwitcherOnDock: boolean
-  disableBackToTopButtonOnDock: boolean
-  disableRefreshButtonOnDock: boolean
+  enableDockGlowingEffect: boolean
+  enableDockIconAnimation: boolean
+  enableLightDarkModeSwitcherOnDock: boolean
+  enableBackToTopButtonOnDock: boolean
+  enableRefreshButtonOnDock: boolean
   backToTopAndRefreshButtonsAreSeparated: boolean
   alwaysShowDockActionsWhenAutoHide: boolean
   enableUndoRefreshButton: boolean // 添加撤销刷新按钮配置项
+  enableNativeHomeFeedHistory: boolean // 原版首页推荐前进后退按钮
 
   sidebarPosition: 'left' | 'right'
   autoHideSidebar: boolean
@@ -498,13 +502,17 @@ export interface Settings {
   themeScheduleEnd: string
   videoPageDarkMode: boolean
   videoPageGlassStyle: boolean
+  videoPageGlassStyleOverlay: boolean
   roundedVideoPlayer: boolean
   themeColor: string
   darkModeBaseColor: string // 深色模式基准颜色
   useLinearGradientThemeColorBackground: boolean
-  disableBackground: boolean
+  enableBackground: boolean
+  individuallySetDarkModeWallpaper: boolean
   wallpaperMode: 'buildIn' | 'byUrl'
   wallpaper: string
+  darkModeWallpaperMode: 'buildIn' | 'byUrl'
+  darkModeWallpaper: string
   enableWallpaperMasking: boolean
   wallpaperMaskOpacity: number
   wallpaperBlurIntensity: number
@@ -517,8 +525,11 @@ export interface Settings {
   searchPageShowLogo: boolean
   searchPageSearchBarFocusCharacter: string
   individuallySetSearchPageWallpaper: boolean
+  searchPageIndividuallySetDarkModeWallpaper: boolean
   searchPageWallpaperMode: 'buildIn' | 'byUrl'
   searchPageWallpaper: string
+  searchPageDarkModeWallpaperMode: 'buildIn' | 'byUrl'
+  searchPageDarkModeWallpaper: string
   searchPageEnableWallpaperMasking: boolean
   searchPageWallpaperMaskOpacity: number
   searchPageWallpaperBlurIntensity: number
@@ -627,6 +638,7 @@ export interface Settings {
   enableVideoPlayerModeOverrides: boolean // 启用按场景覆盖播放器显示模式
   videoPlayerModeOverrides: VideoPlayerModeOverrides // 不同播放场景的显示模式覆盖
   autoExitFullscreenOnEnd: boolean // 全屏播放完毕后自动退出
+  showVerticalVideoZoomButton: boolean // 显示竖屏视频放大按钮
   showBewlyWidescreenButton: boolean // 显示播放器 Bewly 宽屏按钮
   showVideoScreenshotButton: boolean // 显示播放器截图按钮
   showVideoPipButton: boolean // 显示播放器画中画按钮
@@ -676,6 +688,7 @@ export interface Settings {
 // 本地存储配置默认值
 export const originalLocalSettings: LocalSettings = {
   locallyUploadedWallpaper: null,
+  locallyUploadedDarkWallpaper: null,
   customizeCSS: false,
   customizeCSSContent: '',
   bewlyWidescreenSidebarWidth: 0,
@@ -697,6 +710,7 @@ export const originalSettings: Settings = {
   ambilightFps: 24,
   playerPictureAdjustmentEnabled: true,
   playerAudioDelayEnabled: true,
+  showLocalLoudnessControl: true,
   localLoudnessEnabled: false,
   localLoudnessTarget: -18,
   localLoudnessStrength: 75,
@@ -739,14 +753,14 @@ export const originalSettings: Settings = {
   enableFrostedGlass: false,
   frostedGlassBlurIntensity: 20,
   enableLiquidSegmentIndicator: false,
-  disableShadow: false,
+  enableShadow: true,
 
   // Link Opening Behavior
   videoCardLinkOpenMode: 'newTab',
   topBarLinkOpenMode: 'currentTabIfNotHomepage',
   searchBarLinkOpenMode: 'currentTabIfNotHomepage',
   closeDrawerWithoutPressingEscAgain: false,
-  hideDrawerEscHint: false,
+  showDrawerEscHint: true,
 
   blockAds: false,
   blockTopSearchPageAds: false,
@@ -807,7 +821,7 @@ export const originalSettings: Settings = {
   showSystemNotificationReminder: true,
   showFollowedPrivateMessageUnreadCount: true,
   showUnfollowedPrivateMessageUnreadCount: false,
-  hideTopBarUserPanelLv6LastLoginLocation: false,
+  showTopBarUserPanelLv6LastLoginLocation: true,
   showBCoinReceiveReminder: true,
   autoReceiveBCoinCoupon: false,
   autoReceiveVipExp: false,
@@ -856,14 +870,15 @@ export const originalSettings: Settings = {
   halfHideDock: false,
   dockPosition: 'right',
   dockItemsConfig: [],
-  disableDockGlowingEffect: false,
-  disableDockIconAnimation: false,
-  disableLightDarkModeSwitcherOnDock: false,
-  disableBackToTopButtonOnDock: false,
-  disableRefreshButtonOnDock: false,
+  enableDockGlowingEffect: true,
+  enableDockIconAnimation: true,
+  enableLightDarkModeSwitcherOnDock: true,
+  enableBackToTopButtonOnDock: true,
+  enableRefreshButtonOnDock: true,
   backToTopAndRefreshButtonsAreSeparated: true,
   alwaysShowDockActionsWhenAutoHide: false,
   enableUndoRefreshButton: true, // 默认开启撤销刷新按钮
+  enableNativeHomeFeedHistory: true, // 默认开启原版首页推荐前进后退按钮
 
   sidebarPosition: 'right',
   autoHideSidebar: false,
@@ -873,13 +888,17 @@ export const originalSettings: Settings = {
   themeScheduleEnd: '18:00',
   videoPageDarkMode: false,
   videoPageGlassStyle: false,
+  videoPageGlassStyleOverlay: true,
   roundedVideoPlayer: false,
   themeColor: '#00a1d6',
   darkModeBaseColor: '#2a2d32', // 默认深色模式基准颜色
   useLinearGradientThemeColorBackground: false,
-  disableBackground: false,
+  enableBackground: true,
+  individuallySetDarkModeWallpaper: false,
   wallpaperMode: 'buildIn',
   wallpaper: '',
+  darkModeWallpaperMode: 'buildIn',
+  darkModeWallpaper: '',
   enableWallpaperMasking: false,
   wallpaperMaskOpacity: 80,
   wallpaperBlurIntensity: 0,
@@ -892,8 +911,11 @@ export const originalSettings: Settings = {
   searchPageShowLogo: true,
   searchPageSearchBarFocusCharacter: DEFAULT_SEARCH_BAR_CHARACTER,
   individuallySetSearchPageWallpaper: false,
+  searchPageIndividuallySetDarkModeWallpaper: false,
   searchPageWallpaperMode: 'buildIn',
   searchPageWallpaper: '',
+  searchPageDarkModeWallpaperMode: 'buildIn',
+  searchPageDarkModeWallpaper: '',
   searchPageEnableWallpaperMasking: false,
   searchPageWallpaperMaskOpacity: 80,
   searchPageWallpaperBlurIntensity: 0,
@@ -999,6 +1021,7 @@ export const originalSettings: Settings = {
     momentsDialog: 'inherit',
   },
   autoExitFullscreenOnEnd: false, // 全屏播放完毕后自动退出，默认关闭
+  showVerticalVideoZoomButton: true, // 默认显示竖屏视频放大按钮
   showBewlyWidescreenButton: true, // 默认显示播放器 Bewly 宽屏按钮
   showVideoScreenshotButton: true, // 默认显示播放器截图按钮
   showVideoPipButton: true, // 默认显示播放器画中画按钮
@@ -1150,6 +1173,40 @@ export function normalizeRecommendationModeSwitcherOptions(value: unknown): Sett
   return result
 }
 
+const LEGACY_INVERTED_BOOLEAN_SETTINGS = [
+  ['disableFrostedGlass', 'enableFrostedGlass'],
+  ['disableShadow', 'enableShadow'],
+  ['hideDrawerEscHint', 'showDrawerEscHint'],
+  ['hideTopBarUserPanelLv6LastLoginLocation', 'showTopBarUserPanelLv6LastLoginLocation'],
+  ['disableDockGlowingEffect', 'enableDockGlowingEffect'],
+  ['disableDockIconAnimation', 'enableDockIconAnimation'],
+  ['disableLightDarkModeSwitcherOnDock', 'enableLightDarkModeSwitcherOnDock'],
+  ['disableBackToTopButtonOnDock', 'enableBackToTopButtonOnDock'],
+  ['disableRefreshButtonOnDock', 'enableRefreshButtonOnDock'],
+  ['disableBackground', 'enableBackground'],
+] as const
+
+export function migrateLegacyInvertedBooleanSettings(
+  record: Record<string, unknown>,
+  options: { overwriteExisting?: boolean } = {},
+) {
+  const overwriteExisting = options.overwriteExisting ?? true
+  for (const [legacyKey, nextKey] of LEGACY_INVERTED_BOOLEAN_SETTINGS) {
+    if (!(legacyKey in record))
+      continue
+
+    const legacyValue = record[legacyKey]
+    if (typeof legacyValue === 'boolean') {
+      if (overwriteExisting || !Object.prototype.hasOwnProperty.call(record, nextKey))
+        record[nextKey] = !legacyValue
+      Reflect.deleteProperty(record, legacyKey)
+    }
+    else if (overwriteExisting) {
+      Reflect.deleteProperty(record, legacyKey)
+    }
+  }
+}
+
 let resolveSettingsReady: (value: Settings) => void = () => {}
 export const settingsReady = new Promise<Settings>((resolve) => {
   resolveSettingsReady = resolve
@@ -1194,6 +1251,13 @@ export const settings = useSettingsStorage(originalSettings, {
     if (typeof record.enableFavoriteCoverBlur === 'boolean') {
       record.enableSidebarCoverBlur = record.enableFavoriteCoverBlur
       Reflect.deleteProperty(record, 'enableFavoriteCoverBlur')
+    }
+
+    // 原版首页推荐前进后退从 Dock 的 enableUndoRefreshButton 拆出为独立开关，旧用户继承原偏好。
+    if (typeof record.enableNativeHomeFeedHistory !== 'boolean') {
+      record.enableNativeHomeFeedHistory = typeof record.enableUndoRefreshButton === 'boolean'
+        ? record.enableUndoRefreshButton
+        : originalSettings.enableNativeHomeFeedHistory
     }
 
     // 原版首页用户此前看不到 Dock，引入独立开关后保持原有界面。
@@ -1262,15 +1326,16 @@ export const settings = useSettingsStorage(originalSettings, {
 
     // 音量均衡按钮已扩展为画面与声音调整按钮，旧显示开关不再沿用。
     Reflect.deleteProperty(record, 'showLocalLoudnessButton')
-    // 整体显示开关拆分为画面与音画同步两项；旧版关闭了按钮的用户两项一并关闭。
+    // 整体显示开关拆分为画面、音画同步与音量均衡控制项；旧版关闭了按钮的用户三项一并关闭。
     if (typeof record.showPlayerAdjustmentButton === 'boolean') {
       if (!record.showPlayerAdjustmentButton) {
         record.playerPictureAdjustmentEnabled = false
         record.playerAudioDelayEnabled = false
+        record.showLocalLoudnessControl = false
       }
       Reflect.deleteProperty(record, 'showPlayerAdjustmentButton')
     }
-    for (const key of ['playerPictureAdjustmentEnabled', 'playerAudioDelayEnabled'] as const) {
+    for (const key of ['playerPictureAdjustmentEnabled', 'playerAudioDelayEnabled', 'showLocalLoudnessControl'] as const) {
       if (typeof record[key] !== 'boolean')
         record[key] = true
     }
@@ -1353,6 +1418,8 @@ export const settings = useSettingsStorage(originalSettings, {
 
     if (typeof record.videoPageGlassStyle !== 'boolean')
       record.videoPageGlassStyle = originalSettings.videoPageGlassStyle
+    if (typeof record.videoPageGlassStyleOverlay !== 'boolean')
+      record.videoPageGlassStyleOverlay = originalSettings.videoPageGlassStyleOverlay
     if (typeof record.roundedVideoPlayer !== 'boolean')
       record.roundedVideoPlayer = originalSettings.roundedVideoPlayer
 
@@ -1431,9 +1498,6 @@ export const settings = useSettingsStorage(originalSettings, {
     }
     if (record.shortcuts)
       Reflect.deleteProperty(record.shortcuts, 'listenVideo')
-
-    // 竖屏放大功能已移除，清理旧版本保存的显示开关。
-    Reflect.deleteProperty(record, 'showVerticalVideoZoomButton')
 
     // 「想看」分组已移除，清理旧版本保存的开关。
     Reflect.deleteProperty(record, 'momentsEnableWantedFilter')
@@ -1572,13 +1636,26 @@ export const settings = useSettingsStorage(originalSettings, {
     // 清理已移除的 NVIDIA RTX 视频增强兼容设置
     Reflect.deleteProperty(record, 'nvidiaRtxVideoEnhancementCompatibility')
 
-    // 迁移旧的 disableFrostedGlass 到 enableFrostedGlass
-    if ('disableFrostedGlass' in record) {
-      record.enableFrostedGlass = !record.disableFrostedGlass
-
-      // 清理旧的字段
-      Reflect.deleteProperty(record, 'disableFrostedGlass')
+    // 迁移旧版反向布尔设置项到正向命名并清理旧字段
+    migrateLegacyInvertedBooleanSettings(record)
+    for (const [, nextKey] of LEGACY_INVERTED_BOOLEAN_SETTINGS) {
+      if (typeof record[nextKey] !== 'boolean')
+        record[nextKey] = originalSettings[nextKey]
     }
+
+    if (typeof record.individuallySetDarkModeWallpaper !== 'boolean')
+      record.individuallySetDarkModeWallpaper = originalSettings.individuallySetDarkModeWallpaper
+    if (record.darkModeWallpaperMode !== 'buildIn' && record.darkModeWallpaperMode !== 'byUrl')
+      record.darkModeWallpaperMode = originalSettings.darkModeWallpaperMode
+    if (typeof record.darkModeWallpaper !== 'string')
+      record.darkModeWallpaper = originalSettings.darkModeWallpaper
+
+    if (typeof record.searchPageIndividuallySetDarkModeWallpaper !== 'boolean')
+      record.searchPageIndividuallySetDarkModeWallpaper = originalSettings.searchPageIndividuallySetDarkModeWallpaper
+    if (record.searchPageDarkModeWallpaperMode !== 'buildIn' && record.searchPageDarkModeWallpaperMode !== 'byUrl')
+      record.searchPageDarkModeWallpaperMode = originalSettings.searchPageDarkModeWallpaperMode
+    if (typeof record.searchPageDarkModeWallpaper !== 'string')
+      record.searchPageDarkModeWallpaper = originalSettings.searchPageDarkModeWallpaper
 
     // 迁移旧的 locallyUploadedWallpaper/customizeCSS/customizeCSSContent 到 localSettings
     if ('locallyUploadedWallpaper' in record || 'customizeCSS' in record || 'customizeCSSContent' in record) {

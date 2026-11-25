@@ -12,6 +12,8 @@ import type { CommentReplyAvatarAnchor, CommentReplyTreeBranch } from '~/utils/c
 import { formatCommentReplyGuideCoordinate, getCommentReplyBranchPath, getCommentReplyBranchToggleY } from '~/utils/commentReplyTree'
 import { getCommentSexIcon, normalizeCommentLocation } from '~/utils/commentUserInfo'
 import { isElectron } from '~/utils/main'
+import type { NativeSelectController, NativeSelectOption } from '~/utils/nativeSelectDropdown'
+import { createNativeSelectDropdown, NATIVE_SELECT_DROPDOWN_CSS } from '~/utils/nativeSelectDropdown'
 import type { PageScriptIdentity, PageScriptInitializedMarker, RunningPageScriptIdentity } from '~/utils/pageScriptIdentity'
 import { createPageScriptIdentityMessage, isPageScriptIdentity, PAGE_SCRIPT_PING } from '~/utils/pageScriptIdentity'
 import type { PageSettingsPayload } from '~/utils/pageSettingsProtocol'
@@ -293,6 +295,7 @@ else if (shouldInitializePageScript) {
   const commentReplyTreeEpochs = new WeakMap<object, number>()
   const commentReplyPaginationStates = new WeakMap<object, CommentReplyPaginationState>()
   const commentReplyPaginationModeStates = new WeakMap<object, boolean>()
+  const commentReplyPageSelectControllers = new WeakMap<object, NativeSelectController>()
   // B 站切页时可能销毁并重建 replies renderer；按楼层身份保留已见回复的
   // parent/root 与正文摘要，重建后仍能解析跨页父子关系。
   const commentReplyCrossPageMetaCaches = new Map<string, Map<string, CommentReplyTreeCachedMeta>>()
@@ -317,6 +320,7 @@ else if (shouldInitializePageScript) {
   const COMMENT_REPLY_BATCH_PAGE_LIMIT = 5
   const COMMENT_REPLY_TREE_ROOT_KEY = 'thread-root'
   const COMMENT_REPLY_CONTAINER_ATTRIBUTE = 'data-bewly-comment-reply-container'
+  const COMMENT_REPLY_FOOTER_STUCK_ATTRIBUTE = 'data-bewly-comment-reply-footer-stuck'
   const COMMENT_REPLY_CONTAINER_HEIGHT_VAR = '--bew-comment-reply-container-height'
   const COMMENT_REPLY_TREE_CONTAINER_MIN_HEIGHT = 240
   const COMMENT_REPLY_TREE_CONTAINER_MAX_HEIGHT = 960
@@ -351,6 +355,7 @@ else if (shouldInitializePageScript) {
     resizeObserver?: ResizeObserver
     observedReplyContainer?: HTMLElement
     replyContainerMutationObserver?: MutationObserver
+    replyContainerScrollAbort?: AbortController
     imageLoadAbort?: AbortController
     imageLoadListeners?: WeakSet<HTMLImageElement>
     layoutUpdateRaf?: number
@@ -437,10 +442,35 @@ else if (shouldInitializePageScript) {
       id: 'bewly-comment-header-style',
       css: `
         .bili-comments-bottom-fixed-wrapper > div {
+          --_bew-box-bg: var(--bew-comment-bottom-fixed-box-bg);
+          --_bew-box-bg-hover: var(--bew-comment-bottom-fixed-box-bg-hover);
+          --_bew-box-bg-active: var(--bew-comment-bottom-fixed-box-bg-active);
+          --_bew-box-filter: var(--bew-comment-bottom-fixed-box-filter);
+          --_bew-box-shadow: var(--bew-comment-bottom-fixed-box-shadow);
           background-color: var(--bew-comment-bottom-fixed-bg, var(--bg1)) !important;
           -webkit-backdrop-filter: var(--bew-comment-bottom-fixed-filter, none);
           backdrop-filter: var(--bew-comment-bottom-fixed-filter, none);
           border-top-color: var(--bew-comment-bottom-fixed-border, var(--Ga2, var(--line_regular))) !important;
+          border-radius: var(--bew-comment-bottom-fixed-radius, 0);
+          box-shadow: var(--bew-comment-bottom-fixed-shadow, none) !important;
+          transition:
+            background-color var(--bew-duration-fast, 150ms) var(--bew-ease-standard, ease),
+            border-color var(--bew-duration-fast, 150ms) var(--bew-ease-standard, ease),
+            box-shadow var(--bew-duration-fast, 150ms) var(--bew-ease-standard, ease);
+        }
+
+        .bili-comments-bottom-fixed-wrapper > div:focus-within {
+          --_bew-box-bg: initial;
+          --_bew-box-bg-hover: initial;
+          --_bew-box-bg-active: initial;
+          --_bew-box-filter: none;
+          --_bew-box-shadow: none;
+          background-color: var(--bew-comment-bottom-fixed-active-bg, var(--bew-comment-bottom-fixed-bg, var(--bg1))) !important;
+          -webkit-backdrop-filter: var(--bew-comment-bottom-fixed-active-filter, var(--bew-comment-bottom-fixed-filter, none));
+          backdrop-filter: var(--bew-comment-bottom-fixed-active-filter, var(--bew-comment-bottom-fixed-filter, none));
+          border-top-color: var(--bew-comment-bottom-fixed-active-border, var(--bew-comment-bottom-fixed-border, var(--Ga2, var(--line_regular)))) !important;
+          border-radius: var(--bew-comment-bottom-fixed-active-radius, var(--bew-comment-bottom-fixed-radius, 0));
+          box-shadow: var(--bew-comment-bottom-fixed-active-shadow, var(--bew-comment-bottom-fixed-shadow, none)) !important;
         }
       `,
     },
@@ -483,37 +513,11 @@ else if (shouldInitializePageScript) {
           white-space: nowrap;
         }
 
-        #${COMMENT_REPLY_PAGE_SELECT_ID} {
-          min-width: var(--bew-space-6, 24px);
-          min-height: var(--bew-space-6, 24px);
-          padding: 0 var(--bew-space-1, 4px);
-          border: 0;
-          border-radius: var(--bew-radius-sm, 4px);
-          background: transparent;
-          color: var(--bew-text-2, var(--text2, #61666d));
-          font: inherit;
-          cursor: pointer;
-          vertical-align: baseline;
-        }
+        ${NATIVE_SELECT_DROPDOWN_CSS}
 
-        #${COMMENT_REPLY_PAGE_SELECT_ID}:is(:hover, :active):not(:disabled) {
-          color: var(--bew-theme-color, #00aeec);
-          background: var(--bew-fill-1, var(--graph_bg_thin, #f1f2f3));
-        }
-
-        #${COMMENT_REPLY_PAGE_SELECT_ID}:focus-visible {
-          outline: var(--bew-space-0-5, 2px) solid var(--bew-theme-color, #00aeec);
-          outline-offset: var(--bew-space-0-5, 2px);
-        }
-
+        /* 分页加载中保留等待光标，覆盖公共禁用态的 not-allowed */
         #${COMMENT_REPLY_PAGE_SELECT_ID}:disabled {
-          opacity: 0.6;
           cursor: wait;
-        }
-
-        #${COMMENT_REPLY_PAGE_SELECT_ID} option {
-          background: var(--bew-bg, var(--bg1, #fff));
-          color: var(--bew-text-1, var(--text1, #18191c));
         }
 
         #view-more:has(> #${COMMENT_REPLY_EXPAND_ALL_ID}) {
@@ -682,8 +686,13 @@ else if (shouldInitializePageScript) {
           position: sticky;
           bottom: 0;
           z-index: 1;
+          transition: background-color var(--bew-duration-fast, 150ms) var(--bew-ease-standard, ease);
+        }
+
+        /* 仅在容器溢出且未滚到底部（底栏压在下方回复上）时铺底防叠字，避免未展开的「共 x 条回复」出现实色横条 */
+        :host([${COMMENT_REPLY_CONTAINER_ATTRIBUTE}][${COMMENT_REPLY_FOOTER_STUCK_ATTRIBUTE}]) #expander-contents > #expander-footer {
           /* 宽屏侧栏和原生评论区可有独立底色，不能优先取全局页面背景。 */
-          background: var(--bewly-widescreen-sidebar-bg, var(--bg1, var(--bew-bg, #fff)));
+          background: var(--bew-comment-sticky-footer-bg, var(--bewly-widescreen-sidebar-bg, var(--bg1, var(--bew-bg, #fff))));
           -webkit-backdrop-filter: var(--bew-comment-sticky-footer-filter, none);
           backdrop-filter: var(--bew-comment-sticky-footer-filter, none);
         }
@@ -770,28 +779,91 @@ else if (shouldInitializePageScript) {
       id: 'bewly-comment-box-style',
       css: `
         /* 表情/@/图片等工具按钮与编辑框共用同一条适配边框（B 站原生为 var(--Ga1)） */
-        #editor:not(:hover):not(.active),
-        .tool-btn {
+        #editor:not(:hover):not(.active) {
           border-color: var(--bew-comment-box-border, var(--Ga1)) !important;
         }
 
-        /* 编辑框底色与边框钩子：未设置时回落到原生 var(--bg3) / var(--bg1) / var(--Ga2)，供视频页玻璃风格统一为半透明填充 */
+        /* 编辑框底色、边框、圆角与毛玻璃钩子：未设置时回落到原生样式，供视频页玻璃风格统一处理 */
+        #editor {
+          border-radius: var(--bew-comment-box-radius, 6px) !important;
+          -webkit-backdrop-filter: var(--_bew-box-filter, var(--bew-comment-box-filter, none));
+          backdrop-filter: var(--_bew-box-filter, var(--bew-comment-box-filter, none));
+          box-shadow: var(--_bew-box-shadow, var(--bew-comment-box-shadow, none));
+        }
+
         #editor:not(:hover):not(.active) {
-          background-color: var(--bew-comment-box-bg, var(--bg3)) !important;
+          background-color: var(--_bew-box-bg, var(--bew-comment-box-bg, var(--bg3))) !important;
         }
 
         #editor:hover:not(.active) {
-          background-color: var(--bew-comment-box-bg-hover, var(--bew-comment-box-bg-active, var(--bg1))) !important;
+          background-color: var(--_bew-box-bg-hover, var(--bew-comment-box-bg-hover, var(--bew-comment-box-bg-active, var(--bg1)))) !important;
           border-color: var(--bew-comment-box-border-hover, var(--Ga2)) !important;
         }
 
         #editor.active {
-          background-color: var(--bew-comment-box-bg-active, var(--bg1)) !important;
+          background-color: var(--_bew-box-bg-active, var(--bew-comment-box-bg-active, var(--bg1))) !important;
           border-color: var(--bew-comment-box-border-active, var(--Ga2)) !important;
+          box-shadow: var(--_bew-box-shadow, var(--bew-comment-box-active-shadow, var(--bew-comment-box-shadow, none)));
+        }
+
+        .tool-btn {
+          background-color: var(--bew-comment-tool-btn-bg, var(--bg1)) !important;
+          border-color: var(--bew-comment-tool-btn-border, var(--bew-comment-box-border, var(--Ga1))) !important;
+          border-radius: var(--bew-comment-tool-btn-radius, 4px) !important;
+          -webkit-backdrop-filter: var(--_bew-box-filter, var(--bew-comment-tool-btn-filter, none));
+          backdrop-filter: var(--_bew-box-filter, var(--bew-comment-tool-btn-filter, none));
+          transition:
+            background-color var(--bew-duration-fast, 150ms) var(--bew-ease-standard, ease),
+            border-color var(--bew-duration-fast, 150ms) var(--bew-ease-standard, ease),
+            color var(--bew-duration-fast, 150ms) var(--bew-ease-standard, ease);
+        }
+
+        .tool-btn:hover:not(.disabled) {
+          background-color: var(--bew-comment-tool-btn-bg-hover, var(--bew-comment-tool-btn-bg, var(--bg1))) !important;
+          border-color: var(--bew-comment-tool-btn-border-hover, var(--bew-comment-box-border-hover, var(--Ga2))) !important;
+          color: var(--bew-text-1, var(--text1)) !important;
+        }
+
+        .tool-btn:active:not(.disabled) {
+          background-color: var(--bew-comment-tool-btn-bg-active, var(--bew-comment-tool-btn-bg-hover, var(--bg1))) !important;
+        }
+
+        .tool-btn:focus-visible {
+          outline: var(--bew-space-0-5, 2px) solid var(--bew-theme-color, #00aeec);
+          outline-offset: var(--bew-space-0-5, 2px);
+        }
+
+        #pub button {
+          border-radius: var(--bew-comment-pub-btn-radius, 4px) !important;
         }
 
         :is(#pub button, button[data-v-risk="fingerprint"]):not(:hover, :active, .active) {
           background-color: var(--bew-theme-color-60) !important;
+        }
+      `,
+    },
+    'bili-checkbox': {
+      id: 'bewly-comment-checkbox-style',
+      css: `
+        #input:not([checked]) #inner {
+          background-color: var(--bew-comment-checkbox-bg, var(--bg1_float)) !important;
+          border-color: var(--bew-comment-checkbox-border, var(--text4)) !important;
+          border-radius: var(--bew-comment-checkbox-radius, var(--bili-checkbox-border-radius, 2px));
+        }
+
+        #input:not([checked]) #inner:hover,
+        :host(:hover) #input:not([checked]) #inner {
+          background-color: var(--bew-comment-checkbox-bg-hover, var(--bew-comment-checkbox-bg, var(--bg1_float))) !important;
+          border-color: var(--bew-comment-checkbox-border-hover, var(--bili-checkbox-checked-color)) !important;
+        }
+
+        #input[checked] #inner {
+          border-radius: var(--bew-comment-checkbox-radius, var(--bili-checkbox-border-radius, 2px));
+        }
+
+        #input:has(input:focus-visible) {
+          outline: var(--bew-space-0-5, 2px) solid var(--bew-theme-color, #00aeec);
+          outline-offset: var(--bew-space-0-5, 2px);
         }
       `,
     },
@@ -1301,43 +1373,47 @@ else if (shouldInitializePageScript) {
       pageHead.id = COMMENT_REPLY_PAGE_HEAD_ID
       head.after(pageHead)
     }
-    let select = pageHead.querySelector<HTMLSelectElement>(`#${COMMENT_REPLY_PAGE_SELECT_ID}`)
-    if (!select) {
-      select = document.createElement('select')
-      select.id = COMMENT_REPLY_PAGE_SELECT_ID
-      select.addEventListener('click', event => event.stopPropagation())
-      select.addEventListener('change', (event) => {
-        event.stopPropagation()
-        void jumpToCommentReplyPage(component, Number((event.currentTarget as HTMLSelectElement).value))
+    let controller = commentReplyPageSelectControllers.get(component)
+    let select = pageHead.querySelector<HTMLButtonElement>(`#${COMMENT_REPLY_PAGE_SELECT_ID}`)
+    if (!controller || !select) {
+      controller?.destroy()
+      controller = createNativeSelectDropdown({
+        triggerId: COMMENT_REPLY_PAGE_SELECT_ID,
+        gap: 4,
+        minMenuWidth: 96,
+        onChange: (value) => {
+          void jumpToCommentReplyPage(component, Number(value))
+        },
       })
-      pageHead.append(select, document.createElement('span'))
+      commentReplyPageSelectControllers.set(component, controller)
+      select = controller.trigger
+      pageHead.replaceChildren(select, document.createElement('span'))
     }
     const state = commentReplyPaginationStates.get(component)
     const allExpanded = state?.allRepliesExpanded === true
     const optionsKey = `${totalPage}|${allExpanded}|${currentSettings?.language ?? DEFAULT_PAGE_LOCALE}`
     if (select.dataset.optionsKey !== optionsKey) {
-      const options = document.createDocumentFragment()
+      const options: NativeSelectOption[] = []
       if (allExpanded) {
-        const option = document.createElement('option')
-        option.value = ''
-        option.textContent = pageT('inject.all_pages')
-        option.disabled = true
-        option.hidden = true
-        options.appendChild(option)
+        options.push({
+          value: '',
+          label: pageT('inject.all_pages'),
+          disabled: true,
+          hidden: true,
+        })
       }
       for (let page = 1; page <= totalPage; page += 1) {
-        const option = document.createElement('option')
-        option.value = String(page)
-        option.textContent = pageT('inject.page_number', { current: page })
-        options.appendChild(option)
+        options.push({
+          value: String(page),
+          label: pageT('inject.page_number', { current: page }),
+        })
       }
-      select.replaceChildren(options)
+      controller.setOptions(options)
       select.dataset.optionsKey = optionsKey
     }
-    select.value = allExpanded ? '' : String(Number(component.currentPage) || 1)
-    select.disabled = Boolean(state?.loading || state?.expandAllLoading || component.showSpinner)
-    select.title = pageT('inject.select_reply_page')
-    select.setAttribute('aria-label', select.title)
+    controller.setValue(allExpanded ? '' : String(Number(component.currentPage) || 1))
+    controller.setDisabled(Boolean(state?.loading || state?.expandAllLoading || component.showSpinner))
+    controller.setAriaLabel(pageT('inject.select_reply_page'))
     const totalLabel = pageT('inject.page_total', { total: totalPage })
     const summary = select.nextElementSibling
     if (summary && summary.textContent !== totalLabel)
@@ -1345,6 +1421,8 @@ else if (shouldInitializePageScript) {
   }
 
   function restoreCommentReplyPaginationHead(component: any) {
+    commentReplyPageSelectControllers.get(component)?.destroy()
+    commentReplyPageSelectControllers.delete(component)
     const head = component?.shadowRoot?.querySelector('#pagination-head') as HTMLElement | null | undefined
     if (!head)
       return
@@ -2678,6 +2756,8 @@ else if (shouldInitializePageScript) {
     state.observedTargetsKey = undefined
     state.replyContainerMutationObserver?.disconnect()
     state.replyContainerMutationObserver = undefined
+    state.replyContainerScrollAbort?.abort()
+    state.replyContainerScrollAbort = undefined
     state.observedReplyContainer = undefined
     state.imageLoadAbort?.abort()
     state.imageLoadAbort = undefined
@@ -2729,6 +2809,7 @@ else if (shouldInitializePageScript) {
       getCommentReplyTreeRootRenderer(component)
         ?.removeAttribute('data-bewly-comment-reply-collapsed')
       root?.querySelector(`#${COMMENT_REPLY_EXPAND_ALL_ID}`)?.remove()
+      restoreCommentReplyPaginationHead(component)
       component.removeAttribute('data-bewly-comment-reply-tree')
       applyCommentReplyContainer(component, false)
       component.style.removeProperty('--bew-comment-reply-indent-step')
@@ -2883,6 +2964,14 @@ else if (shouldInitializePageScript) {
           scheduleCommentReplyTreeLayoutUpdate(component)
       })
       observer.observe(replyContainer, { childList: true })
+      state.replyContainerScrollAbort?.abort()
+      const scrollAbort = new AbortController()
+      replyContainer.addEventListener(
+        'scroll',
+        () => syncCommentReplyFooterStuckState(component, replyContainer),
+        { passive: true, signal: scrollAbort.signal },
+      )
+      state.replyContainerScrollAbort = scrollAbort
       state.observedReplyContainer = replyContainer
       state.replyContainerMutationObserver = observer
     }
@@ -3031,16 +3120,34 @@ else if (shouldInitializePageScript) {
     )
   }
 
+  /** 仅在回复容器产生纵向溢出且尚未滚到底部时，才将吸底栏标为遮挡态以显示底衬 */
+  function syncCommentReplyFooterStuckState(component: any, replyContainer: HTMLElement | null) {
+    if (!(component instanceof HTMLElement))
+      return
+
+    if (!component.hasAttribute(COMMENT_REPLY_CONTAINER_ATTRIBUTE) || !replyContainer) {
+      component.removeAttribute(COMMENT_REPLY_FOOTER_STUCK_ATTRIBUTE)
+      return
+    }
+
+    const isOverflowing = replyContainer.scrollHeight > replyContainer.clientHeight + 1
+    const isAtBottom = replyContainer.scrollTop + replyContainer.clientHeight >= replyContainer.scrollHeight - 1
+    component.toggleAttribute(COMMENT_REPLY_FOOTER_STUCK_ATTRIBUTE, isOverflowing && !isAtBottom)
+  }
+
   /** 回复容器由 CSS 驱动：属性切换生效范围，变量承载用户配置的高度 */
   function applyCommentReplyContainer(component: any, enabled: boolean) {
     if (!(component instanceof HTMLElement))
       return
 
     component.toggleAttribute(COMMENT_REPLY_CONTAINER_ATTRIBUTE, enabled)
-    if (enabled)
+    if (enabled) {
       component.style.setProperty(COMMENT_REPLY_CONTAINER_HEIGHT_VAR, `${getCommentReplyContainerHeight()}px`)
-    else
+    }
+    else {
       component.style.removeProperty(COMMENT_REPLY_CONTAINER_HEIGHT_VAR)
+      component.removeAttribute(COMMENT_REPLY_FOOTER_STUCK_ATTRIBUTE)
+    }
   }
 
   /**
@@ -4672,6 +4779,7 @@ else if (shouldInitializePageScript) {
     else {
       removeCommentReplyTreeGuides(component, replyContainer)
     }
+    syncCommentReplyFooterStuckState(component, replyContainer)
     updateCommentReplyExpandAllControl(component)
     state.enabled = true
   }
@@ -4922,6 +5030,15 @@ else if (shouldInitializePageScript) {
               return
 
             ensureCommentShadowStyle(root, shadowStylePatch.id, shadowStylePatch.css)
+            if (name === 'bili-comment-box') {
+              const checkboxPatch = COMMENT_SHADOW_STYLE_PATCHES['bili-checkbox']
+              if (checkboxPatch) {
+                root.querySelectorAll('bili-checkbox').forEach((checkbox: Element) => {
+                  if (checkbox.shadowRoot)
+                    ensureCommentShadowStyle(checkbox.shadowRoot, checkboxPatch.id, checkboxPatch.css)
+                })
+              }
+            }
             if (name === 'bili-comment-thread-renderer') {
               // 删除/屏蔽回复可能让楼层组件整体重绘，之前挂在其 shadow root
               // 内的 SVG 线条会随渲染结果一并被移除；重绘完成后从当前回复容器恢复。

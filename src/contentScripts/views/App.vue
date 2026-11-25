@@ -51,8 +51,9 @@ useAccountSync()
 const { isLayoutEditing, exitLayoutEditMode } = useLayoutEditMode()
 const { t } = useI18n()
 
-// The top-bar switcher is teleported to document.body, outside this Shadow DOM.
-// Raise the host while the settings overlay is open so the modal can stay above that layer.
+// Track overlay state on #bewly for shortcut isolation and to raise the fixed
+// homepage viewport host above the teleported native top bar; non-homepage
+// pages leave #bewly without a stacking context so video glass backgrounds stay behind native content.
 watch(settingsOverlayVisible, (visible) => {
   document.getElementById('bewly')?.classList.toggle('settings-open', visible)
 }, { immediate: true })
@@ -61,6 +62,18 @@ watch(settingsOverlayVisible, (visible) => {
 // lazily initialize in a persistent scope so toggling settings or SPA navigation takes effect immediately.
 const currentPageUrl = ref(window.location.href)
 const isWidescreenActive = ref(isBewlyWidescreenActive())
+function readBrowserFullscreen() {
+  return Boolean(
+    document.fullscreenElement
+    || (document as Document & { webkitFullscreenElement?: Element | null }).webkitFullscreenElement,
+  )
+}
+const isBrowserFullscreen = ref(readBrowserFullscreen())
+function syncBrowserFullscreen() {
+  isBrowserFullscreen.value = readBrowserFullscreen()
+}
+useEventListener(document, 'fullscreenchange', syncBrowserFullscreen)
+useEventListener(document, 'webkitfullscreenchange', syncBrowserFullscreen)
 let widescreenStateObserver: MutationObserver | undefined
 onMounted(() => {
   isWidescreenActive.value = isBewlyWidescreenActive()
@@ -99,7 +112,7 @@ const searchFocusOverlayActive = ref(false)
 const pageWallpaperReady = ref(false)
 const useBlendedPageControls = computed(() => settings.value.enableFrostedGlass
   && settings.value.frostedGlassBlurIntensity > 0
-  && !settings.value.disableBackground
+  && settings.value.enableBackground
   && (pageWallpaperReady.value || (settings.value.useLinearGradientThemeColorBackground && isDark.value)))
 
 // Registered before the layout-edit Escape handler: an open dialog consumes Escape first.
@@ -964,9 +977,11 @@ const useFirefoxScrollbar = computed(() => isFirefoxBuild && settings.value.enab
 // 首页由内部容器或 iframe 滚动，滚动条位于窗口右缘；顶栏和 Dock 让出这一列，
 // 与原版页面中 fixed 元素止于文档滚动条左侧的位置保持一致。
 const viewportScrollbarGutter = ref(0)
-const iframeScrollbarGutter = ref(0)
+const iframeScrollbarGutter = ref<number | null>(null)
 useResizeObserver(scrollViewportRef, ([entry]) => {
   const viewport = entry.target as HTMLElement
+  if (!viewport.isConnected || viewport.offsetWidth === 0)
+    return
   viewportScrollbarGutter.value = viewport.offsetWidth - viewport.clientWidth
 })
 
@@ -1164,10 +1179,17 @@ const showBewlyPage = computed((): boolean => {
   return isHomePage() && !settings.value.useOriginalBilibiliHomepage
 })
 
+watch(iframePageURL, (url) => {
+  if (!url)
+    iframeScrollbarGutter.value = null
+}, { flush: 'sync' })
+
 const pageScrollbarGutter = computed(() => {
   if (showBewlyPage.value)
     return viewportScrollbarGutter.value
-  return iframePageURL.value ? iframeScrollbarGutter.value : 0
+  if (iframePageURL.value)
+    return iframeScrollbarGutter.value ?? viewportScrollbarGutter.value
+  return 0
 })
 // 原版页面的文档滚动条不需要让位，但 Dock 需要据此收紧与滚动条之间的边距。
 const documentScrollbarWidth = ref(0)
@@ -1928,13 +1950,17 @@ if (settings.value.cleanUrlArgument) {
     @scroll.capture.passive="scheduleLayoutEditTargetsRefresh"
   >
     <!-- Background -->
-    <template v-if="showBewlyPage && !settings.disableBackground">
+    <template v-if="showBewlyPage && settings.enableBackground">
       <AppBackground :activated-page="activatedPage" @wallpaper-ready="pageWallpaperReady = $event" />
     </template>
     <div
       v-else-if="isVideoPageGlassStyleEnabled(currentPageUrl)"
+      v-show="!isBrowserFullscreen"
       class="bewly-video-page-background"
-      :class="{ 'bewly-video-page-background--widescreen': isWidescreenActive }"
+      :class="{
+        'bewly-video-page-background--widescreen': isWidescreenActive,
+        'bewly-video-page-background--overlay': settings.videoPageGlassStyleOverlay,
+      }"
     >
       <AppBackground :activated-page="AppPage.Home" />
     </div>
@@ -2409,7 +2435,7 @@ if (settings.value.cleanUrlArgument) {
     z-index: 999;
   }
 
-  &::after {
+  &--overlay::after {
     content: "";
     position: absolute;
     inset: 0;

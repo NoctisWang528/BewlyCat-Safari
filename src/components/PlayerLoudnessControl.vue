@@ -87,13 +87,43 @@ watch(open, (visible) => {
   }
 }, { flush: 'post' })
 
+// 与原生播放器控制栏按钮悬停意图对齐：短暂停留后再展开，移出时留出短暂宽限避免滑向面板时误关。
+const HOVER_OPEN_DELAY_MS = 250
+const HOVER_CLOSE_DELAY_MS = 150
+let hoverOpenTimer: ReturnType<typeof setTimeout> | undefined
+let hoverCloseTimer: ReturnType<typeof setTimeout> | undefined
+
+function clearHoverTimers() {
+  if (hoverOpenTimer !== undefined) {
+    clearTimeout(hoverOpenTimer)
+    hoverOpenTimer = undefined
+  }
+  if (hoverCloseTimer !== undefined) {
+    clearTimeout(hoverCloseTimer)
+    hoverCloseTimer = undefined
+  }
+}
+
 function requestStatus() {
   window.postMessage({ type: 'BEWLY_LOUDNESS_STATUS_REQUEST' }, location.origin)
   window.postMessage({ type: 'BEWLY_AUDIO_DELAY_STATUS_REQUEST' }, location.origin)
 }
 function show() {
+  clearHoverTimers()
   open.value = true
   requestStatus()
+}
+function scheduleShow() {
+  if (hoverCloseTimer !== undefined) {
+    clearTimeout(hoverCloseTimer)
+    hoverCloseTimer = undefined
+  }
+  if (open.value || hoverOpenTimer !== undefined)
+    return
+  hoverOpenTimer = setTimeout(() => {
+    hoverOpenTimer = undefined
+    show()
+  }, HOVER_OPEN_DELAY_MS)
 }
 function placePanel() {
   if (!panel.value || !button.value || !open.value)
@@ -119,24 +149,36 @@ function placePanel() {
   panel.value.style.top = `${placeAbove ? top - rect.height : bottom}px`
 }
 function close() {
+  clearHoverTimers()
   open.value = false
 }
 function onFocusOut(event: FocusEvent) {
   if (!(event.relatedTarget instanceof Node) || !root.value?.contains(event.relatedTarget))
-    open.value = false
+    close()
 }
 function onButtonFocus() {
   if (button.value?.matches(':focus-visible'))
     show()
 }
-function leave() {
-  if (!root.value?.contains(document.activeElement))
-    open.value = false
+function scheduleLeave() {
+  if (hoverOpenTimer !== undefined) {
+    clearTimeout(hoverOpenTimer)
+    hoverOpenTimer = undefined
+  }
+  if (!open.value || root.value?.contains(document.activeElement))
+    return
+  if (hoverCloseTimer !== undefined)
+    clearTimeout(hoverCloseTimer)
+  hoverCloseTimer = setTimeout(() => {
+    hoverCloseTimer = undefined
+    if (!root.value?.contains(document.activeElement))
+      open.value = false
+  }, HOVER_CLOSE_DELAY_MS)
 }
 function onKey(event: KeyboardEvent) {
   if (event.key === 'Escape') {
     button.value?.focus()
-    open.value = false
+    close()
   }
   else if (event.key === 'ArrowDown' && event.target === button.value) {
     event.preventDefault()
@@ -182,7 +224,7 @@ onMounted(() => {
     if (element)
       panelResizeObserver.observe(element)
   }
-  for (const name of ['emptied', 'loadedmetadata', 'seeking'])
+  for (const name of ['emptied', 'loadedmetadata'])
     props.video.addEventListener(name, resetStatus, { signal: life.signal })
   // 画面尺寸或比例变化后重新计算旋转 90° 时的缩放。
   for (const name of ['loadedmetadata', 'resize'])
@@ -191,6 +233,7 @@ onMounted(() => {
   requestStatus()
 })
 onBeforeUnmount(() => {
+  clearHoverTimers()
   life.abort()
   panelResizeObserver.disconnect()
   videoResizeObserver.disconnect()
@@ -201,14 +244,14 @@ onBeforeUnmount(() => {
 <template>
   <div
     ref="root" class="loudness-widget"
-    @mouseenter="show" @mouseleave="leave"
+    @mouseenter="scheduleShow" @mouseleave="scheduleLeave"
     @focusout="onFocusOut" @keydown.stop="onKey" @keyup.stop
     @click.stop @dblclick.stop @pointerdown.stop @mousedown.stop @wheel.stop
   >
     <button
       ref="button" type="button" class="bpx-player-ctrl-btn-icon loudness-button" :class="{ 'is-adjusted': adjusted }"
       :aria-label="t('settings.player_adjustment.title')" :aria-expanded="open" aria-controls="bewly-loudness-panel"
-      @click="open ? open = false : show()" @focus="onButtonFocus"
+      @click="open ? close() : show()" @focus="onButtonFocus"
     >
       <span class="bpx-common-svg-icon">
         <!-- 与原生控制栏图标同为 88 网格面性图形：轨道宽 8、推钮 20×12；轨道在推钮上下各留 4 的间隙 -->
@@ -255,7 +298,7 @@ onBeforeUnmount(() => {
       id="bewly-loudness-panel" ref="panel" class="loudness-panel" role="group" popover="manual"
       :aria-label="t('settings.player_adjustment.title')"
     >
-      <!-- 三项分别由设置页开关控制：画面、音画同步，以及跟随「启用局部音量均衡」的音量均衡 -->
+      <!-- 三项分别由设置页开关控制：画面、音画同步，以及同时受「启用局部音量均衡」和「显示播放器音量均衡按钮」控制的音量均衡 -->
       <div v-if="settings.playerPictureAdjustmentEnabled" class="panel-section">
         <div class="section-heading">
           <span>{{ t('settings.player_adjustment.picture') }}</span>
@@ -304,7 +347,7 @@ onBeforeUnmount(() => {
           {{ delayNotice }}
         </div>
       </div>
-      <div v-if="settings.localLoudnessEnabled" class="panel-section">
+      <div v-if="settings.localLoudnessEnabled && settings.showLocalLoudnessControl" class="panel-section">
         <div class="section-heading">
           {{ t('settings.local_loudness.title') }}
         </div>

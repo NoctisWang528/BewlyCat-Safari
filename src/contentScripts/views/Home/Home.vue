@@ -5,9 +5,11 @@ import { useI18n } from 'vue-i18n'
 import Icon from '~/components/Icon.vue'
 import LiquidSegmentIndicator from '~/components/LiquidSegmentIndicator.vue'
 import { useBewlyApp } from '~/composables/useAppProvider'
+import { useDark } from '~/composables/useDark'
 import { provideHomeTabCache } from '~/composables/useHomeTabState'
 import { useLayoutEditMode } from '~/composables/useLayoutEditMode'
-import { OVERLAY_SCROLL_BAR_SCROLL, TOP_BAR_VISIBILITY_CHANGE } from '~/constants/globalEvents'
+import { OVERLAY_SCROLL_BAR_SCROLL } from '~/constants/globalEvents'
+import { VideoPageTopBarConfig } from '~/enums/appEnums'
 import { gridLayout, settings } from '~/logic'
 import { parseDedeUserID } from '~/logic/loginStatus'
 import type { ForYouState } from '~/stores/forYouStore'
@@ -18,6 +20,7 @@ import { useTopBarStore } from '~/stores/topBarStore'
 import { cancelProgrammaticScroll, jumpScrollTo } from '~/utils/main'
 import emitter from '~/utils/mitt'
 import { applyRecommendationModeOption, createRecommendationModeOptions, filterRecommendationModeSwitcherOptions, getRecommendationModeOption } from '~/utils/recommendationMode'
+import { getEffectiveSearchPageWallpaper, resolveWallpaperSource } from '~/utils/wallpaper'
 
 import RecommendationFilterEntry from './components/RecommendationFilterEntry.vue'
 import VersionReminder from './components/VersionReminder.vue'
@@ -29,6 +32,7 @@ const mainStore = useMainStore()
 const topBarStore = useTopBarStore()
 const forYouStore = useForYouStore()
 const { t } = useI18n()
+const { isDark } = useDark()
 const { isLayoutEditing } = useLayoutEditMode()
 const {
   handleBackToTop,
@@ -81,7 +85,18 @@ const tabCache = provideHomeTabCache(() => activatedPageCacheKey.value, restoreT
 const tabContentLoading = ref<boolean>(false)
 const currentTabs = ref<HomeTab[]>([])
 const tabPageRef = ref()
-const topBarVisibility = ref<boolean>(true)
+const isTopBarAutoHidden = computed(() =>
+  topBarStore.showTopBar
+  && !isLayoutEditing.value
+  && settings.value.otherPageTopBarConfig !== VideoPageTopBarConfig.AlwaysShow
+  && !topBarStore.topBarVisible,
+)
+const topBarVisibility = computed(() => !isTopBarAutoHidden.value)
+const shouldPinHomeHeaderToTop = computed(() => settings.value.fixedHomeTabsOnHomePage && isTopBarAutoHidden.value)
+const isShowOnMouseTopBar = computed(() =>
+  topBarStore.showTopBar
+  && settings.value.otherPageTopBarConfig === VideoPageTopBarConfig.ShowOnMouse,
+)
 const shouldShowHomeTabs = computed(() => currentTabs.value.length > 1)
 const shouldShowRecommendationModeSwitcher = computed(() => (isLayoutEditing.value || settings.value.showRecommendationModeSwitcher) && activatedPage.value === HomeSubPage.ForYou)
 const shouldShowImmersiveModeEntry = computed(() => (isLayoutEditing.value || settings.value.showImmersiveModeEntry) && activatedPage.value === HomeSubPage.ForYou)
@@ -206,10 +221,6 @@ function handleOverlayScroll(scrollTop: number) {
   cachedScrollTop.value = scrollTop
 }
 
-function handleTopBarVisibilityChange(visible: boolean) {
-  topBarVisibility.value = visible
-}
-
 function computeTabs(): HomeTab[] {
   // if homePageTabVisibilityList not fresh , set it to default
   if (!settings.value.homePageTabVisibilityList.length || settings.value.homePageTabVisibilityList.length !== mainStore.homeTabs.length)
@@ -243,7 +254,6 @@ function syncCurrentTabs() {
 onMounted(() => {
   // ✅ 性能优化：订阅滚动事件以缓存 scrollTop，避免后续 DOM 读取
   emitter.on(OVERLAY_SCROLL_BAR_SCROLL, handleOverlayScroll)
-  emitter.on(TOP_BAR_VISIBILITY_CHANGE, handleTopBarVisibilityChange)
 
   syncCurrentTabs()
 })
@@ -251,7 +261,6 @@ onMounted(() => {
 onUnmounted(() => {
   preserveInactiveForYouState()
   tabCache.clear()
-  emitter.off(TOP_BAR_VISIBILITY_CHANGE, handleTopBarVisibilityChange)
   emitter.off(OVERLAY_SCROLL_BAR_SCROLL, handleOverlayScroll)
   isHomeTabSwitching.value = false
 })
@@ -319,17 +328,58 @@ function openImmersiveMode() {
   tabPageRef.value?.openImmersiveMode?.()
 }
 
+const resolvedSearchPageModeWallpaper = ref('')
+const searchPageModeWallpaperSource = computed(() => {
+  if (!settings.value.useSearchPageModeOnHomePage || !settings.value.individuallySetSearchPageWallpaper || !settings.value.enableBackground)
+    return ''
+  return getEffectiveSearchPageWallpaper(settings.value, isDark.value)
+})
+
+watch(
+  [searchPageModeWallpaperSource, () => settings.value.searchPageWallpaperCacheTime],
+  ([originalUrl, cacheTime], _oldValue, onCleanup) => {
+    let aborted = false
+    onCleanup(() => {
+      aborted = true
+    })
+
+    if (!originalUrl) {
+      resolvedSearchPageModeWallpaper.value = ''
+      return
+    }
+
+    void resolveWallpaperSource(originalUrl, cacheTime)
+      .then((resolvedUrl) => {
+        if (!aborted)
+          resolvedSearchPageModeWallpaper.value = resolvedUrl
+      })
+      .catch(() => {
+        if (!aborted)
+          resolvedSearchPageModeWallpaper.value = ''
+      })
+  },
+  { immediate: true },
+)
+
 function toggleTabContentLoading(loading: boolean) {
   tabContentLoading.value = loading
 }
 </script>
 
 <template>
-  <div pos="relative">
+  <div
+    class="home-page"
+    :class="{
+      'home-page--search-mode': settings.fixedHomeTabsOnHomePage && settings.useSearchPageModeOnHomePage,
+      'home-page--top-bar-hidden': shouldPinHomeHeaderToTop,
+      'home-page--top-bar-mouse': shouldPinHomeHeaderToTop && isShowOnMouseTopBar,
+    }"
+    pos="relative"
+  >
     <!-- Home search page mode background -->
     <Transition name="bg">
       <div
-        v-if="settings.useSearchPageModeOnHomePage && settings.individuallySetSearchPageWallpaper && !settings.disableBackground"
+        v-if="settings.useSearchPageModeOnHomePage && settings.individuallySetSearchPageWallpaper && settings.enableBackground"
         pos="absolute" w-screen h-580px z-0
         :style="{
           left: '50%',
@@ -341,14 +391,14 @@ function toggleTabContentLoading(loading: boolean) {
           pos="absolute left-0 top-0" w-full h-inherit bg="cover center" z-1
           pointer-events-none
           :style="{
-            backgroundImage: `url('${settings.searchPageWallpaper}')`,
+            backgroundImage: resolvedSearchPageModeWallpaper ? `url('${resolvedSearchPageModeWallpaper}')` : 'none',
             backgroundAttachment: settings.searchPageModeWallpaperFixed ? 'fixed' : 'unset',
           }"
         />
         <!-- background mask -->
         <Transition name="fade">
           <div
-            v-if="(!settings.individuallySetSearchPageWallpaper && settings.enableWallpaperMasking) || (settings.searchPageEnableWallpaperMasking)"
+            v-if="resolvedSearchPageModeWallpaper && ((!settings.individuallySetSearchPageWallpaper && settings.enableWallpaperMasking) || settings.searchPageEnableWallpaperMasking)"
             pos="relative left-0 top-0" w-full h-inherit pointer-events-none
             z-1
             :style="{
@@ -399,7 +449,6 @@ function toggleTabContentLoading(loading: boolean) {
           'home-header--tabs-center': settings.homeTabsPosition === 'center',
           'home-header--recommendation-switcher': shouldShowRecommendationModeSwitcher,
           'home-header-fixed': settings.fixedHomeTabsOnHomePage,
-          'home-header-fixed--search': settings.fixedHomeTabsOnHomePage && settings.useSearchPageModeOnHomePage,
         }"
         w-full z-9
       >
@@ -675,12 +724,27 @@ function toggleTabContentLoading(loading: boolean) {
   gap: var(--bew-control-gap);
 }
 
-.home-header-fixed {
-  --uno: "sticky top-[calc(var(--bew-top-bar-height)+10px)]";
+.home-page {
+  --home-header-sticky-top: calc(var(--bew-top-bar-height) + 10px);
 }
 
-.home-header-fixed--search {
-  top: calc(var(--bew-top-bar-height) + var(--bew-space-4));
+.home-page--search-mode {
+  --home-header-sticky-top: calc(var(--bew-top-bar-height) + var(--bew-space-4));
+}
+
+.home-page--top-bar-hidden {
+  --home-header-sticky-top: var(--bew-space-3);
+}
+
+.home-page--top-bar-hidden.home-page--top-bar-mouse {
+  // 鼠标显示顶栏时在顶部留出 12px 感应区 + 4px 缓冲，避免遮挡或误触顶栏。
+  --home-header-sticky-top: var(--bew-space-4);
+}
+
+.home-header-fixed {
+  position: sticky;
+  top: var(--home-header-sticky-top);
+  transition: top var(--bew-duration-moderate) var(--bew-ease-standard);
 }
 
 @media (max-width: 1000px) {
@@ -718,6 +782,10 @@ function toggleTabContentLoading(loading: boolean) {
   .home-tab-enter-active,
   .home-tab-leave-active {
     transition: opacity 1ms linear;
+  }
+
+  .home-header-fixed {
+    transition: none;
   }
 }
 </style>

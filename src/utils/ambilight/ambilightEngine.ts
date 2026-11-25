@@ -49,6 +49,8 @@ interface EngineLayout {
   videoHeight: number
   documentContentLeft: number
   documentContentTop: number
+  viewportContentLeft: number
+  viewportContentTop: number
 }
 
 export class AmbilightEngine {
@@ -72,6 +74,10 @@ export class AmbilightEngine {
   private scrollRafId: number | null = null
   private hostDocumentLeft = 0
   private hostDocumentTop = 0
+  private hostSized = false
+  private hostResizeTimer: ReturnType<typeof setTimeout> | null = null
+  private isViewportLocked = false
+  private videoResizeObserver: ResizeObserver | null = null
   private lastBackdropSampleTime = 0
   private backdropSampleTimer: ReturnType<typeof setTimeout> | null = null
   private backdropProbe: AmbilightBackdropProbe | null
@@ -154,9 +160,13 @@ export class AmbilightEngine {
         return
       }
 
-      // 普通文档流中 documentContentLeft/Top 不变，浏览器原生滚动已经同步了光晕。
-      // 只有 sticky/fixed 播放器等文档坐标会变化的场景才在这里补一次位置。
-      this.syncCanvasPosition(r)
+      // 普通文档流中保持 absolute 跟随原生滚动；当视频祖先进入 sticky/fixed 吸顶停驻态
+      // （如关闭评论区后的 .left-container.scroll-sticky）时切为 fixed 视口锁定，避免环境光随滚轮上下抖动。
+      const shouldLock = this.isVideoViewportAnchored()
+      const lockChanged = shouldLock !== this.isViewportLocked
+      if (lockChanged)
+        this.setViewportLocked(shouldLock)
+      this.syncCanvasPosition(r, lockChanged)
 
       if (this.video.paused)
         this.sampleBackdrop(performance.now(), false)
@@ -170,6 +180,24 @@ export class AmbilightEngine {
       cancelAnimationFrame(this.scrollRafId)
       this.scrollRafId = null
     }
+  }
+
+  private cancelHostResize() {
+    if (this.hostResizeTimer !== null) {
+      clearTimeout(this.hostResizeTimer)
+      this.hostResizeTimer = null
+    }
+  }
+
+  private scheduleHostResizeToDocument() {
+    this.cancelHostResize()
+    this.hostResizeTimer = setTimeout(() => {
+      this.hostResizeTimer = null
+      if (!this.isViewportLocked && this.hostElem && this.video && !this.isHidden && !this.isSleeping) {
+        this.resizeHostToDocument()
+        this.applyCanvasPosition(this.video.getBoundingClientRect(), true)
+      }
+    }, 250)
   }
 
   public setSleeping(sleeping: boolean) {
@@ -233,6 +261,7 @@ export class AmbilightEngine {
     this.stopLoop()
     this.cancelBackdropSample()
     this.cancelScrollRefresh()
+    this.cancelHostResize()
     if (this.layoutRafId !== null) {
       cancelAnimationFrame(this.layoutRafId)
       this.layoutRafId = null
@@ -242,6 +271,8 @@ export class AmbilightEngine {
     this.layout = null
     this.hostDocumentLeft = 0
     this.hostDocumentTop = 0
+    this.hostSized = false
+    this.setViewportLocked(false)
     this.layoutDirty = true
     this.resetDiffusionField()
   }
@@ -276,6 +307,7 @@ export class AmbilightEngine {
     this.unbindVideo()
     this.stopLoop()
     this.cancelScrollRefresh()
+    this.cancelHostResize()
     if (this.layoutRafId !== null) {
       cancelAnimationFrame(this.layoutRafId)
       this.layoutRafId = null
@@ -284,6 +316,7 @@ export class AmbilightEngine {
       this.hostElem.remove()
       this.hostElem = null
     }
+    this.isViewportLocked = false
     this.canvas = null
     this.ctx = null
     this.backdropCtx = null
@@ -304,7 +337,7 @@ export class AmbilightEngine {
     host.className = 'bewly-ambilight-host is-pending'
     host.setAttribute('aria-hidden', 'true')
     // 文档层：尺寸覆盖整篇文档并裁剪，画布用文档坐标绝对定位；浏览器滚动时原生移动。
-    host.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;pointer-events:none!important;z-index:-1;overflow:hidden;'
+    host.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:0;pointer-events:none!important;z-index:-1;overflow:hidden;contain:layout style;'
 
     const canvas = document.createElement('canvas')
     canvas.width = SAMPLE_WIDTH
@@ -389,9 +422,24 @@ export class AmbilightEngine {
     this.video.addEventListener('timeupdate', this.onVideoTimeUpdate)
     this.video.addEventListener('loadedmetadata', this.onVideoMetadataOrResize)
     this.video.addEventListener('resize', this.onVideoMetadataOrResize)
+    if (typeof ResizeObserver !== 'undefined') {
+      this.videoResizeObserver?.disconnect()
+      this.videoResizeObserver = new ResizeObserver(([entry]) => {
+        if (!this.layout || !entry)
+          return
+        const { width, height } = entry.contentRect
+        if (Math.abs(width - this.layout.videoRectWidth) >= 0.5
+          || Math.abs(height - this.layout.videoRectHeight) >= 0.5) {
+          this.invalidate()
+        }
+      })
+      this.videoResizeObserver.observe(this.video)
+    }
   }
 
   private unbindVideoEvents() {
+    this.videoResizeObserver?.disconnect()
+    this.videoResizeObserver = null
     if (!this.video)
       return
 
@@ -449,10 +497,10 @@ export class AmbilightEngine {
     if (this.hostElem.style.clipPath)
       this.hostElem.style.clipPath = ''
 
-    this.resizeHostToDocument()
-    const hostRect = this.hostElem.getBoundingClientRect()
-    this.hostDocumentLeft = hostRect.left + window.scrollX
-    this.hostDocumentTop = hostRect.top + window.scrollY
+    const wasViewportLocked = this.isViewportLocked
+    const shouldLock = this.isVideoViewportAnchored()
+    this.setViewportLocked(shouldLock)
+    const lockChanged = wasViewportLocked !== this.isViewportLocked
 
     const glowBlur = this.usesDiffusion() ? 0 : this.options.blur
     const effectiveSpread = this.getEffectiveSpread()
@@ -481,9 +529,20 @@ export class AmbilightEngine {
     ].join(':')
 
     if (this.layout?.signature === signature) {
+      if (!this.isViewportLocked && !lockChanged && !this.hostSized)
+        this.resizeHostToDocument()
       this.applyCanvasPosition(r, true)
       this.setSleeping(false)
       return
+    }
+
+    if (!this.isViewportLocked && !lockChanged) {
+      // 首次布局需立即测量宿主原点；后续播放器缩放/模式切换期间延后重测文档高度，
+      // 避免写 height: 0px 后立即可见地触发整页强制同步重排。
+      if (!this.hostSized)
+        this.resizeHostToDocument()
+      else
+        this.scheduleHostResizeToDocument()
     }
 
     const documentContentLeft = content.left + window.scrollX
@@ -505,6 +564,8 @@ export class AmbilightEngine {
       videoHeight: this.video.videoHeight,
       documentContentLeft,
       documentContentTop,
+      viewportContentLeft: content.left,
+      viewportContentTop: content.top,
     }
 
     // 画布尺寸由本地光晕决定；left/top 是文档坐标，浏览器滚动会原生移动它。
@@ -517,29 +578,97 @@ export class AmbilightEngine {
     this.setSleeping(false)
   }
 
-  // 让零尺寸文档层的裁剪范围等于整篇文档，避免画布自身扩大页面滚动区域。
+  // 让文档层的裁剪范围贴合视口宽度与整篇文档高度，避免画布自身扩大页面滚动区域。
+  // 宽度使用 100% 而非写死 clientWidth 像素值，防止垂直滚动条出现滞后或非整数缩放取整撑出空水平滚动条。
   private resizeHostToDocument(): void {
     const host = this.hostElem
     if (!host)
       return
 
-    const width = document.documentElement.clientWidth || window.innerWidth
-    // 宿主自身也计入 scrollHeight，先收起再测量，否则文档内容变短后滚动区域无法回缩
+    // 宿主自身也计入 scrollHeight，先收起再测量，否则文档内容变短后滚动区域无法回缩；
+    // 在同一次布局读阶段一并读取 hostRect，避免写入高度后再次强制同步重排。
     host.style.height = '0px'
     const height = Math.max(document.documentElement.scrollHeight, window.innerHeight)
-    host.style.width = `${width}px`
+    const hostRect = host.getBoundingClientRect()
+    this.hostDocumentLeft = hostRect.left + window.scrollX
+    this.hostDocumentTop = hostRect.top + window.scrollY
+    host.style.width = '100%'
     host.style.height = `${height}px`
+    this.hostSized = true
   }
 
-  // 设置画布的文档坐标；只有布局/尺寸变化或 sticky 等文档坐标变化时调用。
+  // 检测视频祖先是否处于 fixed 或已触发吸顶/吸底停驻的 sticky 状态。
+  // 当关闭评论区等导致左侧栏比右侧栏矮时，B 站会给 .left-container 设置 sticky 吸顶，
+  // 此时视频相对视口静止，宿主需切为 fixed 避免随文档滚动产生 1-2 帧上下漂移。
+  private isVideoViewportAnchored(): boolean {
+    let current: HTMLElement | null = this.video
+    while (current && current !== document.body && current !== document.documentElement) {
+      const style = window.getComputedStyle(current)
+      if (style.position === 'fixed')
+        return true
+      if (style.position === 'sticky') {
+        const rect = current.getBoundingClientRect()
+        const stickyTop = Number.parseFloat(style.top)
+        if (Number.isFinite(stickyTop) && window.scrollY > 0 && Math.abs(rect.top - stickyTop) <= 1.5)
+          return true
+        const stickyBottom = Number.parseFloat(style.bottom)
+        if (Number.isFinite(stickyBottom) && Math.abs((window.innerHeight - rect.bottom) - stickyBottom) <= 1.5)
+          return true
+      }
+      current = current.parentElement
+    }
+    return false
+  }
+
+  private setViewportLocked(locked: boolean): void {
+    const host = this.hostElem
+    if (!host || this.isViewportLocked === locked)
+      return
+
+    this.isViewportLocked = locked
+    host.classList.toggle('is-viewport-locked', locked)
+    if (locked) {
+      this.cancelHostResize()
+      host.style.position = 'fixed'
+      host.style.width = '100%'
+      host.style.height = '100%'
+      this.hostSized = false
+    }
+    else {
+      this.cancelHostResize()
+      host.style.position = 'absolute'
+      this.resizeHostToDocument()
+    }
+  }
+
+  // 设置画布坐标：文档流模式下写入文档坐标，吸顶/固定模式下写入视口坐标。
   private applyCanvasPosition(r: DOMRect, force: boolean): void {
     const layout = this.layout
     const canvas = this.canvas
     if (!layout || !canvas)
       return
 
-    const documentContentLeft = r.left + window.scrollX + layout.contentOffsetX
-    const documentContentTop = r.top + window.scrollY + layout.contentOffsetY
+    const viewportContentLeft = r.left + layout.contentOffsetX
+    const viewportContentTop = r.top + layout.contentOffsetY
+    const documentContentLeft = viewportContentLeft + window.scrollX
+    const documentContentTop = viewportContentTop + window.scrollY
+
+    if (this.isViewportLocked) {
+      if (!force
+        && Math.abs(layout.viewportContentLeft - viewportContentLeft) < 0.5
+        && Math.abs(layout.viewportContentTop - viewportContentTop) < 0.5) {
+        return
+      }
+
+      canvas.style.left = `${viewportContentLeft - layout.marginX}px`
+      canvas.style.top = `${viewportContentTop - layout.marginY}px`
+      layout.viewportContentLeft = viewportContentLeft
+      layout.viewportContentTop = viewportContentTop
+      layout.documentContentLeft = documentContentLeft
+      layout.documentContentTop = documentContentTop
+      return
+    }
+
     if (!force
       && Math.abs(layout.documentContentLeft - documentContentLeft) < 0.5
       && Math.abs(layout.documentContentTop - documentContentTop) < 0.5) {
@@ -552,11 +681,13 @@ export class AmbilightEngine {
     canvas.style.top = `${canvasTop}px`
     layout.documentContentLeft = documentContentLeft
     layout.documentContentTop = documentContentTop
+    layout.viewportContentLeft = viewportContentLeft
+    layout.viewportContentTop = viewportContentTop
   }
 
   // sticky/fixed 播放器的文档坐标会随页面滚动变化；普通文档流不会进入这里改位置。
-  private syncCanvasPosition(r: DOMRect): void {
-    this.applyCanvasPosition(r, false)
+  private syncCanvasPosition(r: DOMRect, force = false): void {
+    this.applyCanvasPosition(r, force)
   }
 
   private drawSingleFrame(force = false, frameTime?: number) {
@@ -565,15 +696,17 @@ export class AmbilightEngine {
 
     const now = frameTime ?? performance.now()
     const dt = this.lastDrawTime ? Math.min(500, now - this.lastDrawTime) : 1000
-    const blend = (!this.hasPainted || force) ? 1 : blendAlpha(dt, this.options.smoothing)
+    const isInitialPaint = !this.hasPainted
+    const blend = (isInitialPaint || force) ? 1 : blendAlpha(dt, this.options.smoothing)
 
     if (this.usesDiffusion()) {
       try {
-        if (this.drawDiffusionFrame(force, blend)) {
+        if (this.drawDiffusionFrame(force, blend, isInitialPaint)) {
           this.hasPainted = true
           this.hostElem?.classList.remove('is-pending')
           this.lastDrawTime = now
-          this.sampleBackdrop(now, force)
+          // 仅首帧强制采样文字对比度；后续尺寸/模式变更沿用 500ms 节流，避免在动画帧内触发同步重排与样式重算。
+          this.sampleBackdrop(now, isInitialPaint)
         }
         // 扩散场暂不可用时跳过本帧：画布此时没有模糊滤镜，不能直接画清晰视频
         return
@@ -613,7 +746,7 @@ export class AmbilightEngine {
       this.hasPainted = true
       this.hostElem?.classList.remove('is-pending')
       this.lastDrawTime = now
-      this.sampleBackdrop(now, force)
+      this.sampleBackdrop(now, isInitialPaint)
     }
     catch {
       // 捕获跨域或未就绪异常
@@ -771,7 +904,7 @@ export class AmbilightEngine {
     return ctx.getImageData(0, 0, geometry.width, geometry.height)
   }
 
-  private drawDiffusionFrame(force: boolean, blend: number): boolean {
+  private drawDiffusionFrame(force: boolean, blend: number, isInitialPaint = false): boolean {
     const layout = this.diffusionLayout
     const canvas = this.canvas
     const ctx = this.ctx
@@ -799,7 +932,8 @@ export class AmbilightEngine {
     }
 
     const configuredIterations = this.getConfiguredIterations()
-    const iterations = force || !field.hasSolution
+    // 仅首帧初始化跑满 32 轮收敛；播放器缩放/模式切换时使用当前自适应迭代次数，避免单帧阻塞动画。
+    const iterations = isInitialPaint
       ? Math.max(DIFFUSION_INITIAL_ITERATIONS, configuredIterations)
       : this.diffusionIterations
     const started = performance.now()

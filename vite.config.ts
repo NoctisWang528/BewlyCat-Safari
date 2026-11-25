@@ -31,6 +31,10 @@ function withCompactI18nMessages(plugins: Plugin | Plugin[]): Plugin[] {
 // 内容脚本、页面脚本和设置页的共享配置。
 export const sharedConfig: UserConfig = {
   root: r('src'),
+  css: {
+    // 启用多核 worker 并行编译 200+ 个 SCSS 模块，避免纯 JS 版 Dart Sass 阻塞主线程。
+    preprocessorMaxWorkers: true,
+  },
   resolve: {
     alias: [
       { find: '~/', replacement: `${r('src')}/` },
@@ -45,6 +49,7 @@ export const sharedConfig: UserConfig = {
     Vue(),
 
     AutoImport({
+      dts: r('src/auto-imports.d.ts'),
       imports: [
         'vue',
         {

@@ -28,7 +28,7 @@ import { SELECTION_FALLBACK_CLASS, supportsHighlightInheritance } from '~/utils/
 import { i18n } from '~/utils/i18n'
 import { reportScrollbarGutterToParent } from '~/utils/iframeScrollbarGutter'
 import { runWhenIdle } from '~/utils/lazyLoad'
-import { getLocalWallpaper, hasLocalWallpaper, isLocalWallpaperUrl, localWallpapersLoaded } from '~/utils/localWallpaper'
+import { extractWallpaperId, getLocalWallpaper, hasLocalWallpaper, localWallpapersLoaded } from '~/utils/localWallpaper'
 import { getCookie, injectCSS, isElectron, isHomePage, isInIframe, isNotificationPage, isVideoOrBangumiPage, isVideoPlaybackPage, isWatchLaterListPage } from '~/utils/main'
 import { initNativeFavoriteSeasonPlayAllIntercept } from '~/utils/nativeFavoriteSeasonPlayAll'
 import { createPageSettingsPayload, writePageBootSnapshot } from '~/utils/pageSettingsProtocol'
@@ -41,10 +41,12 @@ import { getPluginSearchResultsUrl, navigateToPluginSearchResultsInPlace, openSe
 import { installShortcutListener, setupShortcutHandlers } from '~/utils/shortcuts'
 import { SVG_ICONS } from '~/utils/svgIcons'
 import { openLinkInBackground } from '~/utils/tabs'
+import { initVerticalVideoZoom, resetVerticalVideoZoom } from '~/utils/verticalVideoZoom'
 import { applyBewlyDesignClasses, isVideoPageGlassStyleEnabled } from '~/utils/videoPageDesign'
 import { loadCurrentVideoPageInfo } from '~/utils/videoPageInfo'
 import { recordVideoVisitFromUrl } from '~/utils/videoVisitHistory'
 import { ensureResponsiveViewport } from '~/utils/viewportMeta'
+import { LOCAL_WALLPAPER_SLOT_KEYS, WALLPAPER_SETTING_KEYS } from '~/utils/wallpaper'
 
 import { initAmbilightControl } from './ambilightControl'
 import { initBewlyWidescreenControl } from './bewlyWidescreenControl'
@@ -85,6 +87,7 @@ function disposeBewlyHost(element: Element) {
 
 const contentScriptGlobal = globalThis as typeof globalThis & {
   __BEWLYCAT_BUNDLED_STYLE_TEXT__: string
+  __BEWLYCAT_HOST_STYLE_TEXT__: string
   __BEWLYCAT_CONTENT_SCRIPT_INITIALIZED__?: boolean
   __BEWLYCAT_PAGE_LOADING__?: PageLoadingGuard
 }
@@ -92,6 +95,7 @@ const contentScriptGlobal = globalThis as typeof globalThis & {
 const shouldInitializeContentScript = !isInBilibiliLiveContext()
   && claimContentScriptInitialization(contentScriptGlobal as ContentScriptInitializationTarget)
 const bundledShadowStyleText = contentScriptGlobal.__BEWLYCAT_BUNDLED_STYLE_TEXT__
+const bundledHostStyleText = contentScriptGlobal.__BEWLYCAT_HOST_STYLE_TEXT__
 const contentScriptManifest = browser.runtime.getManifest()
 const contentScriptRuntimeUrl = browser.runtime.getURL('')
 const contentScriptVersion = contentScriptManifest.version
@@ -253,7 +257,7 @@ else if (shouldInitializeContentScript) {
         stale.remove()
       const hostStyleEl = document.createElement('style')
       hostStyleEl.setAttribute('data-bewly-host-styles', '')
-      hostStyleEl.textContent = bundledShadowStyleText
+      hostStyleEl.textContent = bundledHostStyleText
       root.prepend(hostStyleEl)
       return true
     }
@@ -598,6 +602,10 @@ else if (shouldInitializeContentScript) {
     applyDefaultCaptionState()
     applyRememberedPlaybackRate()
     startPlaybackRateMonitoring()
+    if (settings.value.showVerticalVideoZoomButton)
+      initVerticalVideoZoom()
+    else
+      resetVerticalVideoZoom()
 
     schedulePlaybackBehaviorApply()
     scheduleAddWatchLaterButton()
@@ -1138,6 +1146,7 @@ else if (shouldInitializeContentScript) {
         resetPlayerModeReadinessForNavigation()
         clearPendingWidescreenReloadNavigation()
         exitBewlyWidescreen()
+        resetVerticalVideoZoom()
         autoContinuationNavigationKey = undefined
         lastAppliedPlayerModeNavigationKey = undefined
       }
@@ -1179,6 +1188,7 @@ else if (shouldInitializeContentScript) {
         // 视为当前导航已完成的播放器模式，只重新应用伴随设置。
         if (!videoCommentIdentifier || !refreshBewlyWidescreenForNavigation())
           exitBewlyWidescreen()
+        resetVerticalVideoZoom()
         resetPlayerModeReadinessForNavigation()
         document.querySelector('.bewly-watch-later-btn')?.remove()
         watchLaterButtonAdded = false // URL变化时重置稍后再看按钮标志
@@ -1597,6 +1607,7 @@ else if (shouldInitializeContentScript) {
     const useViewportLayout = !isInIframe() && !settings.value.useOriginalBilibiliHomepage && isHomePage()
 
     if (useViewportLayout) {
+      container.classList.add('bewly-viewport-host')
       Object.assign(container.style, {
         position: 'fixed',
         inset: '0',
@@ -1714,12 +1725,25 @@ else if (shouldInitializeContentScript) {
   })
 
   watch(
+    [
+      () => settings.value.showVerticalVideoZoomButton,
+      () => settings.value.enablePlayerEnhancements,
+    ],
+    ([enabled, playerEnhancementsEnabled]) => {
+      if (enabled && playerEnhancementsEnabled && isVideoOrBangumiPage())
+        initVerticalVideoZoom()
+      else
+        resetVerticalVideoZoom()
+    },
+  )
+
+  watch(
     () => settings.value.language,
     () => syncRandomPlayUI(),
   )
 
   watch(
-    () => settings.value.keyboard,
+    [() => settings.value.keyboard, () => settings.value.enablePlayerEnhancements],
     () => {
       if (isVideoPlaybackPage() || isVideoOrBangumiPage())
         setupShortcutHandlers()
@@ -1868,33 +1892,35 @@ else if (shouldInitializeContentScript) {
     if (!wallpapersLoaded)
       return
 
-    const localWallpaper = localSettings.value.locallyUploadedWallpaper
-    if (localWallpaper?.isLocal && localWallpaper.id) {
-      if (!hasLocalWallpaper(localWallpaper.id)) {
-        localSettings.value.locallyUploadedWallpaper = null
+    for (const slotKey of LOCAL_WALLPAPER_SLOT_KEYS) {
+      const localWallpaper = localSettings.value[slotKey]
+      if (!localWallpaper?.isLocal || !localWallpaper.id)
+        continue
 
-        // 如果当前壁纸使用的是丢失的本地壁纸，也清理掉
-        if (isLocalWallpaperUrl(settings.value.wallpaper)) {
-          settings.value.wallpaper = ''
-        }
-        if (isLocalWallpaperUrl(settings.value.searchPageWallpaper)) {
-          settings.value.searchPageWallpaper = ''
-        }
+      if (!hasLocalWallpaper(localWallpaper.id)) {
+        localSettings.value[slotKey] = null
       }
       else {
-      // 如果本地壁纸存在，确保当前壁纸URL使用正确的格式
+        // 如果本地壁纸存在，确保当前壁纸URL使用正确的格式
         const expectedUrl = `local-wallpaper:${localWallpaper.id}`
         const base64Data = getLocalWallpaper(localWallpaper.id)
 
         if (base64Data) {
-        // 检查当前壁纸是否需要更新格式（从旧的base64格式迁移到新格式）
-          if (settings.value.wallpaper.startsWith('data:image/') && settings.value.wallpaper === base64Data) {
-            settings.value.wallpaper = expectedUrl
-          }
-          if (settings.value.searchPageWallpaper.startsWith('data:image/') && settings.value.searchPageWallpaper === base64Data) {
-            settings.value.searchPageWallpaper = expectedUrl
+          // 检查当前壁纸是否需要更新格式（从旧的base64格式迁移到新格式）
+          for (const settingKey of WALLPAPER_SETTING_KEYS) {
+            if (settings.value[settingKey].startsWith('data:image/') && settings.value[settingKey] === base64Data) {
+              settings.value[settingKey] = expectedUrl
+            }
           }
         }
+      }
+    }
+
+    // 清理引用了已丢失本地壁纸的设置项
+    for (const settingKey of WALLPAPER_SETTING_KEYS) {
+      const wallpaperId = extractWallpaperId(settings.value[settingKey])
+      if (wallpaperId && !hasLocalWallpaper(wallpaperId)) {
+        settings.value[settingKey] = ''
       }
     }
   }

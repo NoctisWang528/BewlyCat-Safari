@@ -92,7 +92,7 @@ describe('messaging error serialization', () => {
   })
 
   it('eRROR_WHITELIST contains expected fields', () => {
-    expect(ERROR_WHITELIST).toEqual(['name', 'message', 'code', 'isRiskControl', 'originalError'])
+    expect(ERROR_WHITELIST).toEqual(['name', 'message', 'code', 'isRiskControl', 'originalError', 'isHostPermissionMissing', 'missingHostOrigin'])
   })
 
   it('onMessage returns false for a type mismatch', () => {

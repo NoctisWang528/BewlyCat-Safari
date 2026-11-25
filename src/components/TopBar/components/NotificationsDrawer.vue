@@ -414,7 +414,7 @@ function handleFocusDrawer(e?: Event) {
               <!-- ESC Hint -->
               <Transition name="fade">
                 <div
-                  v-if="showEscHint && !settings.hideDrawerEscHint"
+                  v-if="showEscHint && settings.showDrawerEscHint"
                   pointer-events-auto
                   bg="$bew-theme-color" text="white sm" px-3 py-2 rounded="$bew-interactive-radius"
                   flex="~ items-center gap-2"
@@ -453,7 +453,7 @@ function handleFocusDrawer(e?: Event) {
                 </template>
                 {{ $t('iframe_drawer.close') }}
                 <kbd
-                  v-if="!settings.hideDrawerEscHint"
+                  v-if="settings.showDrawerEscHint"
                   ml-1 px-2 py-0.5 rounded="$bew-radius-sm" text-xs
                   bg="$bew-fill-2" text="$bew-text-2"
                 >Esc</kbd>
@@ -469,7 +469,7 @@ function handleFocusDrawer(e?: Event) {
                 </template>
                 {{ $t('iframe_drawer.press_esc_again_to_close') }}
                 <kbd
-                  v-if="!settings.hideDrawerEscHint"
+                  v-if="settings.showDrawerEscHint"
                   ml-1 px-2 py-0.5 rounded="$bew-radius-sm" text-xs
                   bg="red-700" text="white"
                 >Esc</kbd>
@@ -540,19 +540,6 @@ function handleFocusDrawer(e?: Event) {
     transition: none;
     transform: none;
   }
-}
-
-/* 修改全局样式，避免重复设置 */
-:global(.photo-imager-container) {
-  /* 不再设置 top 和 height，避免与 iframe 样式冲突 */
-  position: fixed !important;
-  height: calc(100% - var(--bew-top-bar-height)) !important;
-  margin-top: var(--bew-top-bar-height) !important;
-}
-
-:global(.photo-imager-container .control-buttons) {
-  top: 20px !important; /* 增加顶部距离，避免与抽屉顶部按钮重叠 */
-  right: 20px !important;
 }
 
 .notifications-drawer__loading-layer {

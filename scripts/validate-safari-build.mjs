@@ -63,7 +63,7 @@ assert(
 // 6. 独立设置页和它的 JS 入口必须随扩展打包。
 const optionsPage = manifest.options_ui?.page
 assert(optionsPage === 'dist/options/index.html' && fileExists(path.join(extDir, optionsPage)), 'Safari options page missing')
-assert(fileExists(path.join(extDir, 'dist/options/index.global.js')), 'Safari options bundle missing')
+assert(fileExists(path.join(extDir, 'dist/options/assets/index.js')), 'Safari options bundle missing')
 
 // 7. DNR rules exist
 assert(
@@ -199,7 +199,8 @@ const jsFilesToScan = [
   path.join(extDir, 'dist/background/index.js'),
   path.join(extDir, 'dist/contentScripts/index.global.js'),
   path.join(extDir, 'dist/contentScripts/inject.global.js'),
-  path.join(extDir, 'dist/options/index.global.js'),
+  path.join(extDir, 'dist/options/assets/index.js'),
+  path.join(extDir, 'dist/options/assets/vendor.js'),
 ]
 
 for (const file of jsFilesToScan) {

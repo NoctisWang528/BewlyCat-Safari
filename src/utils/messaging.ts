@@ -15,6 +15,8 @@ export interface SerializedError {
   message: string
   code?: string | number
   isRiskControl?: boolean
+  isHostPermissionMissing?: boolean
+  missingHostOrigin?: string
   originalError?: string
 }
 
@@ -29,7 +31,7 @@ export type MessageHandler<T = any, R = any> = (
   sender?: browser.Runtime.MessageSender,
 ) => R | Promise<R>
 
-export const ERROR_WHITELIST: (keyof SerializedError)[] = ['name', 'message', 'code', 'isRiskControl', 'originalError']
+export const ERROR_WHITELIST: (keyof SerializedError)[] = ['name', 'message', 'code', 'isRiskControl', 'originalError', 'isHostPermissionMissing', 'missingHostOrigin']
 
 export function serializeError(error: unknown): SerializedError {
   if (error instanceof Error) {
@@ -42,6 +44,10 @@ export function serializeError(error: unknown): SerializedError {
         serialized.code = value
       else if (key === 'isRiskControl' && typeof value === 'boolean')
         serialized.isRiskControl = value
+      else if (key === 'isHostPermissionMissing' && typeof value === 'boolean')
+        serialized.isHostPermissionMissing = value
+      else if (key === 'missingHostOrigin' && typeof value === 'string')
+        serialized.missingHostOrigin = value
       else if (key === 'originalError' && typeof value === 'string')
         serialized.originalError = value
     }
@@ -61,6 +67,12 @@ export function deserializeError(serialized: SerializedError): Error {
   }
   if (serialized.originalError !== undefined) {
     ;(error as any).originalError = serialized.originalError
+  }
+  if (serialized.isHostPermissionMissing !== undefined) {
+    ;(error as any).isHostPermissionMissing = serialized.isHostPermissionMissing
+  }
+  if (serialized.missingHostOrigin !== undefined) {
+    ;(error as any).missingHostOrigin = serialized.missingHostOrigin
   }
   return error
 }

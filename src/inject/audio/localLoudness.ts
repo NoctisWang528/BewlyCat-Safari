@@ -39,7 +39,14 @@ export function createLocalLoudnessController() {
   let temporarilyOff = false
   let lastStatus = 'off'
   let lastReport = 0
+  let activeMediaKey = ''
+  let lastGainSnapshot: { mediaKey: string, gainDb: number } | undefined
   const failed = new WeakSet<HTMLMediaElement>()
+
+  function getMediaKey() {
+    const params = new URLSearchParams(location.search)
+    return `${location.pathname}|${params.get('p') ?? ''}|${params.get('bvid') ?? ''}|${params.get('oid') ?? ''}`
+  }
   // 音画同步跟随设置页的音画同步开关，关闭时不响应延迟请求，也不接管声音。
   let delayEnabled = false
   let delayMs = 0
@@ -140,7 +147,47 @@ export function createLocalLoudnessController() {
     active = undefined
   }
 
-  const cleanupObserver = new MutationObserver(pruneOwned)
+  let cleanupObserverActive = false
+  let hasDetachedOwned = false
+  let pruneScheduled = false
+
+  function schedulePruneOwned() {
+    if (pruneScheduled || disposed)
+      return
+    pruneScheduled = true
+    queueMicrotask(() => {
+      pruneScheduled = false
+      if (!disposed)
+        pruneOwned()
+    })
+  }
+
+  function hasAddedVideoNode(mutations: MutationRecord[]) {
+    for (const mutation of mutations) {
+      for (let i = 0; i < mutation.addedNodes.length; i++) {
+        const node = mutation.addedNodes[i]
+        if (node instanceof HTMLVideoElement)
+          return true
+        if (node instanceof Element && node.childElementCount > 0 && node.getElementsByTagName('video').length > 0)
+          return true
+      }
+    }
+    return false
+  }
+
+  const cleanupObserver = new MutationObserver((mutations) => {
+    let needsPrune = false
+    for (const record of ownedConnected) {
+      if (!record.video.isConnected) {
+        needsPrune = true
+        break
+      }
+    }
+    if (!needsPrune && hasDetachedOwned && hasAddedVideoNode(mutations))
+      needsPrune = true
+    if (needsPrune)
+      schedulePruneOwned()
+  })
 
   function pruneOwned() {
     for (const record of ownedConnected) {
@@ -152,13 +199,16 @@ export function createLocalLoudnessController() {
         removeDelay()
       record.source.disconnect()
       ownedConnected.delete(record)
+      hasDetachedOwned = true
     }
     // Detached media may be reinserted without another play event. Keep only the
     // observer (no strong media references) to reconnect its minimal bypass.
-    for (const video of Array.from(document.querySelectorAll<HTMLVideoElement>(VIDEO_SELECTOR))) {
-      const record = sources.get(video)
-      if (record?.owned)
-        reconnectOwned(record)
+    if (hasDetachedOwned) {
+      for (const video of Array.from(document.querySelectorAll<HTMLVideoElement>(VIDEO_SELECTOR))) {
+        const record = sources.get(video)
+        if (record?.owned)
+          reconnectOwned(record)
+      }
     }
     settleOwnedContext()
   }
@@ -187,7 +237,10 @@ export function createLocalLoudnessController() {
     record.source.connect(record.source.context.destination)
     ownedConnected.add(record)
     settleOwnedContext()
-    cleanupObserver.observe(document, { childList: true, subtree: true })
+    if (!cleanupObserverActive) {
+      cleanupObserver.observe(document, { childList: true, subtree: true })
+      cleanupObserverActive = true
+    }
   }
 
   // Source capture is irreversible. A small bypass survives disable;
@@ -205,9 +258,24 @@ export function createLocalLoudnessController() {
     if (delayMs)
       applyDelay()
   }
+  function onCanPlay(event: Event) {
+    if (!(event.target instanceof HTMLMediaElement) || event.target.paused)
+      return
+    if (config.enabled && !active)
+      void reconcile()
+  }
   document.addEventListener('play', onPlay, { capture: true, signal: lifetime.signal })
+  document.addEventListener('playing', onPlay, { capture: true, signal: lifetime.signal })
+  document.addEventListener('canplay', onCanPlay, { capture: true, signal: lifetime.signal })
   document.addEventListener('pause', settleOwnedContext, { capture: true, signal: lifetime.signal })
   document.addEventListener('ended', settleOwnedContext, { capture: true, signal: lifetime.signal })
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden)
+      return
+    settleOwnedContext()
+    if (config.enabled)
+      void reconcile()
+  }, { signal: lifetime.signal })
   document.addEventListener('pointerdown', () => {
     for (const record of new Set([active, delayed])) {
       if (record && !record.video.paused)
@@ -283,6 +351,12 @@ export function createLocalLoudnessController() {
       return
     }
     if (active) {
+      const nextMediaKey = getMediaKey()
+      if (nextMediaKey !== activeMediaKey) {
+        activeMediaKey = nextMediaKey
+        lastGainSnapshot = undefined
+        active.processor?.port.postMessage({ type: 'reset' })
+      }
       configure(active)
       return
     }
@@ -320,14 +394,34 @@ export function createLocalLoudnessController() {
       }
       const current = record
       current.processor = node
+      const mediaKey = getMediaKey()
+      activeMediaKey = mediaKey
+      if (lastGainSnapshot?.mediaKey === mediaKey)
+        node.port.postMessage({ type: 'seed', gainDb: lastGainSnapshot.gainDb })
+      else
+        lastGainSnapshot = undefined
       rewire(current)
       active = current
       abort = new AbortController()
-      for (const name of ['play', 'pause', 'volumechange', 'seeking', 'seeked', 'emptied', 'loadedmetadata']) {
+      for (const name of ['play', 'playing', 'canplay', 'pause', 'volumechange', 'seeking', 'seeked', 'emptied', 'loadedmetadata']) {
         video.addEventListener(name, () => {
-          if (name === 'seeking' || name === 'emptied' || name === 'loadedmetadata')
-            node?.port.postMessage({ type: 'reset' })
+          if (name === 'seeking') {
+            node?.port.postMessage({ type: 'flush' })
+          }
+          else if (name === 'emptied' || name === 'loadedmetadata') {
+            const nextMediaKey = getMediaKey()
+            if (nextMediaKey !== activeMediaKey) {
+              activeMediaKey = nextMediaKey
+              lastGainSnapshot = undefined
+              node?.port.postMessage({ type: 'reset' })
+            }
+            else {
+              node?.port.postMessage({ type: 'flush' })
+            }
+          }
           configure(current)
+          if ((name === 'playing' || name === 'seeked') && !video.paused)
+            settleOwnedContext()
         }, { signal: abort.signal })
       }
       node.onprocessorerror = () => {
@@ -336,7 +430,11 @@ export function createLocalLoudnessController() {
         status('error')
       }
       node.port.onmessage = ({ data }) => {
-        if (active !== current || video.paused || video.seeking || performance.now() - lastReport < 1000)
+        if (active !== current || video.paused || video.seeking)
+          return
+        if (typeof data?.gainDb === 'number' && Number.isFinite(data.gainDb))
+          lastGainSnapshot = { mediaKey: activeMediaKey, gainDb: data.gainDb }
+        if (performance.now() - lastReport < 1000)
           return
         lastReport = performance.now()
         status('active', data)
@@ -487,6 +585,7 @@ export function createLocalLoudnessController() {
       clearInterval(timer)
     timer = undefined
     if (!config.enabled) {
+      lastGainSnapshot = undefined
       detach()
       status('off')
       pruneOwned()
@@ -528,6 +627,8 @@ export function createLocalLoudnessController() {
     }
     disposed = true
     cleanupObserver.disconnect()
+    cleanupObserverActive = false
+    hasDetachedOwned = false
     lifetime.abort()
     for (const record of ownedConnected) record.source.disconnect()
     ownedConnected.clear()

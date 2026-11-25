@@ -118,13 +118,9 @@ const themeOptions = computed<Array<{ value: string, label: string }>>(() => {
   ]
 })
 
-watch(() => settings.value.wallpaper, (newValue) => {
-  changeWallpaper(newValue)
-})
-
 // 插件页面和视频页玻璃风格共用同一套壁纸与渐变设置，两者任一生效都要保留入口。
 const showGlobalBackgroundSettings = computed(() => {
-  return (!settings.value.useOriginalBilibiliHomepage && !settings.value.disableBackground)
+  return (!settings.value.useOriginalBilibiliHomepage && settings.value.enableBackground)
     || settings.value.videoPageGlassStyle
 })
 
@@ -137,16 +133,6 @@ function changeDarkModeBaseColor(color: string) {
   settings.value.darkModeBaseColor = color
 }
 const changeDarkModeBaseColorThrottle = useThrottleFn((color: string) => changeDarkModeBaseColor(color), 100)
-
-function changeWallpaper(url: string) {
-  // If you had already set the wallpaper, it enables the wallpaper masking to prevent text hard to see
-  if (url)
-    settings.value.enableWallpaperMasking = true
-  else
-    settings.value.enableWallpaperMasking = false
-
-  settings.value.wallpaper = url
-}
 </script>
 
 <template>
@@ -194,8 +180,8 @@ function changeWallpaper(url: string) {
         </template>
         <Radio v-model="settings.enableLiquidSegmentIndicator" />
       </SettingsItem>
-      <SettingsItem :title="$t('settings.disable_shadow')" right-width="auto">
-        <Radio v-model="settings.disableShadow" />
+      <SettingsItem :title="$t('settings.enable_shadow')" right-width="auto">
+        <Radio v-model="settings.enableShadow" />
       </SettingsItem>
       <SettingsItem
         v-if="!settings.useOriginalBilibiliHomepage"
@@ -338,11 +324,11 @@ function changeWallpaper(url: string) {
     <SettingsItemGroup :title="$t('settings.group_page_style')">
       <SettingsItem
         v-if="!settings.useOriginalBilibiliHomepage"
-        :title="$t('settings.disable_background')"
-        :desc="$t('settings.disable_background_desc')"
+        :title="$t('settings.enable_background')"
+        :desc="$t('settings.enable_background_desc')"
         right-width="auto"
       >
-        <Radio v-model="settings.disableBackground" />
+        <Radio v-model="settings.enableBackground" />
       </SettingsItem>
       <SettingsItem
         :title="$t('settings.video_page_glass_style')"
@@ -354,6 +340,14 @@ function changeWallpaper(url: string) {
           <span block class="bew-warning-text">{{ $t('common.performance_impact_warn') }}</span>
         </template>
         <Radio v-model="settings.videoPageGlassStyle" />
+      </SettingsItem>
+      <SettingsItem
+        v-if="settings.videoPageGlassStyle"
+        :title="$t('settings.video_page_glass_style_overlay')"
+        :desc="$t('settings.video_page_glass_style_overlay_desc')"
+        right-width="auto"
+      >
+        <Radio v-model="settings.videoPageGlassStyleOverlay" />
       </SettingsItem>
       <SettingsItem
         :title="$t('settings.rounded_video_player')"

@@ -1,13 +1,13 @@
 <script lang="ts" setup>
 import { useI18n } from 'vue-i18n'
 
+import Select from '~/components/Select.vue'
 import { resolveSearchBarCharacterUrl, SEARCH_BAR_CHARACTERS } from '~/constants/imgs'
 import { settings } from '~/logic'
 
 import ChangeWallpaper from '../../components/ChangeWallpaper.vue'
 import SettingsItem from '../../components/SettingsItem.vue'
 import SettingsItemGroup from '../../components/SettingsItemGroup.vue'
-import SettingsSegmentedControl from '../../components/SettingsSegmentedControl.vue'
 
 const { t } = useI18n()
 
@@ -30,10 +30,11 @@ function changeSearchBarFocusCharacter(url: string) {
   <div>
     <SettingsItemGroup :title="$t('settings.group_logo')">
       <SettingsItem :title="$t('settings.logo_color')" right-width="auto">
-        <SettingsSegmentedControl
+        <Select
           v-model="settings.searchPageLogoColor"
-          :label="$t('settings.logo_color')"
+          :aria-label="$t('settings.logo_color')"
           :options="logoColorOptions"
+          w="160px"
         />
       </SettingsItem>
 
@@ -53,6 +54,10 @@ function changeSearchBarFocusCharacter(url: string) {
 
       <SettingsItem :title="$t('settings.enable_search_history')" :desc="$t('settings.enable_search_history_desc')" right-width="auto">
         <Radio v-model="settings.enableSearchHistory" />
+      </SettingsItem>
+
+      <SettingsItem :title="$t('settings.show_hot_search_in_top_bar')" :desc="$t('settings.show_hot_search_in_top_bar_desc')" right-width="auto">
+        <Radio v-model="settings.showHotSearchInTopBar" />
       </SettingsItem>
 
       <SettingsItem :title="$t('settings.bg_darkens_when_the_search_bar_is_focused')" right-width="auto">
@@ -99,15 +104,6 @@ function changeSearchBarFocusCharacter(url: string) {
       </SettingsItem>
     </SettingsItemGroup>
 
-    <SettingsItemGroup :title="$t('settings.group_hot_search')">
-      <SettingsItem :title="$t('settings.show_hot_search_in_search_page')" right-width="auto">
-        <template #desc>
-          <span>{{ $t('settings.show_hot_search_in_search_page_desc') }}</span>
-        </template>
-        <Radio v-model="settings.showHotSearchInTopBar" />
-      </SettingsItem>
-    </SettingsItemGroup>
-
     <SettingsItemGroup :title="$t('settings.group_search_results')">
       <SettingsItem :title="$t('settings.use_plugin_search_results_page')" right-width="auto">
         <template #desc>
@@ -127,13 +123,11 @@ function changeSearchBarFocusCharacter(url: string) {
       </SettingsItem>
 
       <SettingsItem :title="$t('settings.search_results_pagination_mode')" right-width="auto">
-        <template #desc>
-          <span>{{ $t('settings.search_results_pagination_mode_desc') }}</span>
-        </template>
-        <SettingsSegmentedControl
+        <Select
           v-model="settings.searchResultsPaginationMode"
-          :label="$t('settings.search_results_pagination_mode')"
+          :aria-label="$t('settings.search_results_pagination_mode')"
           :options="paginationModeOptions"
+          w="160px"
         />
       </SettingsItem>
     </SettingsItemGroup>
