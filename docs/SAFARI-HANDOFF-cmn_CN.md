@@ -5,9 +5,9 @@
 [上游同步与维护手册](./UPSTREAM-MAINTENANCE-cmn_CN.md)，构建细节见
 [SAFARI.md](./SAFARI.md)，仓库约束见 [AGENTS.md](../AGENTS.md)。
 
-核对日期：2026-11-19；上游基线为 `v1.8.4`，`package.json` 为
-`1.8.4` / `safariRevision: 1`。当前同步见
-[v1.8.4 交付记录](./compose/spec/sync-upstream-v1.8.4.md)。
+核对日期：2026-11-25；上游基线为 `v1.8.5`，`package.json` 为
+`1.8.5` / `safariRevision: 1`。当前同步见
+[v1.8.5 交付记录](./compose/spec/sync-upstream-v1.8.5.md)。
 APP 扫码授权 HTTP 412 的历史修复见第 5 节。接手时重新核对 Git、远端 Release 与本机应用状态。
 
 ## 新会话先做什么
@@ -100,8 +100,8 @@ About、版本提醒、更新检查统一使用 `src/constants/release.ts` 中�
 的名称、runtime URL、完整 manifest 版本和构建 commit 都相符才视为当前脚本。
 缺失时等待 100ms 再检查；旧版提示刷新，避免在同页叠加新旧实例。
 
-Safari 恢复只用 `{ target: { tabId }, files: [...] }`：先 CSS，再
-`pageLoading.js`，再 isolated 主脚本。不传 `frameIds`、`world`、
+Safari 恢复只用 `{ target: { tabId }, files: [...] }`，依次注入
+`pageLoading.js` 和内联样式的 isolated 主脚本。不传 `frameIds`、`world`、
 `injectImmediately`。注意 PING 的 `tabs.sendMessage` 第三个参数中的
 `frameId: 0` 属于另一 API，不能因裁剪 scripting 参数而一起误删。
 
@@ -261,8 +261,9 @@ CSS 隐藏。先确认候选 bundle 是预期版本，再顺着设置 → portal
 ### 8. UI 样式快照与 Xcode 三方资源
 
 `vite.config.content.ts` 将生成 CSS 内嵌到 isolated JS 的
-`__BEWLYCAT_BUNDLED_STYLE_TEXT__`，挂载时插入 BewlyCat ShadowRoot；manifest
-仍提供普通页面 CSS。排查无样式先看入口、宿主和打包 CSS，不要直接改生成文件。
+`__BEWLYCAT_BUNDLED_STYLE_TEXT__` 和 `__BEWLYCAT_HOST_STYLE_TEXT__`，分别注入
+BewlyCat ShadowRoot 与宿主文档。`src/styles/adaptedStyles/index.ts` 按页面载入
+适配样式。排查无样式时先检查隔离脚本入口、宿主和生成资源。
 
 Xcode packager 用 `--copy-resources`，所以 `pnpm build` 只更新第一份：
 
@@ -421,3 +422,15 @@ Issue #1 与已关闭、未合并的 PR #2 指出自定义首页滚动桥竞争�
 - 上游样式内联后，恢复脚本不再依赖磁盘上的 CSS 文件，由
   `contentScriptRecovery.spec.ts` 验证恢复顺序。Safari 页面脚本通过原有
   READY 握手报告版本，比较包含 Safari 修订号的 manifest 版本。
+
+## v1.8.5 双壁纸与设置页分包
+
+- 上游支持按主题设置壁纸。`ChangeWallpaper.vue` 先检查其他主题和页面的引用，
+  再调用 `replaceLocalWallpaper()`。`restoreLocalWallpapers()` 用现有写入队列和
+  `setAndPersist()` 一次写入备份中的浅色、深色图片，避免在保存成功前丢失之前的壁纸。
+  现有 `localWallpaper.spec.ts` 覆盖写入路径，双主题切换与备份还原由 Safari 验收。
+- 独立设置页以 HTML 入口加载 `dist/options/assets/` 下的 ESM 分包，宿主与 Shadow DOM
+  使用各自的样式文件。`validate-safari` 检查新的设置页入口，实机验收需经工具栏打开设置页
+  并进入异步菜单，确认样式和翻译正常加载。
+- 上游的站点权限诊断沿用现有站点授权范围。`src/utils/messaging.ts` 保留权限错误字段，
+  Safari 仍由 `contentScriptRecovery.ts` 恢复冷启动漏注入。

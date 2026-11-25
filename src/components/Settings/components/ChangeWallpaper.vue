@@ -273,13 +273,14 @@ async function handleRemoveCustomWallpaper() {
   if (!removedWallpaper)
     return
 
-  const deleteStoredWallpaper = removedWallpaper.isLocal && removedWallpaper.id
+  const removedId = removedWallpaper.isLocal ? removedWallpaper.id : undefined
+  const deleteStoredWallpaper = removedId
     && !LOCAL_WALLPAPER_SLOT_KEYS.some(
-      otherSlotKey => otherSlotKey !== slotKey && localSettings.value[otherSlotKey]?.id === removedWallpaper.id,
+      otherSlotKey => otherSlotKey !== slotKey && localSettings.value[otherSlotKey]?.id === removedId,
     )
   if (deleteStoredWallpaper) {
     try {
-      await removeLocalWallpaper(removedWallpaper.id)
+      await removeLocalWallpaper(removedId)
     }
     catch (error) {
       toast.error(t('settings.wallpaper_remove_failed'))

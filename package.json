@@ -2,7 +2,7 @@
   "name": "bewly-cat",
   "displayName": "BewlyCat",
   "type": "module",
-  "version": "1.8.4",
+  "version": "1.8.5",
   "safariRevision": 1,
   "private": true,
   "packageManager": "pnpm@10.21.0",
