@@ -2,6 +2,7 @@
 import { useI18n } from 'vue-i18n'
 import { useToast } from 'vue-toastification'
 
+import { settings } from '~/logic'
 import type { ApiErrorReport, ApiErrorReportSource } from '~/utils/apiDiagnostics'
 import { buildApiErrorReport } from '~/utils/apiDiagnostics'
 
@@ -19,7 +20,7 @@ const dialogRef = ref<{ close: () => void }>()
 const report = ref<ApiErrorReport>()
 
 onMounted(async () => {
-  report.value = await buildApiErrorReport(props.source)
+  report.value = await buildApiErrorReport(props.source, settings.value.language)
 })
 
 async function copyReport() {

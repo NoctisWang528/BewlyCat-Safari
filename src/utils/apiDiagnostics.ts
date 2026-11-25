@@ -3,7 +3,6 @@ import browser from 'webextension-polyfill'
 
 import type { ApiFailureRecord, HostPermissionsStatus, HostPermissionsStatusRequest } from '~/constants/apiDiagnostics'
 import { API_FAILURE_DIAGNOSTIC_MESSAGE, GET_HOST_PERMISSIONS_STATUS_MESSAGE } from '~/constants/apiDiagnostics'
-import { settings } from '~/logic'
 import { sanitizeDiagnosticText, sanitizeDiagnosticValue } from '~/utils/apiDiagnosticSanitizer'
 import { isBilibiliRiskControl } from '~/utils/bilibiliApiError'
 import type { BrowserInfo } from '~/utils/browserInfo'
@@ -218,7 +217,7 @@ function formatRecord(record: ApiFailureRecord, index: number): string {
   return lines.join('\n')
 }
 
-export async function buildApiErrorReport(source: ApiErrorReportSource): Promise<ApiErrorReport> {
+export async function buildApiErrorReport(source: ApiErrorReportSource, language: string): Promise<ApiErrorReport> {
   // 先同步取设置快照，等待后台返回浏览器信息期间设置可能已变化。
   const context = source.getContext?.() ?? {}
   const records = [...latestRecords.values()]
@@ -248,7 +247,7 @@ export async function buildApiErrorReport(source: ApiErrorReportSource): Promise
       `时间: ${new Date().toLocaleString()}`,
       `版本: BewlyCat ${browser.runtime.getManifest().version}`,
       `浏览器: ${browserInfo.name ?? '未知'} ${browserInfo.version ?? ''}`.trim(),
-      `语言: ${settings.value.language}`,
+      `语言: ${language}`,
       `登录状态: ${getCookie('DedeUserID') ? '已登录' : '未登录'}`,
       `站点访问权限: ${formatHostPermissionsSummary(hostPermissions)}`,
       `疑似风控: ${likelyRiskControl ? '是' : '否'}`,

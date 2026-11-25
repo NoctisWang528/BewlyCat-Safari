@@ -434,3 +434,9 @@ Issue #1 与已关闭、未合并的 PR #2 指出自定义首页滚动桥竞争�
   并进入异步菜单，确认样式和翻译正常加载。
 - 上游的站点权限诊断沿用现有站点授权范围。`src/utils/messaging.ts` 保留权限错误字段，
   Safari 仍由 `contentScriptRecovery.ts` 恢复冷启动漏注入。
+- 首轮 Safari 验收时，扩展后台报 `No response from background for message:
+  readSettingsStorage`。构建产物的报错位置指向 `useSettingsStorage()`，依赖链为
+  `appAuthScheduler.ts` → `authProvider.ts` → `apiDiagnostics.ts` → `logic/storage.ts`。
+  后台因此误初始化页面设置客户端，给自己发送读取消息。现在由
+  `ApiErrorDetailsDialog.vue` 把当前语言传给 `buildApiErrorReport()`，后台依赖只保留
+  诊断记录所需的逻辑。验证时检查后台构建产物未引入设置客户端，Safari 实机复核扩展后台错误与设置读取。
